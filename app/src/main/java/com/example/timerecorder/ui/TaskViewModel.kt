@@ -38,12 +38,14 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         repo.observeTree()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    // アクティブ
+    // アクティブ（DBの未終了セッションを監視する想定）
     val active: StateFlow<ActiveWithTask?> =
-        repo.observeActive().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        repo.observeActive()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // --- 操作 ---
     fun onTaskPressed(taskId: Long) = viewModelScope.launch {
+        // 既存が走っていれば停止してから切替（Repository側で制御）
         repo.startOrSwitch(taskId, nowMs = System.currentTimeMillis())
     }
 
@@ -84,14 +86,13 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
             durationMillis = durationMillis
         )
 
-    fun loadNextHistoryPage(pageSize: Int = 100) {
+    fun loadNextHistoryPage(pageSize: Int = HISTORY_PAGE_SIZE) {
         if (_historyLoading.value || _historyEndReached.value) return
         viewModelScope.launch {
             _historyLoading.value = true
-            val rows = repo.loadHistoryPage(historyPage, pageSize)          // List<HistoryRowDb>
-            val mapped: List<HistoryItemUi> = rows.map { it.toUi() }         // ← ここで型変換
-            _historyItems.value =
-                _historyItems.value + mapped               // List<HistoryItemUi> + List<HistoryItemUi>
+            val rows = repo.loadHistoryPage(historyPage, pageSize)   // List<HistoryRowDb>
+            val mapped: List<HistoryItemUi> = rows.map { it.toUi() }
+            _historyItems.value = _historyItems.value + mapped
 
             if (rows.size < pageSize) {
                 _historyEndReached.value = true
@@ -131,7 +132,7 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun reloadHistory(pageSize: Int = 100) {
+    fun reloadHistory(pageSize: Int = HISTORY_PAGE_SIZE) {
         viewModelScope.launch {
             _historyItems.value = emptyList()
             _historyEndReached.value = false

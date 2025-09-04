@@ -269,9 +269,40 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
     val active by viewModel.active.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var ui by remember { mutableStateOf<TaskCenterUiState>(TaskCenterUiState.List) }
-
-    // 選択中タスクID（赤系ハイライト用）
     var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+    MaterialTheme.colorScheme.primary
+
+    LaunchedEffect(active, parents) {
+        val a = active
+        if (a == null) {
+            selectedTaskId = null
+            ui = TaskCenterUiState.List
+        } else {
+            val activeId = a.task.id
+            val parentIdOfActive = a.task.parentId
+            // 1) 直接メインの子リストに存在するならその子をハイライト
+            val foundDirect =
+                parents.firstOrNull { group -> group.children.any { it.id == activeId } }
+            if (foundDirect != null) {
+                selectedTaskId = activeId
+                ui = TaskCenterUiState.List
+            } else if (parentIdOfActive != null) {
+                // 2) 孫タスクの場合は、その親の「子」をハイライト（画面遷移はしない）
+                val container =
+                    parents.firstOrNull { group -> group.children.any { it.id == parentIdOfActive } }
+                if (container != null) {
+                    selectedTaskId = parentIdOfActive
+                    ui = TaskCenterUiState.List
+                } else {
+                    selectedTaskId = null
+                    ui = TaskCenterUiState.List
+                }
+            } else {
+                selectedTaskId = null
+                ui = TaskCenterUiState.List
+            }
+        }
+    }
 
     Column(
         modifier = modifier
@@ -412,6 +443,14 @@ private fun SubtaskPicker(
 ) {
     val subtasks by viewModel.children(parentId).collectAsStateWithLifecycle(emptyList())
     var selectedSubId by rememberSaveable { mutableStateOf<Long?>(null) }
+
+    val active by viewModel.active.collectAsStateWithLifecycle()
+    LaunchedEffect(active, subtasks) {
+        val aid = active?.task?.id
+        if (aid != null && subtasks.any { it.id == aid }) {
+            selectedSubId = aid
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
         Row(
