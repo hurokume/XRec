@@ -86,4 +86,7 @@ interface TaskDao {
 
     @Query("SELECT COALESCE(MAX(sortOrder), 0) FROM tasks WHERE parentId IS :parentId")
     suspend fun getMaxSortOrder(parentId: Long?): Int
+
+    @Query("UPDATE tasks SET name = :name WHERE id = :id")
+    suspend fun updateTaskName(id: Long, name: String)
 }

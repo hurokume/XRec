@@ -159,4 +159,16 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         repo.changeColor(parentId, color.toArgb())
     }
 
+    /** タスク名を変更（1〜128文字に制限） */
+    fun renameTask(taskId: Long, newName: String) = viewModelScope.launch {
+        val trimmed = newName.trim().take(128)
+        if (trimmed.isNotEmpty()) {
+            repo.renameTask(taskId, trimmed)
+        }
+    }
+
+    /** 単一タスクを削除（子孫の扱いはリポジトリ側の実装に依存） */
+    fun deleteTask(taskId: Long) = viewModelScope.launch {
+        repo.deleteTaskById(taskId)
+    }
 }

@@ -86,4 +86,12 @@ class TaskRepository(private val dao: TaskDao) {
     suspend fun changeColor(taskId: Long, colorInt: Int) {
         dao.updateTaskColor(taskId, colorInt)
     }
+
+    suspend fun renameTask(taskId: Long, newName: String) {
+        dao.updateTaskName(taskId, newName)
+    }
+
+    suspend fun deleteTaskById(taskId: Long) {
+        dao.deleteTaskById(taskId)
+    }
 }

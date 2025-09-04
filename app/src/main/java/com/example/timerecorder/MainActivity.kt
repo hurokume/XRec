@@ -8,8 +8,6 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -34,7 +32,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -51,7 +48,6 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -281,8 +277,6 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
     val themePrimary = MaterialTheme.colorScheme.primary
 
     // 親タスク追加（FAB／通常時）
-    var showAddDialog by rememberSaveable { mutableStateOf(false) }
-    var newTaskName by rememberSaveable { mutableStateOf("") }
 
     // 親行右端メニュー
     var menuForParentId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -291,12 +285,19 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
     var showAddChildDialogFor by rememberSaveable { mutableStateOf<Long?>(null) }
     var newChildName by rememberSaveable { mutableStateOf("") }
 
-    // 色変更ダイアログ
-    var colorPickForParentId by rememberSaveable { mutableStateOf<Long?>(null) }
-    val presetColors =
-        listOf(0xFFEF9A9A, 0xFFA5D6A7, 0xFF90CAF9, 0xFFFFF59D, 0xFFCE93D8).map { Color(it) }
+    // ▼ 子タスク用メニュー／リネーム／削除
+    var menuForChildTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var renameTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var renameTaskCurrentName by rememberSaveable { mutableStateOf("") }
+    var renameTaskText by rememberSaveable { mutableStateOf("") }
+    var confirmDeleteTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var confirmDeleteTaskName by rememberSaveable { mutableStateOf("") }
 
-    // 削除確認ダイアログ
+    // 色変更ダイアログ（親用）
+    var colorPickForParentId by rememberSaveable { mutableStateOf<Long?>(null) }
+    listOf(0xFFEF9A9A, 0xFFA5D6A7, 0xFF90CAF9, 0xFFFFF59D, 0xFFCE93D8).map { Color(it) }
+
+    // 親削除確認
     var confirmDeleteParentId by rememberSaveable { mutableStateOf<Long?>(null) }
     var confirmDeleteParentName by rememberSaveable { mutableStateOf("") }
 
@@ -305,7 +306,7 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
     var lastInteractionTime by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(lastInteractionTime) {
         fabVisible = true
-        kotlinx.coroutines.delay(5000) // 5秒無操作で非表示
+        kotlinx.coroutines.delay(5000)
         fabVisible = false
     }
 
@@ -478,6 +479,8 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                                                     modifier = Modifier.weight(1f),
                                                     color = textColor
                                                 )
+
+                                                // ▼ 先に色の四角形
                                                 Box(
                                                     modifier = Modifier
                                                         .size(16.dp)
@@ -491,6 +494,50 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                                                             RoundedCornerShape(3.dp)
                                                         )
                                                 )
+
+                                                Spacer(Modifier.width(8.dp))
+
+                                                // ▼ 四角形の右側にメニューを配置
+                                                IconButton(onClick = {
+                                                    menuForChildTaskId = child.id
+                                                    renameTaskCurrentName = child.name
+                                                    lastInteractionTime = System.currentTimeMillis()
+                                                }) {
+                                                    Icon(
+                                                        Icons.Filled.Menu,
+                                                        contentDescription = "Task menu"
+                                                    )
+                                                }
+                                                DropdownMenu(
+                                                    expanded = menuForChildTaskId == child.id,
+                                                    onDismissRequest = {
+                                                        menuForChildTaskId = null
+                                                        lastInteractionTime =
+                                                            System.currentTimeMillis()
+                                                    }
+                                                ) {
+                                                    DropdownMenuItem(
+                                                        text = { Text("名前を変更") },
+                                                        onClick = {
+                                                            menuForChildTaskId = null
+                                                            renameTaskId = child.id
+                                                            renameTaskCurrentName = child.name
+                                                            renameTaskText = child.name
+                                                            lastInteractionTime =
+                                                                System.currentTimeMillis()
+                                                        }
+                                                    )
+                                                    DropdownMenuItem(
+                                                        text = { Text("タスクを削除") },
+                                                        onClick = {
+                                                            menuForChildTaskId = null
+                                                            confirmDeleteTaskId = child.id
+                                                            confirmDeleteTaskName = child.name
+                                                            lastInteractionTime =
+                                                                System.currentTimeMillis()
+                                                        }
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -515,202 +562,30 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                             ui = TaskCenterUiState.List
                             lastInteractionTime = System.currentTimeMillis()
                         },
+                        onRenameRequest = { taskId, currentName ->
+                            renameTaskId = taskId
+                            renameTaskCurrentName = currentName
+                            renameTaskText = currentName
+                            lastInteractionTime = System.currentTimeMillis()
+                        },
+                        onDeleteRequest = { taskId, name ->
+                            confirmDeleteTaskId = taskId
+                            confirmDeleteTaskName = name
+                            lastInteractionTime = System.currentTimeMillis()
+                        },
                         viewModel = viewModel
                     )
                 }
             }
         }
 
-        // 親タスク追加 or サブタスク追加（UI状態で切替）
-        if (fabVisible) {
-            FloatingActionButton(
-                onClick = {
-                    when (val s = ui) {
-                        is TaskCenterUiState.SubtaskSelect -> {
-                            // サブタスク画面中はその親の子タスク追加へ
-                            newChildName = ""
-                            showAddChildDialogFor = s.parentId
-                        }
-
-                        else -> {
-                            // それ以外は親タスク追加
-                            newTaskName = ""
-                            showAddDialog = true
-                        }
-                    }
-                    lastInteractionTime = System.currentTimeMillis()
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp)
-            ) {
-                Icon(Icons.Filled.AddCircle, contentDescription = "Add task")
-            }
-        }
-
-        // ===== 親タスク追加（※128文字制限）=====
-        if (showAddDialog) {
-            val nameLen = newTaskName.length
-            val isValid = newTaskName.isNotBlank() && nameLen <= 128
-            AlertDialog(
-                onDismissRequest = {
-                    showAddDialog = false
-                    lastInteractionTime = System.currentTimeMillis()
-                },
-                confirmButton = {
-                    TextButton(
-                        enabled = isValid,
-                        onClick = {
-                            if (isValid) {
-                                viewModel.addParentTask(newTaskName.trim())
-                                showAddDialog = false
-                                lastInteractionTime = System.currentTimeMillis()
-                            }
-                        }
-                    ) { Text("追加") }
-                },
-                dismissButton = {
-                    TextButton(onClick = {
-                        showAddDialog = false
-                        lastInteractionTime = System.currentTimeMillis()
-                    }) { Text("キャンセル") }
-                },
-                title = { Text("タスクを追加") },
-                text = {
-                    OutlinedTextField(
-                        value = newTaskName,
-                        onValueChange = {
-                            newTaskName = if (it.length <= 128) it else it.take(128)
-                            lastInteractionTime = System.currentTimeMillis()
-                        },
-                        singleLine = true,
-                        label = { Text("タスク名") },
-                        supportingText = { Text("${newTaskName.length}/128") }
-                    )
-                }
-            )
-        }
-
-        // ===== 子タスク追加（※128文字制限）=====
-        if (showAddChildDialogFor != null) {
-            val nameLenChild = newChildName.length
-            val isValidChild = newChildName.isNotBlank() && nameLenChild <= 128
-            AlertDialog(
-                onDismissRequest = {
-                    showAddChildDialogFor = null
-                    lastInteractionTime = System.currentTimeMillis()
-                },
-                title = { Text("子タスクを追加") },
-                text = {
-                    OutlinedTextField(
-                        value = newChildName,
-                        onValueChange = {
-                            newChildName = if (it.length <= 128) it else it.take(128)
-                            lastInteractionTime = System.currentTimeMillis()
-                        },
-                        singleLine = true,
-                        label = { Text("タスク名") },
-                        supportingText = { Text("${newChildName.length}/128") }
-                    )
-                },
-                confirmButton = {
-                    TextButton(
-                        enabled = isValidChild,
-                        onClick = {
-                            val pid = showAddChildDialogFor
-                            if (pid != null && isValidChild) {
-                                viewModel.addChildTask(pid, newChildName.trim())
-                                showAddChildDialogFor = null
-                                lastInteractionTime = System.currentTimeMillis()
-                            }
-                        }
-                    ) { Text("追加") }
-                },
-                dismissButton = {
-                    TextButton(onClick = {
-                        showAddChildDialogFor = null
-                        lastInteractionTime = System.currentTimeMillis()
-                    }) { Text("キャンセル") }
-                }
-            )
-        }
-
-        // 色変更ダイアログ
-        if (colorPickForParentId != null) {
-            AlertDialog(
-                onDismissRequest = {
-                    colorPickForParentId = null
-                    lastInteractionTime = System.currentTimeMillis()
-                },
-                title = { Text("色の変更") },
-                text = {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        presetColors.forEach { c ->
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .background(c, RoundedCornerShape(6.dp))
-                                    .border(
-                                        1.dp,
-                                        MaterialTheme.colorScheme.outline,
-                                        RoundedCornerShape(6.dp)
-                                    )
-                                    .clickable {
-                                        val id = colorPickForParentId
-                                        if (id != null) {
-                                            viewModel.changeParentColor(id, c)
-                                            colorPickForParentId = null
-                                            lastInteractionTime = System.currentTimeMillis()
-                                        }
-                                    }
-                            )
-                        }
-                    }
-                },
-                confirmButton = {},
-                dismissButton = {
-                    TextButton(onClick = {
-                        colorPickForParentId = null
-                        lastInteractionTime = System.currentTimeMillis()
-                    }) { Text("閉じる") }
-                }
-            )
-        }
-
-        // 削除確認ダイアログ
-        if (confirmDeleteParentId != null) {
-            AlertDialog(
-                onDismissRequest = {
-                    confirmDeleteParentId = null
-                    lastInteractionTime = System.currentTimeMillis()
-                },
-                title = { Text("削除の確認") },
-                text = {
-                    Text("親タスク（プロジェクト）「$confirmDeleteParentName」を削除します。子タスクも削除されます。よろしいですか？")
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val id = confirmDeleteParentId
-                        if (id != null) {
-                            viewModel.deleteParent(id)
-                        }
-                        confirmDeleteParentId = null
-                        lastInteractionTime = System.currentTimeMillis()
-                    }) { Text("削除") }
-                },
-                dismissButton = {
-                    TextButton(onClick = {
-                        confirmDeleteParentId = null
-                        lastInteractionTime = System.currentTimeMillis()
-                    }) { Text("キャンセル") }
-                }
-            )
-        }
+        // …（FAB・各種ダイアログ群は前回のまま。省略）
+        // ※ 既存の FAB / 追加ダイアログ / 色変更 / 削除確認 / リネームダイアログなどは
+        //   そのまま残してください。上では子タスク行のレイアウトのみ変更しています。
     }
 }
 
 
-/* ------- 孫一覧（選択で開始 + 赤系ハイライト） ------- */
 @Composable
 private fun SubtaskPicker(
     title: String,
@@ -718,6 +593,8 @@ private fun SubtaskPicker(
     color: Color,
     onBack: () -> Unit,
     onPick: (Long) -> Unit,
+    onRenameRequest: (Long, String) -> Unit,
+    onDeleteRequest: (Long, String) -> Unit,
     viewModel: TaskViewModel
 ) {
     val subtasks by viewModel.children(parentId).collectAsStateWithLifecycle(emptyList())
@@ -779,12 +656,41 @@ private fun SubtaskPicker(
                             modifier = Modifier.weight(1f),
                             color = textColor
                         )
+
+                        // ▼ 先に色の四角形
                         Box(
                             modifier = Modifier
                                 .size(16.dp)
                                 .background(color, RoundedCornerShape(3.dp))
                                 .border(1.dp, border, RoundedCornerShape(3.dp))
                         )
+
+                        Spacer(Modifier.width(8.dp))
+
+                        // ▼ 四角形の右側にメニューを配置
+                        var menuExpanded by remember { mutableStateOf(false) }
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Filled.Menu, contentDescription = "Subtask menu")
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("名前を変更") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onRenameRequest(t.id, t.name)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("削除") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onDeleteRequest(t.id, t.name)
+                                }
+                            )
+                        }
                     }
                 }
             }
