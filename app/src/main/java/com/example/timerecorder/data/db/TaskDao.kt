@@ -71,4 +71,7 @@ interface TaskDao {
 
     @Query("DELETE FROM task_events")
     suspend fun clearAllEvents()
+
+    @Query("SELECT COALESCE(MAX(sortOrder), 0) FROM tasks WHERE parentId IS :parentId")
+    suspend fun getMaxSortOrder(parentId: Long?): Int
 }

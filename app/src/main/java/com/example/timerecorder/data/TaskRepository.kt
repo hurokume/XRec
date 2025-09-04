@@ -72,4 +72,9 @@ class TaskRepository(private val dao: TaskDao) {
     }
 
     suspend fun clearHistory() = dao.clearAllEvents()
+
+    suspend fun addTask(name: String, parentId: Long?): Long {
+        val next = dao.getMaxSortOrder(parentId) + 1
+        return dao.insertTask(TaskEntity(name = name, parentId = parentId, sortOrder = next))
+    }
 }

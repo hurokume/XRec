@@ -141,4 +141,8 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
             loadNextHistoryPage(pageSize)
         }
     }
+
+    fun addParentTask(name: String) = viewModelScope.launch {
+        repo.addTask(name = name, parentId = null)
+    }
 }

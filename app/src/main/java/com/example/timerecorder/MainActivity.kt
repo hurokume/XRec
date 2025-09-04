@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -46,6 +47,7 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -262,7 +264,6 @@ private sealed interface TaskCenterUiState {
     ) : TaskCenterUiState
 }
 
-/* ------- タスク一覧（親→子）。子タップで孫があれば選択画面へ、無ければ開始 ------- */
 @Composable
 fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
     val parents by viewModel.parents.collectAsStateWithLifecycle()
@@ -270,7 +271,10 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     var ui by remember { mutableStateOf<TaskCenterUiState>(TaskCenterUiState.List) }
     var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
-    MaterialTheme.colorScheme.primary
+    var showAddDialog by rememberSaveable { mutableStateOf(false) }
+    var newTaskName by rememberSaveable { mutableStateOf("") }
+
+    val themePrimary = MaterialTheme.colorScheme.primary
 
     LaunchedEffect(active, parents) {
         val a = active
@@ -280,23 +284,16 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
         } else {
             val activeId = a.task.id
             val parentIdOfActive = a.task.parentId
-            // 1) 直接メインの子リストに存在するならその子をハイライト
             val foundDirect =
                 parents.firstOrNull { group -> group.children.any { it.id == activeId } }
             if (foundDirect != null) {
                 selectedTaskId = activeId
                 ui = TaskCenterUiState.List
             } else if (parentIdOfActive != null) {
-                // 2) 孫タスクの場合は、その親の「子」をハイライト（画面遷移はしない）
                 val container =
                     parents.firstOrNull { group -> group.children.any { it.id == parentIdOfActive } }
-                if (container != null) {
-                    selectedTaskId = parentIdOfActive
-                    ui = TaskCenterUiState.List
-                } else {
-                    selectedTaskId = null
-                    ui = TaskCenterUiState.List
-                }
+                selectedTaskId = container?.children?.firstOrNull { it.id == parentIdOfActive }?.id
+                ui = TaskCenterUiState.List
             } else {
                 selectedTaskId = null
                 ui = TaskCenterUiState.List
@@ -304,132 +301,184 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        when (val s = ui) {
-            TaskCenterUiState.List -> {
-                Text(
-                    text = stringResource(R.string.label_select_task),
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            when (val s = ui) {
+                TaskCenterUiState.List -> {
+                    Text(
+                        text = stringResource(R.string.label_select_task),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
 
-                LazyColumn(modifier = Modifier.weight(1f, fill = true)) {
-                    items(parents.size) { idx ->
-                        val p = parents[idx]
-                        val parentColor = p.parent.colorInt?.let { Color(it) }
-                            ?: MaterialTheme.colorScheme.primary
+                    LazyColumn(modifier = Modifier.weight(1f, fill = true)) {
+                        items(parents.size) { idx ->
+                            val p = parents[idx]
+                            val parentColor = p.parent.colorInt?.let { Color(it) } ?: themePrimary
 
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.primary,
-                                    RoundedCornerShape(12.dp)
-                                ),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Column(Modifier.padding(12.dp)) {
-                                Text(p.parent.name, style = MaterialTheme.typography.titleMedium)
-                                Spacer(Modifier.height(8.dp))
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.primary,
+                                        RoundedCornerShape(12.dp)
+                                    ),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Text(
+                                        p.parent.name,
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    Spacer(Modifier.height(8.dp))
 
-                                p.children.forEach { child ->
-                                    val isSelected = selectedTaskId == child.id
-                                    val bg =
-                                        if (isSelected) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surface // Red50
-                                    val border =
-                                        if (isSelected) Color.Red else MaterialTheme.colorScheme.outline
-                                    val textColor =
-                                        if (isSelected) Color.Red else MaterialTheme.colorScheme.onSurface
+                                    p.children.forEach { child ->
+                                        val isSelected = selectedTaskId == child.id
+                                        val bg =
+                                            if (isSelected) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surface
+                                        val border =
+                                            if (isSelected) Color.Red else MaterialTheme.colorScheme.outline
+                                        val textColor =
+                                            if (isSelected) Color.Red else MaterialTheme.colorScheme.onSurface
 
-                                    Card(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 4.dp)
-                                            .border(1.dp, border, RoundedCornerShape(8.dp)),
-                                        onClick = {
-                                            selectedTaskId = child.id
-                                            scope.launch {
-                                                val has = viewModel.hasChildren(child.id)
-                                                if (has) {
-                                                    ui = TaskCenterUiState.SubtaskSelect(
-                                                        parentTitle = child.name,
-                                                        parentId = child.id,
-                                                        color = parentColor
-                                                    )
-                                                } else {
-                                                    viewModel.onTaskPressed(child.id)
-                                                }
-                                            }
-                                        },
-                                        colors = CardDefaults.cardColors(containerColor = bg),
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Row(
+                                        Card(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
+                                                .padding(vertical = 4.dp)
+                                                .border(1.dp, border, RoundedCornerShape(8.dp)),
+                                            onClick = {
+                                                selectedTaskId = child.id
+                                                scope.launch {
+                                                    val has = viewModel.hasChildren(child.id)
+                                                    if (has) {
+                                                        ui = TaskCenterUiState.SubtaskSelect(
+                                                            parentTitle = child.name,
+                                                            parentId = child.id,
+                                                            color = parentColor
+                                                        )
+                                                    } else {
+                                                        viewModel.onTaskPressed(child.id)
+                                                    }
+                                                }
+                                            },
+                                            colors = CardDefaults.cardColors(containerColor = bg),
+                                            shape = RoundedCornerShape(8.dp)
                                         ) {
-                                            Text(
-                                                text = child.name,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                modifier = Modifier.weight(1f),
-                                                color = textColor
-                                            )
-                                            Box(
+                                            Row(
                                                 modifier = Modifier
-                                                    .size(16.dp)
-                                                    .background(
-                                                        parentColor,
-                                                        RoundedCornerShape(3.dp)
-                                                    )
-                                                    .border(1.dp, border, RoundedCornerShape(3.dp))
-                                            )
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = child.name,
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    modifier = Modifier.weight(1f),
+                                                    color = textColor
+                                                )
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(16.dp)
+                                                        .background(
+                                                            parentColor,
+                                                            RoundedCornerShape(3.dp)
+                                                        )
+                                                        .border(
+                                                            1.dp,
+                                                            border,
+                                                            RoundedCornerShape(3.dp)
+                                                        )
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
+                            Spacer(Modifier.height(12.dp))
                         }
+                    }
+
+                    active?.let { a ->
                         Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = "実行中：${a.task.name}",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = { viewModel.onStopPressed() }) {
+                            Text("停止")
+                        }
                     }
                 }
 
-                active?.let { a ->
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        text = "実行中：${a.task.name}",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.primary
+                is TaskCenterUiState.SubtaskSelect -> {
+                    SubtaskPicker(
+                        title = "${s.parentTitle} のサブタスク",
+                        parentId = s.parentId,
+                        color = s.color,
+                        onBack = { ui = TaskCenterUiState.List },
+                        onPick = { pickedId ->
+                            viewModel.onTaskPressed(pickedId)
+                            ui = TaskCenterUiState.List
+                        },
+                        viewModel = viewModel
                     )
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = { viewModel.onStopPressed() }) {
-                        Text("停止")
-                    }
                 }
             }
+        }
 
-            is TaskCenterUiState.SubtaskSelect -> {
-                SubtaskPicker(
-                    title = "${s.parentTitle} のサブタスク",
-                    parentId = s.parentId,
-                    color = s.color,
-                    onBack = { ui = TaskCenterUiState.List },
-                    onPick = { pickedId ->
-                        viewModel.onTaskPressed(pickedId)
-                        ui = TaskCenterUiState.List
-                    },
-                    viewModel = viewModel
-                )
-            }
+        // 右下の「親タスク追加」FAB（常に親として追加）
+        FloatingActionButton(
+            onClick = {
+                newTaskName = ""
+                showAddDialog = true
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+        ) {
+            Icon(Icons.Filled.AddCircle, contentDescription = "Add task")
+        }
+
+        if (showAddDialog) {
+            AlertDialog(
+                onDismissRequest = { showAddDialog = false },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            if (newTaskName.isNotBlank()) {
+                                viewModel.addParentTask(newTaskName.trim())
+                                showAddDialog = false
+                            }
+                        }
+                    ) { Text("追加") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        showAddDialog = false
+                    }) { Text("キャンセル") }
+                },
+                title = { Text("タスクを追加") },
+                text = {
+                    OutlinedTextField(
+                        value = newTaskName,
+                        onValueChange = { newTaskName = it },
+                        singleLine = true,
+                        label = { Text("タスク名") }
+                    )
+                }
+            )
         }
     }
 }
+
 
 /* ------- 孫一覧（選択で開始 + 赤系ハイライト） ------- */
 @Composable
