@@ -2,6 +2,7 @@ package com.example.timerecorder.ui
 
 import android.app.Application
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.timerecorder.data.TaskRepository
@@ -145,4 +146,17 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     fun addParentTask(name: String) = viewModelScope.launch {
         repo.addTask(name = name, parentId = null)
     }
+
+    fun addChildTask(parentId: Long, name: String) = viewModelScope.launch {
+        repo.addTask(name = name, parentId = parentId)
+    }
+
+    fun deleteParent(parentId: Long) = viewModelScope.launch {
+        repo.deleteProject(parentId)
+    }
+
+    fun changeParentColor(parentId: Long, color: Color) = viewModelScope.launch {
+        repo.changeColor(parentId, color.toArgb())
+    }
+
 }

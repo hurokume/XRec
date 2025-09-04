@@ -28,6 +28,18 @@ interface TaskDao {
     @Delete
     suspend fun deleteTask(task: TaskEntity)
 
+    // 追加: 親タスク配下の子を一括削除
+    @Query("DELETE FROM tasks WHERE parentId = :parentId")
+    suspend fun deleteChildren(parentId: Long)
+
+    // 追加: タスクID指定で削除
+    @Query("DELETE FROM tasks WHERE id = :id")
+    suspend fun deleteTaskById(id: Long)
+
+    // 追加: タスクの色を更新（ARGB Int）
+    @Query("UPDATE tasks SET colorInt = :colorInt WHERE id = :id")
+    suspend fun updateTaskColor(id: Long, colorInt: Int)
+
     // Active
     @Query("SELECT * FROM active_task_singleton WHERE singletonId = 0")
     suspend fun getActiveOrNull(): ActiveTaskEntity?

@@ -77,4 +77,13 @@ class TaskRepository(private val dao: TaskDao) {
         val next = dao.getMaxSortOrder(parentId) + 1
         return dao.insertTask(TaskEntity(name = name, parentId = parentId, sortOrder = next))
     }
+
+    suspend fun deleteProject(parentId: Long) {
+        dao.deleteChildren(parentId)
+        dao.deleteTaskById(parentId)
+    }
+
+    suspend fun changeColor(taskId: Long, colorInt: Int) {
+        dao.updateTaskColor(taskId, colorInt)
+    }
 }

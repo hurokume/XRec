@@ -8,6 +8,8 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -38,6 +40,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -269,13 +273,32 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
     val parents by viewModel.parents.collectAsStateWithLifecycle()
     val active by viewModel.active.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+
     var ui by remember { mutableStateOf<TaskCenterUiState>(TaskCenterUiState.List) }
+
+    // ハイライト対象ID（子レベル）
     var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+    // MaterialTheme は Composable の文脈で取得しておく
+    val themePrimary = MaterialTheme.colorScheme.primary
+
+    // 親タスク追加（FAB）
     var showAddDialog by rememberSaveable { mutableStateOf(false) }
     var newTaskName by rememberSaveable { mutableStateOf("") }
 
-    val themePrimary = MaterialTheme.colorScheme.primary
+    // 親行右端メニュー
+    var menuForParentId by rememberSaveable { mutableStateOf<Long?>(null) }
 
+    // 子タスク追加ダイアログ
+    var showAddChildDialogFor by rememberSaveable { mutableStateOf<Long?>(null) }
+    var newChildName by rememberSaveable { mutableStateOf("") }
+
+    // 色変更ダイアログ
+    var colorPickForParentId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val presetColors = listOf(
+        0xFFEF9A9A, 0xFFA5D6A7, 0xFF90CAF9, 0xFFFFF59D, 0xFFCE93D8
+    ).map { Color(it) }
+
+    // 実行中タスクの復元：孫タスクでもサブタスク画面には遷移せず、親の「子」をハイライト
     LaunchedEffect(active, parents) {
         val a = active
         if (a == null) {
@@ -288,16 +311,14 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                 parents.firstOrNull { group -> group.children.any { it.id == activeId } }
             if (foundDirect != null) {
                 selectedTaskId = activeId
-                ui = TaskCenterUiState.List
             } else if (parentIdOfActive != null) {
                 val container =
                     parents.firstOrNull { group -> group.children.any { it.id == parentIdOfActive } }
                 selectedTaskId = container?.children?.firstOrNull { it.id == parentIdOfActive }?.id
-                ui = TaskCenterUiState.List
             } else {
                 selectedTaskId = null
-                ui = TaskCenterUiState.List
             }
+            ui = TaskCenterUiState.List
         }
     }
 
@@ -332,10 +353,52 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                                 shape = RoundedCornerShape(12.dp)
                             ) {
                                 Column(Modifier.padding(12.dp)) {
-                                    Text(
-                                        p.parent.name,
-                                        style = MaterialTheme.typography.titleMedium
-                                    )
+
+                                    // 親タスク行（右端メニュー付き）
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            p.parent.name,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        IconButton(onClick = { menuForParentId = p.parent.id }) {
+                                            Icon(
+                                                Icons.Filled.Menu,
+                                                contentDescription = "Parent task menu"
+                                            )
+                                        }
+                                        DropdownMenu(
+                                            expanded = menuForParentId == p.parent.id,
+                                            onDismissRequest = { menuForParentId = null }
+                                        ) {
+                                            DropdownMenuItem(
+                                                text = { Text("タスクを追加") },
+                                                onClick = {
+                                                    menuForParentId = null
+                                                    newChildName = ""
+                                                    showAddChildDialogFor = p.parent.id
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("親タスク（プロジェクト）を削除") },
+                                                onClick = {
+                                                    menuForParentId = null
+                                                    viewModel.deleteParent(p.parent.id)
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("色の変更") },
+                                                onClick = {
+                                                    menuForParentId = null
+                                                    colorPickForParentId = p.parent.id
+                                                }
+                                            )
+                                        }
+                                    }
+
                                     Spacer(Modifier.height(8.dp))
 
                                     p.children.forEach { child ->
@@ -403,19 +466,6 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                             Spacer(Modifier.height(12.dp))
                         }
                     }
-
-                    active?.let { a ->
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = "実行中：${a.task.name}",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        TextButton(onClick = { viewModel.onStopPressed() }) {
-                            Text("停止")
-                        }
-                    }
                 }
 
                 is TaskCenterUiState.SubtaskSelect -> {
@@ -434,7 +484,7 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
             }
         }
 
-        // 右下の「親タスク追加」FAB（常に親として追加）
+        // 親タスク追加（常に parentId = null）
         FloatingActionButton(
             onClick = {
                 newTaskName = ""
@@ -461,9 +511,7 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                     ) { Text("追加") }
                 },
                 dismissButton = {
-                    TextButton(onClick = {
-                        showAddDialog = false
-                    }) { Text("キャンセル") }
+                    TextButton(onClick = { showAddDialog = false }) { Text("キャンセル") }
                 },
                 title = { Text("タスクを追加") },
                 text = {
@@ -473,6 +521,69 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                         singleLine = true,
                         label = { Text("タスク名") }
                     )
+                }
+            )
+        }
+
+        // 子タスク追加ダイアログ
+        if (showAddChildDialogFor != null) {
+            AlertDialog(
+                onDismissRequest = { showAddChildDialogFor = null },
+                title = { Text("子タスクを追加") },
+                text = {
+                    OutlinedTextField(
+                        value = newChildName,
+                        onValueChange = { newChildName = it },
+                        singleLine = true,
+                        label = { Text("タスク名") }
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val pid = showAddChildDialogFor
+                        if (pid != null && newChildName.isNotBlank()) {
+                            viewModel.addChildTask(pid, newChildName.trim())
+                            showAddChildDialogFor = null
+                        }
+                    }) { Text("追加") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAddChildDialogFor = null }) { Text("キャンセル") }
+                }
+            )
+        }
+
+        // 色変更ダイアログ
+        if (colorPickForParentId != null) {
+            AlertDialog(
+                onDismissRequest = { colorPickForParentId = null },
+                title = { Text("色の変更") },
+                text = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        presetColors.forEach { c ->
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .background(c, RoundedCornerShape(6.dp))
+                                    .border(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.outline,
+                                        RoundedCornerShape(6.dp)
+                                    )
+                                    .clickable {
+                                        val id = colorPickForParentId
+                                        if (id != null) {
+                                            viewModel.changeParentColor(id, c)
+                                            colorPickForParentId = null
+                                        }
+                                    }
+                            )
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { colorPickForParentId = null }) { Text("閉じる") }
                 }
             )
         }
