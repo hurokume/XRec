@@ -27,8 +27,8 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.AddCircle
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -172,7 +172,7 @@ fun AppRoot(viewModel: TaskViewModel) {
                             AdaptiveBottomBar(
                                 currentPage = currentPage,
                                 onLeftAction = { },
-                                onCheckAction = { },
+                                onSortAction = { /* TODO: ソート処理 */ },
                                 onRightAction = { }
                             )
                         }
@@ -813,7 +813,7 @@ private fun HistoryRowCard(row: com.example.timerecorder.ui.HistoryItemUi) {
 fun AdaptiveBottomBar(
     currentPage: Int,
     onLeftAction: () -> Unit = {},
-    onCheckAction: () -> Unit = {},
+    onSortAction: () -> Unit = {},   // ← 変更：onCheckAction → onSortAction
     onRightAction: () -> Unit = {}
 ) {
     when (currentPage) {
@@ -829,8 +829,8 @@ fun AdaptiveBottomBar(
         1 -> {
             BottomAppBar(
                 actions = {
-                    IconButton(onClick = onCheckAction) {
-                        Icon(Icons.Filled.Check, contentDescription = "Confirm")
+                    IconButton(onClick = onSortAction) {
+                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
                     }
                 }
             )
