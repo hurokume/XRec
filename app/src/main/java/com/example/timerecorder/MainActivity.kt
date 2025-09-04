@@ -1,5 +1,6 @@
 package com.example.timerecorder
 
+import android.annotation.SuppressLint
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -7,8 +8,20 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
@@ -17,9 +30,38 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -33,10 +75,13 @@ import com.example.timerecorder.ui.theme.TimeRecorderTheme
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import java.text.DateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.max
 
-// ---------------------------
-// MainActivity
-// ---------------------------
+private enum class AppScreen { Main, History }
+
 class MainActivity : ComponentActivity() {
     private val taskViewModel: TaskViewModel by viewModels()
 
@@ -51,9 +96,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ---------------------------
-// ルート（Drawer + Scaffold + Pager）
-// ---------------------------
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun AppRoot(viewModel: TaskViewModel) {
@@ -68,12 +110,31 @@ fun AppRoot(viewModel: TaskViewModel) {
             .collectLatest { page -> currentPage = page }
     }
 
+    var screen by remember { mutableStateOf(AppScreen.Main) }
+
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         ModalNavigationDrawer(
             drawerState = drawerState,
             drawerContent = {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                    DrawerSheet(onItemSelected = { scope.launch { drawerState.close() } })
+                    DrawerSheet(
+                        onItemSelected = { key ->
+                            scope.launch { drawerState.close() }
+                            when (key) {
+                                "home" -> screen = AppScreen.Main
+                                "history" -> {
+                                    screen = AppScreen.History
+                                    viewModel.ensureHistoryFirstPage()
+                                }
+
+                                "settings" -> { /* TODO */
+                                }
+
+                                "help" -> { /* TODO */
+                                }
+                            }
+                        }
+                    )
                 }
             }
         ) {
@@ -87,7 +148,10 @@ fun AppRoot(viewModel: TaskViewModel) {
                             navigationIcon = {},
                             title = {
                                 Text(
-                                    text = stringResource(R.string.header_title),
+                                    text = when (screen) {
+                                        AppScreen.Main -> stringResource(R.string.header_title)
+                                        AppScreen.History -> "History"
+                                    },
                                     style = MaterialTheme.typography.titleLarge
                                 )
                             },
@@ -102,28 +166,36 @@ fun AppRoot(viewModel: TaskViewModel) {
                         )
                     },
                     bottomBar = {
-                        AdaptiveBottomBar(
-                            currentPage = currentPage,
-                            onLeftAction = { /* 左ページアクション */ },
-                            onCheckAction = { /* 中央ページアクション */ },
-                            onRightAction = { /* 右ページアクション */ }
-                        )
+                        if (screen == AppScreen.Main) {
+                            AdaptiveBottomBar(
+                                currentPage = currentPage,
+                                onLeftAction = { },
+                                onCheckAction = { },
+                                onRightAction = { }
+                            )
+                        }
                     }
                 ) { innerPadding ->
-                    MainPager(
-                        modifier = Modifier.padding(innerPadding),
-                        pagerState = pagerState,
-                        viewModel = viewModel
-                    )
+                    when (screen) {
+                        AppScreen.Main -> MainPager(
+                            modifier = Modifier.padding(innerPadding),
+                            pagerState = pagerState,
+                            viewModel = viewModel
+                        )
+
+                        AppScreen.History -> HistoryScreen(
+                            modifier = Modifier
+                                .padding(innerPadding)
+                                .fillMaxSize(),
+                            viewModel = viewModel
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-// ---------------------------
-// Drawer
-// ---------------------------
 @Composable
 fun DrawerSheet(onItemSelected: (String) -> Unit) {
     ModalDrawerSheet {
@@ -146,6 +218,12 @@ fun DrawerSheet(onItemSelected: (String) -> Unit) {
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
         NavigationDrawerItem(
+            label = { Text("History") },
+            selected = false,
+            onClick = { onItemSelected("history") },
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+        )
+        NavigationDrawerItem(
             label = { Text(stringResource(R.string.drawer_help)) },
             selected = false,
             onClick = { onItemSelected("help") },
@@ -155,9 +233,6 @@ fun DrawerSheet(onItemSelected: (String) -> Unit) {
     }
 }
 
-// ---------------------------
-// Pager
-// ---------------------------
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MainPager(
@@ -177,30 +252,26 @@ fun MainPager(
     }
 }
 
-// ---------------------------
-// UI state for center page
-// ---------------------------
+/* ------- 中央ページ UI State ------- */
 private sealed interface TaskCenterUiState {
     data object List : TaskCenterUiState
     data class SubtaskSelect(
-        val parentTitle: String,      // タップした“子”の名前（＝サブタスク親）
+        val parentTitle: String,
         val parentId: Long,
         val color: Color
     ) : TaskCenterUiState
 }
 
-// ---------------------------
-// DBTaskScreen : 親→子の一覧。子をタップすると、
-//  1) その子に孫が1件以上あれば SubtaskSelect へ
-//  2) 無ければその子を即アクティブ化
-// ---------------------------
+/* ------- タスク一覧（親→子）。子タップで孫があれば選択画面へ、無ければ開始 ------- */
 @Composable
 fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
     val parents by viewModel.parents.collectAsStateWithLifecycle()
     val active by viewModel.active.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-
     var ui by remember { mutableStateOf<TaskCenterUiState>(TaskCenterUiState.List) }
+
+    // 選択中タスクID（赤系ハイライト用）
+    var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     Column(
         modifier = modifier
@@ -237,17 +308,21 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                                 Spacer(Modifier.height(8.dp))
 
                                 p.children.forEach { child ->
+                                    val isSelected = selectedTaskId == child.id
+                                    val bg =
+                                        if (isSelected) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surface // Red50
+                                    val border =
+                                        if (isSelected) Color.Red else MaterialTheme.colorScheme.outline
+                                    val textColor =
+                                        if (isSelected) Color.Red else MaterialTheme.colorScheme.onSurface
+
                                     Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(vertical = 4.dp)
-                                            .border(
-                                                1.dp,
-                                                MaterialTheme.colorScheme.outline,
-                                                RoundedCornerShape(8.dp)
-                                            ),
+                                            .border(1.dp, border, RoundedCornerShape(8.dp)),
                                         onClick = {
-                                            // 子をタップ → 孫が1件以上あるかチェックして遷移 or 即開始
+                                            selectedTaskId = child.id
                                             scope.launch {
                                                 val has = viewModel.hasChildren(child.id)
                                                 if (has) {
@@ -261,7 +336,7 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                                                 }
                                             }
                                         },
-                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                        colors = CardDefaults.cardColors(containerColor = bg),
                                         shape = RoundedCornerShape(8.dp)
                                     ) {
                                         Row(
@@ -273,7 +348,8 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                                             Text(
                                                 text = child.name,
                                                 style = MaterialTheme.typography.bodyLarge,
-                                                modifier = Modifier.weight(1f)
+                                                modifier = Modifier.weight(1f),
+                                                color = textColor
                                             )
                                             Box(
                                                 modifier = Modifier
@@ -282,11 +358,7 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                                                         parentColor,
                                                         RoundedCornerShape(3.dp)
                                                     )
-                                                    .border(
-                                                        1.dp,
-                                                        MaterialTheme.colorScheme.outline,
-                                                        RoundedCornerShape(3.dp)
-                                                    )
+                                                    .border(1.dp, border, RoundedCornerShape(3.dp))
                                             )
                                         }
                                     }
@@ -297,7 +369,6 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                     }
                 }
 
-                // 現在アクティブ表示 & 停止
                 active?.let { a ->
                     Spacer(Modifier.height(12.dp))
                     Text(
@@ -318,8 +389,8 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                     parentId = s.parentId,
                     color = s.color,
                     onBack = { ui = TaskCenterUiState.List },
-                    onPick = { pickedTaskId ->
-                        viewModel.onTaskPressed(pickedTaskId)
+                    onPick = { pickedId ->
+                        viewModel.onTaskPressed(pickedId)
                         ui = TaskCenterUiState.List
                     },
                     viewModel = viewModel
@@ -329,9 +400,7 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
     }
 }
 
-// ---------------------------
-// SubtaskPicker : 指定親（＝タップした“子”）の直下の子（孫）を一覧
-// ---------------------------
+/* ------- 孫一覧（選択で開始 + 赤系ハイライト） ------- */
 @Composable
 private fun SubtaskPicker(
     title: String,
@@ -342,9 +411,9 @@ private fun SubtaskPicker(
     viewModel: TaskViewModel
 ) {
     val subtasks by viewModel.children(parentId).collectAsStateWithLifecycle(emptyList())
+    var selectedSubId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     Column(Modifier.fillMaxSize()) {
-        // 簡易な戻る行
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -363,13 +432,21 @@ private fun SubtaskPicker(
         ) {
             items(subtasks.size) { i ->
                 val t = subtasks[i]
+                val isSelected = selectedSubId == t.id
+                val bg = if (isSelected) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surface
+                val border = if (isSelected) Color.Red else MaterialTheme.colorScheme.outline
+                val textColor = if (isSelected) Color.Red else MaterialTheme.colorScheme.onSurface
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
-                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)),
-                    onClick = { onPick(t.id) },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        .border(1.dp, border, RoundedCornerShape(8.dp)),
+                    onClick = {
+                        selectedSubId = t.id
+                        onPick(t.id)
+                    },
+                    colors = CardDefaults.cardColors(containerColor = bg),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Row(
@@ -381,17 +458,14 @@ private fun SubtaskPicker(
                         Text(
                             text = t.name,
                             style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
+                            color = textColor
                         )
                         Box(
                             modifier = Modifier
                                 .size(16.dp)
                                 .background(color, RoundedCornerShape(3.dp))
-                                .border(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.outline,
-                                    RoundedCornerShape(3.dp)
-                                )
+                                .border(1.dp, border, RoundedCornerShape(3.dp))
                         )
                     }
                 }
@@ -400,9 +474,117 @@ private fun SubtaskPicker(
     }
 }
 
-// ---------------------------
-// BottomBar / Blank
-// ---------------------------
+/* ------- History（100件ページング・末尾付近で追加ロード） ------- */
+@Composable
+fun HistoryScreen(modifier: Modifier = Modifier, viewModel: TaskViewModel) {
+    val items by viewModel.historyItems.collectAsStateWithLifecycle()
+    val isLoading by viewModel.historyLoading.collectAsStateWithLifecycle()
+    val endReached by viewModel.historyEndReached.collectAsStateWithLifecycle()
+
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(items.size) {
+        if (items.isEmpty()) return@LaunchedEffect
+        val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+        val total = listState.layoutInfo.totalItemsCount
+        if (!isLoading && !endReached && last >= total - 5) {
+            scope.launch { viewModel.loadNextHistoryPage() }
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize(),
+            state = listState,
+            contentPadding = PaddingValues(vertical = 8.dp, horizontal = 16.dp)
+        ) {
+            items(items.size) { i ->
+                val row = items[i]
+                HistoryRowCard(row)
+                Spacer(Modifier.height(8.dp))
+            }
+            item {
+                when {
+                    isLoading -> {
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    }
+
+                    endReached -> {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(8.dp),
+                            contentAlignment = Alignment.Center
+                        ) { Text("以上です") }
+                    }
+                }
+            }
+        }
+
+        FloatingActionButton(
+            onClick = { viewModel.reloadHistory() },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+        ) {
+            Icon(Icons.Filled.Refresh, contentDescription = "Reload history")
+        }
+    }
+}
+
+@SuppressLint("DefaultLocale")
+@Composable
+private fun HistoryRowCard(row: com.example.timerecorder.ui.HistoryItemUi) {
+    val dateStr = remember(row.pressedAt) {
+        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.MEDIUM, Locale.getDefault())
+            .format(Date(row.pressedAt))
+    }
+    val minutes = max(0L, row.durationMillis) / 1000 / 60
+    val seconds = (max(0L, row.durationMillis) / 1000) % 60
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(row.taskName, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    dateStr,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .background(row.color, RoundedCornerShape(3.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(3.dp))
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                String.format("%d:%02d", minutes, seconds),
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+    }
+}
+
+/* ------- BottomBar / Blank ------- */
 @Composable
 fun AdaptiveBottomBar(
     currentPage: Int,

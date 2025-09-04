@@ -69,6 +69,7 @@ dependencies {
     // ---- Room（KSP 使用）----
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
+    implementation(libs.androidx.compose.runtime.saveable)
     ksp("androidx.room:room-compiler:2.6.1")
     // （任意）テストで使う場合
     // testImplementation("androidx.room:room-testing:2.6.1")

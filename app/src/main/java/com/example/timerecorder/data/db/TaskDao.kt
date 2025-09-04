@@ -12,12 +12,10 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface TaskDao {
 
-    // ツリー表示
     @Transaction
     @Query("SELECT * FROM tasks WHERE parentId IS NULL ORDER BY sortOrder, id")
     fun observeParentsWithChildren(): Flow<List<ParentWithChildren>>
 
-    // 子一覧（必要に応じて）
     @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY sortOrder, id")
     suspend fun getChildren(parentId: Long): List<TaskEntity>
 
@@ -30,7 +28,7 @@ interface TaskDao {
     @Delete
     suspend fun deleteTask(task: TaskEntity)
 
-    // アクティブタスク
+    // Active
     @Query("SELECT * FROM active_task_singleton WHERE singletonId = 0")
     suspend fun getActiveOrNull(): ActiveTaskEntity?
 
@@ -44,12 +42,9 @@ interface TaskDao {
     @Query("DELETE FROM active_task_singleton")
     suspend fun clearActive()
 
-    // 履歴
+    // Events
     @Insert
     suspend fun insertEvent(event: TaskEventEntity)
-
-    @Query("SELECT * FROM task_events ORDER BY id DESC LIMIT :limit")
-    fun observeRecentEvents(limit: Int = 100): Flow<List<TaskEventEntity>>
 
     @Query("SELECT COUNT(*) FROM tasks WHERE parentId = :parentId")
     suspend fun countChildren(parentId: Long): Int
@@ -57,4 +52,23 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY sortOrder, id")
     fun observeChildren(parentId: Long): Flow<List<TaskEntity>>
 
+    // 履歴ページ（HistoryRowDb がトップレベルにある想定）
+    @Query(
+        """
+        SELECT e.id AS eventId,
+               e.taskId AS taskId,
+               t.name AS taskName,
+               t.colorInt AS colorInt,
+               e.pressedAtEpochMs AS pressedAtEpochMs,
+               e.durationMillis AS durationMillis
+        FROM task_events e
+        JOIN tasks t ON t.id = e.taskId
+        ORDER BY e.pressedAtEpochMs DESC, e.id DESC
+        LIMIT :limit OFFSET :offset
+    """
+    )
+    suspend fun getEventsPage(limit: Int, offset: Int): List<HistoryRowDb>
+
+    @Query("DELETE FROM task_events")
+    suspend fun clearAllEvents()
 }
