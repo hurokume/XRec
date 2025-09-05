@@ -171,4 +171,8 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteTask(taskId: Long) = viewModelScope.launch {
         repo.deleteTaskById(taskId)
     }
+
+    fun reorderChildren(parentId: Long, idsInOrder: List<Long>) = viewModelScope.launch {
+        repo.updateSortOrdersForParent(parentId, idsInOrder)
+    }
 }

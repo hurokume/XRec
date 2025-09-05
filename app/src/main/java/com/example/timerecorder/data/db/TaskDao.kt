@@ -89,4 +89,14 @@ interface TaskDao {
 
     @Query("UPDATE tasks SET name = :name WHERE id = :id")
     suspend fun updateTaskName(id: Long, name: String)
+
+    @Transaction
+    suspend fun updateSortOrdersForParent(parentId: Long, idsInOrder: List<Long>) {
+        idsInOrder.forEachIndexed { index, id ->
+            updateSortOrder(id, index)    // ← UPDATE tasks SET sortOrder = :index WHERE id = :id
+        }
+    }
+
+    @Query("UPDATE tasks SET sortOrder = :sortOrder WHERE id = :taskId")
+    suspend fun updateSortOrder(taskId: Long, sortOrder: Int)
 }

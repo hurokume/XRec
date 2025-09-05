@@ -94,4 +94,8 @@ class TaskRepository(private val dao: TaskDao) {
     suspend fun deleteTaskById(taskId: Long) {
         dao.deleteTaskById(taskId)
     }
+
+    suspend fun updateSortOrdersForParent(parentId: Long, idsInOrder: List<Long>) {
+        dao.updateSortOrdersForParent(parentId, idsInOrder)
+    }
 }

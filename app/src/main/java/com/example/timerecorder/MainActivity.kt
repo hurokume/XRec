@@ -8,6 +8,9 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -29,9 +32,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -48,6 +53,7 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -58,6 +64,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -67,10 +74,15 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.timerecorder.ui.TaskViewModel
 import com.example.timerecorder.ui.theme.TimeRecorderTheme
@@ -114,6 +126,9 @@ fun AppRoot(viewModel: TaskViewModel) {
 
     var screen by remember { mutableStateOf(AppScreen.Main) }
 
+    // 並び替えモード
+    var sortMode by rememberSaveable { mutableStateOf(false) }
+
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         ModalNavigationDrawer(
             drawerState = drawerState,
@@ -151,18 +166,30 @@ fun AppRoot(viewModel: TaskViewModel) {
                             title = {
                                 Text(
                                     text = when (screen) {
-                                        AppScreen.Main -> stringResource(R.string.header_title)
+                                        AppScreen.Main -> if (sortMode) "並び替え" else stringResource(
+                                            R.string.header_title
+                                        )
+
                                         AppScreen.History -> "History"
                                     },
                                     style = MaterialTheme.typography.titleLarge
                                 )
                             },
                             actions = {
-                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Menu,
-                                        contentDescription = stringResource(R.string.drawer_title)
-                                    )
+                                if (screen == AppScreen.Main && sortMode) {
+                                    IconButton(onClick = { sortMode = false }) {
+                                        Icon(
+                                            Icons.Filled.Close,
+                                            contentDescription = "Exit sort mode"
+                                        )
+                                    }
+                                } else {
+                                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Menu,
+                                            contentDescription = stringResource(R.string.drawer_title)
+                                        )
+                                    }
                                 }
                             }
                         )
@@ -172,7 +199,7 @@ fun AppRoot(viewModel: TaskViewModel) {
                             AdaptiveBottomBar(
                                 currentPage = currentPage,
                                 onLeftAction = { },
-                                onSortAction = { /* TODO: ソート処理 */ },
+                                onSortAction = { sortMode = true },
                                 onRightAction = { }
                             )
                         }
@@ -182,7 +209,8 @@ fun AppRoot(viewModel: TaskViewModel) {
                         AppScreen.Main -> MainPager(
                             modifier = Modifier.padding(innerPadding),
                             pagerState = pagerState,
-                            viewModel = viewModel
+                            viewModel = viewModel,
+                            sortMode = sortMode
                         )
 
                         AppScreen.History -> HistoryScreen(
@@ -240,7 +268,8 @@ fun DrawerSheet(onItemSelected: (String) -> Unit) {
 fun MainPager(
     modifier: Modifier = Modifier,
     pagerState: PagerState,
-    viewModel: TaskViewModel
+    viewModel: TaskViewModel,
+    sortMode: Boolean
 ) {
     HorizontalPager(
         state = pagerState,
@@ -248,7 +277,7 @@ fun MainPager(
     ) { page ->
         when (page) {
             0 -> BlankScreen(label = stringResource(R.string.left_page_label))
-            1 -> DBTaskScreen(viewModel = viewModel)
+            1 -> DBTaskScreen(viewModel = viewModel, sortMode = sortMode)
             2 -> BlankScreen(label = stringResource(R.string.right_page_label))
         }
     }
@@ -265,27 +294,29 @@ private sealed interface TaskCenterUiState {
 }
 
 @Composable
-fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
+fun DBTaskScreen(
+    viewModel: TaskViewModel,
+    modifier: Modifier = Modifier,
+    sortMode: Boolean
+) {
     val parents by viewModel.parents.collectAsStateWithLifecycle()
     val active by viewModel.active.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
     var ui by remember { mutableStateOf<TaskCenterUiState>(TaskCenterUiState.List) }
 
-    // ハイライト対象ID（子レベル）
+    // ハイライト（実行中）
     var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     val themePrimary = MaterialTheme.colorScheme.primary
 
-    // 親タスク追加（FAB／通常時）
-
-    // 親行右端メニュー
+    // 追加／ダイアログ類
+    var showAddDialog by rememberSaveable { mutableStateOf(false) }
+    var newTaskName by rememberSaveable { mutableStateOf("") }
     var menuForParentId by rememberSaveable { mutableStateOf<Long?>(null) }
-
-    // 子タスク追加ダイアログ
     var showAddChildDialogFor by rememberSaveable { mutableStateOf<Long?>(null) }
     var newChildName by rememberSaveable { mutableStateOf("") }
 
-    // ▼ 子タスク用メニュー／リネーム／削除
+    // 子タスク行メニュー・リネーム/削除
     var menuForChildTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var renameTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var renameTaskCurrentName by rememberSaveable { mutableStateOf("") }
@@ -293,15 +324,15 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
     var confirmDeleteTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var confirmDeleteTaskName by rememberSaveable { mutableStateOf("") }
 
-    // 色変更ダイアログ（親用）
+    // 親用：色変更／削除確認
     var colorPickForParentId by rememberSaveable { mutableStateOf<Long?>(null) }
-    listOf(0xFFEF9A9A, 0xFFA5D6A7, 0xFF90CAF9, 0xFFFFF59D, 0xFFCE93D8).map { Color(it) }
-
-    // 親削除確認
     var confirmDeleteParentId by rememberSaveable { mutableStateOf<Long?>(null) }
     var confirmDeleteParentName by rememberSaveable { mutableStateOf("") }
+    val presetColors = remember {
+        listOf(0xFFEF9A9A, 0xFFA5D6A7, 0xFF90CAF9, 0xFFFFF59D, 0xFFCE93D8).map { Color(it) }
+    }
 
-    // ▼ FABの自動非表示制御
+    // FAB 自動非表示
     var fabVisible by rememberSaveable { mutableStateOf(true) }
     var lastInteractionTime by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(lastInteractionTime) {
@@ -310,14 +341,13 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
         fabVisible = false
     }
 
-    // スクロールでも「操作」とみなす
     val listState = rememberLazyListState()
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
             .collect { lastInteractionTime = System.currentTimeMillis() }
     }
 
-    // 実行中タスクの復元（孫は親の「子」をハイライト、遷移しない）
+    // 実行中タスク → ハイライト
     LaunchedEffect(active, parents) {
         val a = active
         if (a == null) {
@@ -342,6 +372,25 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
         }
     }
 
+    // 並び替えモード用：親ごとの子ID順
+    val reorderLists = remember(sortMode, parents) {
+        mutableStateMapOf<Long, MutableList<Long>>().apply {
+            parents.forEach { group ->
+                put(group.parent.id, group.children.map { it.id }.toMutableList())
+            }
+        }
+    }
+
+    // ドラッグ中
+    var draggingTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var draggingDy by remember { mutableStateOf(0f) }
+
+    fun commitOrder(parentId: Long) {
+        reorderLists[parentId]?.let { ordered ->
+            viewModel.reorderChildren(parentId, ordered)
+        }
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -351,9 +400,12 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
             when (val s = ui) {
                 TaskCenterUiState.List -> {
                     Text(
-                        text = stringResource(R.string.label_select_task),
+                        text = if (sortMode)
+                            "長押しして上下にドラッグすると並び替えできます"
+                        else stringResource(R.string.label_select_task),
                         style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(bottom = 16.dp)
+                        modifier = Modifier.padding(bottom = 16.dp),
+                        color = if (sortMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                     )
 
                     LazyColumn(
@@ -363,6 +415,15 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                         items(parents.size) { idx ->
                             val p = parents[idx]
                             val parentColor = p.parent.colorInt?.let { Color(it) } ?: themePrimary
+
+                            val childById =
+                                remember(p.children) { p.children.associateBy { it.id } }
+                            val order: MutableList<Long> =
+                                reorderLists[p.parent.id] ?: p.children.map { it.id }
+                                    .toMutableList()
+                            reorderLists[p.parent.id] = order
+
+                            val centers = remember(p.parent.id) { mutableStateMapOf<Long, Float>() }
 
                             Card(
                                 modifier = Modifier
@@ -377,7 +438,7 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                             ) {
                                 Column(Modifier.padding(12.dp)) {
 
-                                    // 親タスク行（右端メニュー付き）
+                                    // 親行
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically
@@ -434,8 +495,10 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
 
                                     Spacer(Modifier.height(8.dp))
 
-                                    p.children.forEach { child ->
-                                        val isSelected = selectedTaskId == child.id
+                                    // 子行
+                                    order.forEach { childId ->
+                                        val child = childById[childId] ?: return@forEach
+                                        val isSelected = selectedTaskId == child.id && !sortMode
                                         val bg =
                                             if (isSelected) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surface
                                         val border =
@@ -443,28 +506,111 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                                         val textColor =
                                             if (isSelected) Color.Red else MaterialTheme.colorScheme.onSurface
 
+                                        val isDragging = draggingTaskId == child.id
+                                        val z = if (isDragging) 1f else 0f
+
                                         Card(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .padding(vertical = 4.dp)
-                                                .border(1.dp, border, RoundedCornerShape(8.dp)),
-                                            onClick = {
-                                                selectedTaskId = child.id
-                                                lastInteractionTime = System.currentTimeMillis()
-                                                scope.launch {
-                                                    val has = viewModel.hasChildren(child.id)
-                                                    if (has) {
-                                                        ui = TaskCenterUiState.SubtaskSelect(
-                                                            parentTitle = child.name,
-                                                            parentId = child.id,
-                                                            color = parentColor
-                                                        )
-                                                    } else {
-                                                        viewModel.onTaskPressed(child.id)
-                                                    }
+                                                .border(1.dp, border, RoundedCornerShape(8.dp))
+                                                .graphicsLayer {
+                                                    translationY =
+                                                        if (isDragging) draggingDy else 0f
                                                 }
-                                            },
-                                            colors = CardDefaults.cardColors(containerColor = bg),
+                                                .zIndex(z)
+                                                .then(
+                                                    if (sortMode)
+                                                        Modifier
+                                                            .onGloballyPositioned { coords ->
+                                                                val c =
+                                                                    coords.boundsInParent().center.y
+                                                                centers[child.id] = c
+                                                            }
+                                                            .pointerInput(sortMode, order) {
+                                                                detectDragGesturesAfterLongPress(
+                                                                    onDragStart = {
+                                                                        draggingTaskId = child.id
+                                                                        draggingDy = 0f
+                                                                    },
+                                                                    onDrag = { change, drag ->
+                                                                        change.consume()
+                                                                        if (draggingTaskId != child.id) return@detectDragGesturesAfterLongPress
+                                                                        draggingDy += drag.y
+                                                                        val idx =
+                                                                            order.indexOf(child.id)
+                                                                        if (idx == -1) return@detectDragGesturesAfterLongPress
+                                                                        val currCenter =
+                                                                            centers[child.id]
+                                                                                ?: return@detectDragGesturesAfterLongPress
+                                                                        // 下方向
+                                                                        if (draggingDy > 0 && idx < order.lastIndex) {
+                                                                            val nextId =
+                                                                                order[idx + 1]
+                                                                            val nextCenter =
+                                                                                centers[nextId]
+                                                                                    ?: Float.MAX_VALUE
+                                                                            if (currCenter + draggingDy > nextCenter) {
+                                                                                order.removeAt(idx)
+                                                                                order.add(
+                                                                                    idx + 1,
+                                                                                    child.id
+                                                                                )
+                                                                                draggingDy -= (nextCenter - currCenter)
+                                                                            }
+                                                                        }
+                                                                        // 上方向
+                                                                        if (draggingDy < 0 && idx > 0) {
+                                                                            val prevId =
+                                                                                order[idx - 1]
+                                                                            val prevCenter =
+                                                                                centers[prevId]
+                                                                                    ?: Float.MIN_VALUE
+                                                                            if (currCenter + draggingDy < prevCenter) {
+                                                                                order.removeAt(idx)
+                                                                                order.add(
+                                                                                    idx - 1,
+                                                                                    child.id
+                                                                                )
+                                                                                draggingDy += (currCenter - prevCenter)
+                                                                            }
+                                                                        }
+                                                                    },
+                                                                    onDragEnd = {
+                                                                        draggingTaskId = null
+                                                                        draggingDy = 0f
+                                                                        commitOrder(p.parent.id)
+                                                                    },
+                                                                    onDragCancel = {
+                                                                        draggingTaskId = null
+                                                                        draggingDy = 0f
+                                                                    }
+                                                                )
+                                                            }
+                                                    else
+                                                        Modifier.clickable {
+                                                            selectedTaskId = child.id
+                                                            lastInteractionTime =
+                                                                System.currentTimeMillis()
+                                                            scope.launch {
+                                                                val has =
+                                                                    viewModel.hasChildren(child.id)
+                                                                if (has) {
+                                                                    ui =
+                                                                        TaskCenterUiState.SubtaskSelect(
+                                                                            parentTitle = child.name,
+                                                                            parentId = child.id,
+                                                                            color = parentColor
+                                                                        )
+                                                                } else {
+                                                                    viewModel.onTaskPressed(child.id)
+                                                                }
+                                                            }
+                                                        }
+                                                ),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = if (isDragging) MaterialTheme.colorScheme.surfaceVariant else bg
+                                            ),
                                             shape = RoundedCornerShape(8.dp)
                                         ) {
                                             Row(
@@ -479,8 +625,6 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                                                     modifier = Modifier.weight(1f),
                                                     color = textColor
                                                 )
-
-                                                // ▼ 先に色の四角形
                                                 Box(
                                                     modifier = Modifier
                                                         .size(16.dp)
@@ -494,49 +638,50 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
                                                             RoundedCornerShape(3.dp)
                                                         )
                                                 )
-
                                                 Spacer(Modifier.width(8.dp))
 
-                                                // ▼ 四角形の右側にメニューを配置
-                                                IconButton(onClick = {
-                                                    menuForChildTaskId = child.id
-                                                    renameTaskCurrentName = child.name
-                                                    lastInteractionTime = System.currentTimeMillis()
-                                                }) {
-                                                    Icon(
-                                                        Icons.Filled.Menu,
-                                                        contentDescription = "Task menu"
-                                                    )
-                                                }
-                                                DropdownMenu(
-                                                    expanded = menuForChildTaskId == child.id,
-                                                    onDismissRequest = {
-                                                        menuForChildTaskId = null
+                                                if (!sortMode) {
+                                                    IconButton(onClick = {
+                                                        menuForChildTaskId = child.id
+                                                        renameTaskCurrentName = child.name
                                                         lastInteractionTime =
                                                             System.currentTimeMillis()
+                                                    }) {
+                                                        Icon(
+                                                            Icons.Filled.Menu,
+                                                            contentDescription = "Task menu"
+                                                        )
                                                     }
-                                                ) {
-                                                    DropdownMenuItem(
-                                                        text = { Text("名前を変更") },
-                                                        onClick = {
+                                                    DropdownMenu(
+                                                        expanded = menuForChildTaskId == child.id,
+                                                        onDismissRequest = {
                                                             menuForChildTaskId = null
-                                                            renameTaskId = child.id
-                                                            renameTaskCurrentName = child.name
-                                                            renameTaskText = child.name
                                                             lastInteractionTime =
                                                                 System.currentTimeMillis()
                                                         }
-                                                    )
-                                                    DropdownMenuItem(
-                                                        text = { Text("タスクを削除") },
-                                                        onClick = {
-                                                            menuForChildTaskId = null
-                                                            confirmDeleteTaskId = child.id
-                                                            confirmDeleteTaskName = child.name
-                                                            lastInteractionTime =
-                                                                System.currentTimeMillis()
-                                                        }
-                                                    )
+                                                    ) {
+                                                        DropdownMenuItem(
+                                                            text = { Text("名前を変更") },
+                                                            onClick = {
+                                                                menuForChildTaskId = null
+                                                                renameTaskId = child.id
+                                                                renameTaskCurrentName = child.name
+                                                                renameTaskText = child.name
+                                                                lastInteractionTime =
+                                                                    System.currentTimeMillis()
+                                                            }
+                                                        )
+                                                        DropdownMenuItem(
+                                                            text = { Text("タスクを削除") },
+                                                            onClick = {
+                                                                menuForChildTaskId = null
+                                                                confirmDeleteTaskId = child.id
+                                                                confirmDeleteTaskName = child.name
+                                                                lastInteractionTime =
+                                                                    System.currentTimeMillis()
+                                                            }
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -579,12 +724,204 @@ fun DBTaskScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
             }
         }
 
-        // …（FAB・各種ダイアログ群は前回のまま。省略）
-        // ※ 既存の FAB / 追加ダイアログ / 色変更 / 削除確認 / リネームダイアログなどは
-        //   そのまま残してください。上では子タスク行のレイアウトのみ変更しています。
+        // FAB（親/子追加）
+        if (fabVisible) {
+            FloatingActionButton(
+                onClick = {
+                    when (val s = ui) {
+                        is TaskCenterUiState.SubtaskSelect -> {
+                            newChildName = ""
+                            showAddChildDialogFor = s.parentId
+                        }
+
+                        else -> {
+                            newTaskName = ""
+                            showAddDialog = true
+                        }
+                    }
+                    lastInteractionTime = System.currentTimeMillis()
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+            ) {
+                Icon(Icons.Filled.AddCircle, contentDescription = "Add task")
+            }
+        }
+
+        /* ---------- ここからダイアログ群 ---------- */
+
+        // 親タスク追加
+        if (showAddDialog) {
+            AlertDialog(
+                onDismissRequest = { showAddDialog = false },
+                title = { Text("タスクを追加") },
+                text = {
+                    OutlinedTextField(
+                        value = newTaskName,
+                        onValueChange = { newTaskName = it.take(128) },
+                        singleLine = true,
+                        label = { Text("タスク名（128文字まで）") }
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            val name = newTaskName.trim()
+                            if (name.isNotEmpty()) {
+                                viewModel.addParentTask(name)
+                                showAddDialog = false
+                            }
+                        }
+                    ) { Text("追加") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAddDialog = false }) { Text("キャンセル") }
+                }
+            )
+        }
+
+        // 子タスク追加
+        if (showAddChildDialogFor != null) {
+            AlertDialog(
+                onDismissRequest = { showAddChildDialogFor = null },
+                title = { Text("子タスクを追加") },
+                text = {
+                    OutlinedTextField(
+                        value = newChildName,
+                        onValueChange = { newChildName = it.take(128) },
+                        singleLine = true,
+                        label = { Text("タスク名（128文字まで）") }
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val pid = showAddChildDialogFor
+                        val name = newChildName.trim()
+                        if (pid != null && name.isNotEmpty()) {
+                            viewModel.addChildTask(pid, name)
+                            showAddChildDialogFor = null
+                        }
+                    }) { Text("追加") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAddChildDialogFor = null }) { Text("キャンセル") }
+                }
+            )
+        }
+
+        // 親色変更
+        if (colorPickForParentId != null) {
+            AlertDialog(
+                onDismissRequest = { colorPickForParentId = null },
+                title = { Text("色の変更") },
+                text = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        presetColors.forEach { c ->
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .background(c, RoundedCornerShape(6.dp))
+                                    .border(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.outline,
+                                        RoundedCornerShape(6.dp)
+                                    )
+                                    .clickable {
+                                        val id = colorPickForParentId
+                                        if (id != null) {
+                                            viewModel.changeParentColor(id, c)
+                                            colorPickForParentId = null
+                                        }
+                                    }
+                            )
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { colorPickForParentId = null }) { Text("閉じる") }
+                }
+            )
+        }
+
+        // 親削除確認
+        if (confirmDeleteParentId != null) {
+            AlertDialog(
+                onDismissRequest = { confirmDeleteParentId = null },
+                title = { Text("削除の確認") },
+                text = {
+                    Text("親タスク（プロジェクト）「$confirmDeleteParentName」を削除します。子タスクも削除されます。よろしいですか？")
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val id = confirmDeleteParentId
+                        if (id != null) viewModel.deleteParent(id)
+                        confirmDeleteParentId = null
+                    }) { Text("削除") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmDeleteParentId = null }) { Text("キャンセル") }
+                }
+            )
+        }
+
+        // 子タスク：名前変更
+        if (renameTaskId != null) {
+            AlertDialog(
+                onDismissRequest = { renameTaskId = null },
+                title = { Text("名前を変更") },
+                text = {
+                    Column {
+                        Text("現在の名前：$renameTaskCurrentName")
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = renameTaskText,
+                            onValueChange = { renameTaskText = it.take(128) },
+                            singleLine = true,
+                            label = { Text("新しい名前（128文字まで）") }
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val id = renameTaskId
+                        val name = renameTaskText.trim()
+                        if (id != null && name.isNotEmpty()) {
+                            viewModel.renameTask(id, name)
+                        }
+                        renameTaskId = null
+                    }) { Text("変更") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { renameTaskId = null }) { Text("キャンセル") }
+                }
+            )
+        }
+
+        // 子タスク：削除確認
+        if (confirmDeleteTaskId != null) {
+            AlertDialog(
+                onDismissRequest = { confirmDeleteTaskId = null },
+                title = { Text("削除の確認") },
+                text = { Text("タスク「$confirmDeleteTaskName」を削除します。よろしいですか？") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val id = confirmDeleteTaskId
+                        if (id != null) {
+                            viewModel.deleteTask(id)
+                        }
+                        confirmDeleteTaskId = null
+                    }) { Text("削除") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmDeleteTaskId = null }) { Text("キャンセル") }
+                }
+            )
+        }
+        /* ---------- ダイアログ群ここまで ---------- */
     }
 }
-
 
 @Composable
 private fun SubtaskPicker(
@@ -657,7 +994,6 @@ private fun SubtaskPicker(
                             color = textColor
                         )
 
-                        // ▼ 先に色の四角形
                         Box(
                             modifier = Modifier
                                 .size(16.dp)
@@ -667,7 +1003,6 @@ private fun SubtaskPicker(
 
                         Spacer(Modifier.width(8.dp))
 
-                        // ▼ 四角形の右側にメニューを配置
                         var menuExpanded by remember { mutableStateOf(false) }
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(Icons.Filled.Menu, contentDescription = "Subtask menu")
@@ -813,7 +1148,7 @@ private fun HistoryRowCard(row: com.example.timerecorder.ui.HistoryItemUi) {
 fun AdaptiveBottomBar(
     currentPage: Int,
     onLeftAction: () -> Unit = {},
-    onSortAction: () -> Unit = {},   // ← 変更：onCheckAction → onSortAction
+    onSortAction: () -> Unit = {},
     onRightAction: () -> Unit = {}
 ) {
     when (currentPage) {
