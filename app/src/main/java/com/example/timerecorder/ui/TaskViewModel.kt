@@ -175,4 +175,22 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     fun reorderChildren(parentId: Long, idsInOrder: List<Long>) = viewModelScope.launch {
         repo.updateSortOrdersForParent(parentId, idsInOrder)
     }
+
+    /** 比較用に名前を正規化（trim + lowerCase） */
+    private fun normalizeName(name: String) = name.trim().lowercase()
+
+    /** 親（プロジェクト）直下に、同名の子タスクが存在するか */
+    fun hasDuplicateChildName(parentId: Long, name: String): Boolean {
+        if (name.isBlank()) return false
+        val target = parents.value.firstOrNull { it.parent.id == parentId } ?: return false
+        val n = normalizeName(name)
+        return target.children.any { normalizeName(it.name) == n }
+    }
+
+    /** 親（プロジェクト）に、同名の親タスクが存在するか */
+    fun hasDuplicateParentName(name: String): Boolean {
+        if (name.isBlank()) return false
+        val n = normalizeName(name)
+        return parents.value.any { normalizeName(it.parent.name) == n }
+    }
 }

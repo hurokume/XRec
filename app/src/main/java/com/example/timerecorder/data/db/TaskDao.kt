@@ -99,4 +99,7 @@ interface TaskDao {
 
     @Query("UPDATE tasks SET sortOrder = :sortOrder WHERE id = :taskId")
     suspend fun updateSortOrder(taskId: Long, sortOrder: Int)
+
+    @Query("SELECT COUNT(*) FROM tasks WHERE parentId IS :parentId AND name = :name")
+    suspend fun countByNameInParent(parentId: Long?, name: String): Int
 }

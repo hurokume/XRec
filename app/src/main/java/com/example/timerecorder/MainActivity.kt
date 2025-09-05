@@ -10,7 +10,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -166,9 +165,8 @@ fun AppRoot(viewModel: TaskViewModel) {
                             title = {
                                 Text(
                                     text = when (screen) {
-                                        AppScreen.Main -> if (sortMode) "並び替え" else stringResource(
-                                            R.string.header_title
-                                        )
+                                        AppScreen.Main ->
+                                            if (sortMode) "並び替え" else stringResource(R.string.header_title)
 
                                         AppScreen.History -> "History"
                                     },
@@ -309,12 +307,15 @@ fun DBTaskScreen(
     var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     val themePrimary = MaterialTheme.colorScheme.primary
 
-    // 追加／ダイアログ類
+    // 追加／ダイアログ用 state
     var showAddDialog by rememberSaveable { mutableStateOf(false) }
     var newTaskName by rememberSaveable { mutableStateOf("") }
+    var addParentError by rememberSaveable { mutableStateOf<String?>(null) }
+
     var menuForParentId by rememberSaveable { mutableStateOf<Long?>(null) }
     var showAddChildDialogFor by rememberSaveable { mutableStateOf<Long?>(null) }
     var newChildName by rememberSaveable { mutableStateOf("") }
+    var addChildError by rememberSaveable { mutableStateOf<String?>(null) }
 
     // 子タスク行メニュー・リネーム/削除
     var menuForChildTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -328,9 +329,8 @@ fun DBTaskScreen(
     var colorPickForParentId by rememberSaveable { mutableStateOf<Long?>(null) }
     var confirmDeleteParentId by rememberSaveable { mutableStateOf<Long?>(null) }
     var confirmDeleteParentName by rememberSaveable { mutableStateOf("") }
-    val presetColors = remember {
+    val presetColors =
         listOf(0xFFEF9A9A, 0xFFA5D6A7, 0xFF90CAF9, 0xFFFFF59D, 0xFFCE93D8).map { Color(it) }
-    }
 
     // FAB 自動非表示
     var fabVisible by rememberSaveable { mutableStateOf(true) }
@@ -372,7 +372,7 @@ fun DBTaskScreen(
         }
     }
 
-    // 並び替えモード用：親ごとの子ID順
+    // 並び替えモード：親ごとの子ID順
     val reorderLists = remember(sortMode, parents) {
         mutableStateMapOf<Long, MutableList<Long>>().apply {
             parents.forEach { group ->
@@ -400,8 +400,7 @@ fun DBTaskScreen(
             when (val s = ui) {
                 TaskCenterUiState.List -> {
                     Text(
-                        text = if (sortMode)
-                            "長押しして上下にドラッグすると並び替えできます"
+                        text = if (sortMode) "長押しして上下にドラッグすると並び替えできます"
                         else stringResource(R.string.label_select_task),
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(bottom = 16.dp),
@@ -469,6 +468,7 @@ fun DBTaskScreen(
                                                 onClick = {
                                                     menuForParentId = null
                                                     newChildName = ""
+                                                    addChildError = null
                                                     showAddChildDialogFor = p.parent.id
                                                     lastInteractionTime = System.currentTimeMillis()
                                                 }
@@ -495,7 +495,7 @@ fun DBTaskScreen(
 
                                     Spacer(Modifier.height(8.dp))
 
-                                    // 子行
+                                    // 子要素
                                     order.forEach { childId ->
                                         val child = childById[childId] ?: return@forEach
                                         val isSelected = selectedTaskId == child.id && !sortMode
@@ -625,6 +625,7 @@ fun DBTaskScreen(
                                                     modifier = Modifier.weight(1f),
                                                     color = textColor
                                                 )
+                                                // 色の四角形
                                                 Box(
                                                     modifier = Modifier
                                                         .size(16.dp)
@@ -639,11 +640,11 @@ fun DBTaskScreen(
                                                         )
                                                 )
                                                 Spacer(Modifier.width(8.dp))
-
                                                 if (!sortMode) {
                                                     IconButton(onClick = {
                                                         menuForChildTaskId = child.id
                                                         renameTaskCurrentName = child.name
+                                                        renameTaskText = child.name
                                                         lastInteractionTime =
                                                             System.currentTimeMillis()
                                                     }) {
@@ -699,8 +700,8 @@ fun DBTaskScreen(
                         parentId = s.parentId,
                         color = s.color,
                         onBack = {
-                            ui = TaskCenterUiState.List
-                            lastInteractionTime = System.currentTimeMillis()
+                            ui = TaskCenterUiState.List; lastInteractionTime =
+                            System.currentTimeMillis()
                         },
                         onPick = { pickedId ->
                             viewModel.onTaskPressed(pickedId)
@@ -724,34 +725,9 @@ fun DBTaskScreen(
             }
         }
 
-        // FAB（親/子追加）
-        if (fabVisible) {
-            FloatingActionButton(
-                onClick = {
-                    when (val s = ui) {
-                        is TaskCenterUiState.SubtaskSelect -> {
-                            newChildName = ""
-                            showAddChildDialogFor = s.parentId
-                        }
+        // ====== 追加ダイアログ群 ======
 
-                        else -> {
-                            newTaskName = ""
-                            showAddDialog = true
-                        }
-                    }
-                    lastInteractionTime = System.currentTimeMillis()
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp)
-            ) {
-                Icon(Icons.Filled.AddCircle, contentDescription = "Add task")
-            }
-        }
-
-        /* ---------- ここからダイアログ群 ---------- */
-
-        // 親タスク追加
+        // 親タスク追加（重複禁止）
         if (showAddDialog) {
             AlertDialog(
                 onDismissRequest = { showAddDialog = false },
@@ -759,21 +735,45 @@ fun DBTaskScreen(
                 text = {
                     OutlinedTextField(
                         value = newTaskName,
-                        onValueChange = { newTaskName = it.take(128) },
+                        onValueChange = {
+                            if (it.length <= 128) {
+                                newTaskName = it
+                                // 入力変更時にエラーを再評価
+                                val name = it.trim()
+                                addParentError = when {
+                                    name.isEmpty() -> null
+                                    viewModel.hasDuplicateParentName(name) -> "同名の親タスクが既に存在します"
+                                    else -> null
+                                }
+                            }
+                        },
                         singleLine = true,
-                        label = { Text("タスク名（128文字まで）") }
+                        isError = addParentError != null,
+                        label = { Text("タスク名（1〜128文字）") },
+                        supportingText = {
+                            if (addParentError != null) Text(addParentError!!)
+                        }
                     )
                 },
                 confirmButton = {
-                    TextButton(
-                        onClick = {
-                            val name = newTaskName.trim()
-                            if (name.isNotEmpty()) {
+                    TextButton(onClick = {
+                        val name = newTaskName.trim().take(128)
+                        when {
+                            name.isEmpty() -> {
+                                addParentError = "1文字以上で入力してください"
+                            }
+
+                            viewModel.hasDuplicateParentName(name) -> {
+                                addParentError = "同名の親タスクが既に存在します"
+                            }
+
+                            else -> {
                                 viewModel.addParentTask(name)
                                 showAddDialog = false
+                                addParentError = null
                             }
                         }
-                    ) { Text("追加") }
+                    }) { Text("追加") }
                 },
                 dismissButton = {
                     TextButton(onClick = { showAddDialog = false }) { Text("キャンセル") }
@@ -781,7 +781,7 @@ fun DBTaskScreen(
             )
         }
 
-        // 子タスク追加
+        // 子タスク追加（同一プロジェクト内で重複禁止）
         if (showAddChildDialogFor != null) {
             AlertDialog(
                 onDismissRequest = { showAddChildDialogFor = null },
@@ -789,18 +789,49 @@ fun DBTaskScreen(
                 text = {
                     OutlinedTextField(
                         value = newChildName,
-                        onValueChange = { newChildName = it.take(128) },
+                        onValueChange = {
+                            if (it.length <= 128) {
+                                newChildName = it
+                                val pid = showAddChildDialogFor
+                                val name = it.trim()
+                                addChildError = when {
+                                    name.isEmpty() -> null
+                                    pid != null && viewModel.hasDuplicateChildName(pid, name) ->
+                                        "同名のタスクがこのプロジェクトに存在します"
+
+                                    else -> null
+                                }
+                            }
+                        },
                         singleLine = true,
-                        label = { Text("タスク名（128文字まで）") }
+                        isError = addChildError != null,
+                        label = { Text("タスク名（1〜128文字）") },
+                        supportingText = {
+                            if (addChildError != null) Text(addChildError!!)
+                        }
                     )
                 },
                 confirmButton = {
                     TextButton(onClick = {
                         val pid = showAddChildDialogFor
-                        val name = newChildName.trim()
-                        if (pid != null && name.isNotEmpty()) {
-                            viewModel.addChildTask(pid, name)
-                            showAddChildDialogFor = null
+                        val name = newChildName.trim().take(128)
+                        when {
+                            pid == null -> { /* no-op */
+                            }
+
+                            name.isEmpty() -> {
+                                addChildError = "1文字以上で入力してください"
+                            }
+
+                            viewModel.hasDuplicateChildName(pid, name) -> {
+                                addChildError = "同名のタスクがこのプロジェクトに存在します"
+                            }
+
+                            else -> {
+                                viewModel.addChildTask(pid, name)
+                                showAddChildDialogFor = null
+                                addChildError = null
+                            }
                         }
                     }) { Text("追加") }
                 },
@@ -810,16 +841,17 @@ fun DBTaskScreen(
             )
         }
 
-        // 親色変更
+        // 色変更
         if (colorPickForParentId != null) {
             AlertDialog(
                 onDismissRequest = { colorPickForParentId = null },
                 title = { Text("色の変更") },
                 text = {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row {
                         presetColors.forEach { c ->
                             Box(
                                 modifier = Modifier
+                                    .padding(end = 12.dp)
                                     .size(32.dp)
                                     .background(c, RoundedCornerShape(6.dp))
                                     .border(
@@ -866,32 +898,35 @@ fun DBTaskScreen(
             )
         }
 
-        // 子タスク：名前変更
+        // タスク名変更
         if (renameTaskId != null) {
             AlertDialog(
                 onDismissRequest = { renameTaskId = null },
                 title = { Text("名前を変更") },
                 text = {
                     Column {
-                        Text("現在の名前：$renameTaskCurrentName")
+                        Text(
+                            "現在: $renameTaskCurrentName",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(
                             value = renameTaskText,
-                            onValueChange = { renameTaskText = it.take(128) },
+                            onValueChange = { if (it.length <= 128) renameTaskText = it },
                             singleLine = true,
-                            label = { Text("新しい名前（128文字まで）") }
+                            label = { Text("新しい名前（1〜128文字）") }
                         )
                     }
                 },
                 confirmButton = {
                     TextButton(onClick = {
                         val id = renameTaskId
-                        val name = renameTaskText.trim()
+                        val name = renameTaskText.trim().take(128)
                         if (id != null && name.isNotEmpty()) {
                             viewModel.renameTask(id, name)
                         }
                         renameTaskId = null
-                    }) { Text("変更") }
+                    }) { Text("保存") }
                 },
                 dismissButton = {
                     TextButton(onClick = { renameTaskId = null }) { Text("キャンセル") }
@@ -899,7 +934,7 @@ fun DBTaskScreen(
             )
         }
 
-        // 子タスク：削除確認
+        // タスク削除確認
         if (confirmDeleteTaskId != null) {
             AlertDialog(
                 onDismissRequest = { confirmDeleteTaskId = null },
@@ -908,9 +943,7 @@ fun DBTaskScreen(
                 confirmButton = {
                     TextButton(onClick = {
                         val id = confirmDeleteTaskId
-                        if (id != null) {
-                            viewModel.deleteTask(id)
-                        }
+                        if (id != null) viewModel.deleteTask(id)
                         confirmDeleteTaskId = null
                     }) { Text("削除") }
                 },
@@ -919,7 +952,33 @@ fun DBTaskScreen(
                 }
             )
         }
-        /* ---------- ダイアログ群ここまで ---------- */
+
+        // FAB（親 or 子の追加）
+        if (fabVisible) {
+            FloatingActionButton(
+                onClick = {
+                    when (val s = ui) {
+                        is TaskCenterUiState.SubtaskSelect -> {
+                            newChildName = ""
+                            addChildError = null
+                            showAddChildDialogFor = s.parentId
+                        }
+
+                        else -> {
+                            newTaskName = ""
+                            addParentError = null
+                            showAddDialog = true
+                        }
+                    }
+                    lastInteractionTime = System.currentTimeMillis()
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+            ) {
+                Icon(Icons.Filled.AddCircle, contentDescription = "Add task")
+            }
+        }
     }
 }
 
@@ -993,14 +1052,12 @@ private fun SubtaskPicker(
                             modifier = Modifier.weight(1f),
                             color = textColor
                         )
-
                         Box(
                             modifier = Modifier
                                 .size(16.dp)
                                 .background(color, RoundedCornerShape(3.dp))
                                 .border(1.dp, border, RoundedCornerShape(3.dp))
                         )
-
                         Spacer(Modifier.width(8.dp))
 
                         var menuExpanded by remember { mutableStateOf(false) }
