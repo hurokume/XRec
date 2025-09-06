@@ -1,6 +1,11 @@
 package com.example.timerecorder.data.db
 
-import androidx.room.*
+import androidx.room.Embedded
+import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
+import androidx.room.PrimaryKey
+import androidx.room.Relation
 
 /**
  * タスクを1テーブルで階層管理：
@@ -57,7 +62,7 @@ data class TaskEventEntity(
     val durationMillis: Long      // 期間（ミリ秒）
 )
 
-/** active と task の結合表示用 */
+/** active と task の結合表示用（Repository / ViewModel が参照） */
 data class ActiveWithTask(
     @Embedded val active: ActiveTaskEntity,
     @Relation(

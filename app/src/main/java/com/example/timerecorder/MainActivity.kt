@@ -86,6 +86,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -95,14 +97,15 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.timerecorder.ui.HistoryItemUi
 import com.example.timerecorder.ui.TaskViewModel
 import com.example.timerecorder.ui.theme.TimeRecorderTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -318,8 +321,9 @@ fun DBTaskScreen(
     modifier: Modifier = Modifier,
     sortMode: Boolean
 ) {
+    // StateFlow の拡張をそのまま使う（ライフサイクルはデフォルトを利用）
     val parents by viewModel.parents.collectAsStateWithLifecycle()
-    val active by viewModel.active.collectAsStateWithLifecycle()
+    val activeUi by viewModel.activeUi.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
     var ui by remember { mutableStateOf<TaskCenterUiState>(TaskCenterUiState.List) }
@@ -357,7 +361,7 @@ fun DBTaskScreen(
     var lastInteractionTime by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(lastInteractionTime) {
         fabVisible = true
-        kotlinx.coroutines.delay(5000)
+        delay(5000)
         fabVisible = false
     }
 
@@ -367,27 +371,17 @@ fun DBTaskScreen(
             .collect { lastInteractionTime = System.currentTimeMillis() }
     }
 
-    // 実行中タスク → ハイライト
-    LaunchedEffect(active, parents) {
-        val a = active
+    // 実行中タスク → ハイライト（activeUi に合わせて簡略化）
+    LaunchedEffect(activeUi, parents) {
+        val a = activeUi
         if (a == null) {
             selectedTaskId = null
             ui = TaskCenterUiState.List
         } else {
-            val activeId = a.task.id
-            val parentIdOfActive = a.task.parentId
+            val activeId = a.taskId
             val foundDirect =
                 parents.firstOrNull { group -> group.children.any { it.id == activeId } }
-            selectedTaskId = when {
-                foundDirect != null -> activeId
-                parentIdOfActive != null -> {
-                    val container =
-                        parents.firstOrNull { group -> group.children.any { it.id == parentIdOfActive } }
-                    container?.children?.firstOrNull { it.id == parentIdOfActive }?.id
-                }
-
-                else -> null
-            }
+            selectedTaskId = if (foundDirect != null) activeId else null
             ui = TaskCenterUiState.List
         }
     }
@@ -1001,12 +995,14 @@ private fun SubtaskPicker(
     onDeleteRequest: (Long, String) -> Unit,
     viewModel: TaskViewModel
 ) {
-    val subtasks by viewModel.children(parentId).collectAsStateWithLifecycle(emptyList())
+    // Flow<List<...>> なので初期値を渡すオーバーロードを使用
+    val subtasks by viewModel.children(parentId)
+        .collectAsStateWithLifecycle(initialValue = emptyList())
     var selectedSubId by rememberSaveable { mutableStateOf<Long?>(null) }
 
-    val active by viewModel.active.collectAsStateWithLifecycle()
-    LaunchedEffect(active, subtasks) {
-        val aid = active?.task?.id
+    val activeUi by viewModel.activeUi.collectAsStateWithLifecycle()
+    LaunchedEffect(activeUi, subtasks) {
+        val aid = activeUi?.taskId
         if (aid != null && subtasks.any { it.id == aid }) {
             selectedSubId = aid
         }
@@ -1108,6 +1104,8 @@ private fun TimelineScreen(viewModel: TaskViewModel, modifier: Modifier = Modifi
     LaunchedEffect(Unit) { viewModel.ensureHistoryFirstPage() }
 
     val history by viewModel.historyItems.collectAsStateWithLifecycle()
+    val activeUi by viewModel.activeUi.collectAsStateWithLifecycle()
+    val parents by viewModel.parents.collectAsStateWithLifecycle()
 
     var dayCount by rememberSaveable { mutableIntStateOf(3) }     // 3/5/7 切替
     var anchorOffset by rememberSaveable { mutableIntStateOf(0) } // 0=今日起点、±dayCountでページ送り
@@ -1124,6 +1122,15 @@ private fun TimelineScreen(viewModel: TaskViewModel, modifier: Modifier = Modifi
         val first = f.format(Date(startMs))
         val last = f.format(Date(endMs - 1))
         if (dayCount == 1) first else "$first 〜 $last"
+    }
+
+    // ★ テーマ色はComposeから事前に取得
+    val defaultTaskColor = MaterialTheme.colorScheme.onSurface
+
+    // ★ 非 @Composable ヘルパーにする（テーマ色は引数で渡す）
+    fun colorForTask(taskId: Long, defaultColor: Color): Color {
+        val group = parents.firstOrNull { g -> g.children.any { it.id == taskId } }
+        return group?.parent?.colorInt?.let { Color(it) } ?: defaultColor
     }
 
     Column(
@@ -1170,25 +1177,41 @@ private fun TimelineScreen(viewModel: TaskViewModel, modifier: Modifier = Modifi
 
         Spacer(Modifier.height(8.dp))
 
-        // 履歴を各日に分割（はみ出しは日単位にクランプ）
-        val blocksByDay: List<List<TimelineBlock>> = remember(history, startMs, dayCount) {
-            val days = List(dayCount) { mutableListOf<TimelineBlock>() }
-            history.forEach { h ->
-                val itemStart = h.pressedAt
-                val itemEnd = h.pressedAt + max(0L, h.durationMillis)
-                if (itemEnd <= startMs || itemStart >= endMs) return@forEach
-                for (i in 0 until dayCount) {
-                    val dStart = startMs + i * 24L * 60L * 60L * 1000L
-                    val dEnd = dStart + 24L * 60L * 60L * 1000L
-                    val s = max(itemStart, dStart)
-                    val e = minOf(itemEnd, dEnd)
-                    if (e > s) {
-                        days[i].add(TimelineBlock(s, e, h.taskName, h.color))
+        // 履歴 + 進行中を各日に分割（はみ出しは日単位にクランプ）
+        val blocksByDay: List<List<TimelineBlock>> =
+            remember(history, activeUi, parents, startMs, endMs, dayCount, nowMs) {
+                val days = List(dayCount) { mutableListOf<TimelineBlock>() }
+
+                fun addClampedBlock(s: Long, e: Long, name: String, color: Color) {
+                    if (e <= startMs || s >= endMs) return
+                    repeat(dayCount) { i ->
+                        val dStart = startMs + i * 24L * 60L * 60L * 1000L
+                        val dEnd = dStart + 24L * 60L * 60L * 1000L
+                        val cs = maxOf(s, dStart)
+                        val ce = minOf(e, dEnd)
+                        if (ce > cs) days[i].add(TimelineBlock(cs, ce, name, color))
                     }
                 }
+
+                // 履歴
+                history.forEach { h ->
+                    val itemStart = h.pressedAt
+                    val itemEnd = h.pressedAt + max(0L, h.durationMillis)
+                    addClampedBlock(itemStart, itemEnd, h.taskName, h.color)
+                }
+
+                // 進行中（開始〜今）
+                activeUi?.let { a ->
+                    val start = a.startEpochMs
+                    if (start > 0L) {
+                        val color = colorForTask(a.taskId, defaultTaskColor)
+                        val end = nowMs
+                        addClampedBlock(start, end, a.taskName, color)
+                    }
+                }
+
+                days.map { it.sortedBy { b -> b.startMs } }
             }
-            days.map { it.sortedBy { b -> b.startMs } }
-        }
 
         MultiDayTimeline(
             startMs = startMs,
@@ -1299,15 +1322,15 @@ private fun DayColumn(
             // 日付ヘッダ帯
             drawRect(
                 color = surfaceVariant,
-                size = androidx.compose.ui.geometry.Size(w, hourHeightPx * 0.75f)
+                size = Size(w, hourHeightPx * 0.75f)
             )
             // 時間線
             repeat(25) { i ->
                 val y = step * i
                 drawLine(
                     color = outline40,
-                    start = androidx.compose.ui.geometry.Offset(0f, y),
-                    end = androidx.compose.ui.geometry.Offset(w, y),
+                    start = Offset(0f, y),
+                    end = Offset(w, y),
                     strokeWidth = if (i % 6 == 0) 2f else 1f
                 )
             }
@@ -1377,6 +1400,9 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
     LaunchedEffect(Unit) { viewModel.ensureHistoryFirstPage() }
 
     val history by viewModel.historyItems.collectAsStateWithLifecycle()
+    val activeUi by viewModel.activeUi.collectAsStateWithLifecycle()
+    val parents by viewModel.parents.collectAsStateWithLifecycle()
+
     var days by rememberSaveable { mutableIntStateOf(7) } // 7/30/90
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
@@ -1387,20 +1413,39 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
 
     val cutoff = remember(nowMs, days) { nowMs - days * 24L * 60L * 60L * 1000L }
 
+    // ★ テーマ色を事前取得
+    val defaultTaskColor = MaterialTheme.colorScheme.primary
+
+    // ★ 非 @Composable
+    fun colorForTask(taskId: Long, defaultColor: Color): Color {
+        val group = parents.firstOrNull { g -> g.children.any { it.id == taskId } }
+        return group?.parent?.colorInt?.let { Color(it) } ?: defaultColor
+    }
+
     data class Agg(val taskId: Long, val name: String, val color: Color, val totalMs: Long)
 
-    val aggregated: List<Agg> = remember(history, cutoff) {
+    val aggregated: List<Agg> = remember(history, activeUi, parents, cutoff, nowMs) {
         val map = LinkedHashMap<Long, Agg>()
-        history.filter { it.pressedAt >= cutoff }.forEach { row ->
-            val existing = map[row.taskId]
-            if (existing == null) {
-                map[row.taskId] =
-                    Agg(row.taskId, row.taskName, row.color, max(0L, row.durationMillis))
-            } else {
-                map[row.taskId] =
-                    existing.copy(totalMs = existing.totalMs + max(0L, row.durationMillis))
-            }
+
+        fun addMs(taskId: Long, name: String, color: Color, ms: Long) {
+            if (ms <= 0L) return
+            val cur = map[taskId]
+            if (cur == null) map[taskId] = Agg(taskId, name, color, ms)
+            else map[taskId] = cur.copy(totalMs = cur.totalMs + ms)
         }
+
+        // 履歴
+        history.filter { it.pressedAt >= cutoff }.forEach { row ->
+            addMs(row.taskId, row.taskName, row.color, max(0L, row.durationMillis))
+        }
+
+        // ★ 進行中を加算
+        activeUi?.let { a ->
+            val s = maxOf(a.startEpochMs, cutoff)
+            val e = nowMs
+            addMs(a.taskId, a.taskName, colorForTask(a.taskId, defaultTaskColor), max(0L, e - s))
+        }
+
         map.values.sortedByDescending { it.totalMs }.toList()
     }
 
@@ -1629,7 +1674,7 @@ fun HistoryScreen(modifier: Modifier = Modifier, viewModel: TaskViewModel) {
 
 @SuppressLint("DefaultLocale")
 @Composable
-private fun HistoryRowCard(row: com.example.timerecorder.ui.HistoryItemUi) {
+private fun HistoryRowCard(row: HistoryItemUi) {
     val dateStr = remember(row.pressedAt) {
         DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.MEDIUM, Locale.getDefault())
             .format(Date(row.pressedAt))

@@ -12,6 +12,7 @@ import com.example.timerecorder.data.db.ParentWithChildren
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -22,6 +23,15 @@ data class HistoryItemUi(
     val color: Color,
     val pressedAt: Long,
     val durationMillis: Long
+)
+
+/** 進行中タスクを UI で使いやすい形に正規化したモデル */
+data class ActiveUi(
+    val taskId: Long,
+    val taskName: String,
+    val color: Color,
+    /** 進行開始のエポック（ms） */
+    val startEpochMs: Long
 )
 
 private const val HISTORY_PAGE_SIZE = 100
@@ -42,6 +52,23 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     // アクティブ（DBの未終了セッションを監視する想定）
     val active: StateFlow<ActiveWithTask?> =
         repo.observeActive()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** UI 向けに正規化された進行中タスク（タイムライン・集計で使用） */
+    val activeUi: StateFlow<ActiveUi?> =
+        repo.observeActive()
+            .map { a: ActiveWithTask? ->
+                if (a == null) return@map null
+
+                val start = a.active.startedAtEpochMs
+
+                ActiveUi(
+                    taskId = a.task.id,
+                    taskName = a.task.name,
+                    color = Color(a.task.colorInt ?: 0xFF9E9E9E.toInt()),
+                    startEpochMs = start
+                )
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // --- 操作 ---
@@ -77,6 +104,7 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         loadHistoryPageInternal(reset = true)
     }
 
+    // これを TaskViewModel.kt に置く（既存の同名拡張を置き換え）
     private fun com.example.timerecorder.data.db.HistoryRowDb.toUi(): HistoryItemUi =
         HistoryItemUi(
             id = eventId,
