@@ -102,4 +102,24 @@ interface TaskDao {
 
     @Query("SELECT COUNT(*) FROM tasks WHERE parentId IS :parentId AND name = :name")
     suspend fun countByNameInParent(parentId: Long?, name: String): Int
+
+    // 区間に重なる履歴を取得
+    @Query(
+        """
+        SELECT e.id AS eventId,
+               e.taskId AS taskId,
+               t.name AS taskName,
+               t.colorInt AS colorInt,
+               e.pressedAtEpochMs AS pressedAtEpochMs,
+               e.durationMillis AS durationMillis
+        FROM task_events e
+        JOIN tasks t ON t.id = e.taskId
+        WHERE (e.pressedAtEpochMs + MAX(e.durationMillis, 0)) > :startMs
+          AND e.pressedAtEpochMs < :endMs
+        ORDER BY e.pressedAtEpochMs ASC
+        """
+    )
+
+    suspend fun getEventsInRange(startMs: Long, endMs: Long): List<HistoryRowDb>
+
 }

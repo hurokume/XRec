@@ -5,19 +5,24 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -27,10 +32,14 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
@@ -44,6 +53,7 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -52,8 +62,10 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -63,6 +75,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,13 +85,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -89,9 +107,12 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.text.DateFormat
+import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 private enum class AppScreen { Main, History }
 
@@ -274,9 +295,9 @@ fun MainPager(
         modifier = modifier.fillMaxSize()
     ) { page ->
         when (page) {
-            0 -> BlankScreen(label = stringResource(R.string.left_page_label))
+            0 -> TimelineScreen(viewModel = viewModel)            // 左ページ：マルチ日タイムライン
             1 -> DBTaskScreen(viewModel = viewModel, sortMode = sortMode)
-            2 -> BlankScreen(label = stringResource(R.string.right_page_label))
+            2 -> StatsScreen(viewModel = viewModel)               // 右ページ：集計グラフ
         }
     }
 }
@@ -305,7 +326,6 @@ fun DBTaskScreen(
 
     // ハイライト（実行中）
     var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
-    val themePrimary = MaterialTheme.colorScheme.primary
 
     // 追加／ダイアログ用 state
     var showAddDialog by rememberSaveable { mutableStateOf(false) }
@@ -413,7 +433,8 @@ fun DBTaskScreen(
                     ) {
                         items(parents.size) { idx ->
                             val p = parents[idx]
-                            val parentColor = p.parent.colorInt?.let { Color(it) } ?: themePrimary
+                            val parentColor = p.parent.colorInt?.let { Color(it) }
+                                ?: MaterialTheme.colorScheme.primary
 
                             val childById =
                                 remember(p.children) { p.children.associateBy { it.id } }
@@ -623,7 +644,9 @@ fun DBTaskScreen(
                                                     text = child.name,
                                                     style = MaterialTheme.typography.bodyLarge,
                                                     modifier = Modifier.weight(1f),
-                                                    color = textColor
+                                                    color = textColor,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
                                                 )
                                                 // 色の四角形
                                                 Box(
@@ -738,7 +761,6 @@ fun DBTaskScreen(
                         onValueChange = {
                             if (it.length <= 128) {
                                 newTaskName = it
-                                // 入力変更時にエラーを再評価
                                 val name = it.trim()
                                 addParentError = when {
                                     name.isEmpty() -> null
@@ -750,22 +772,16 @@ fun DBTaskScreen(
                         singleLine = true,
                         isError = addParentError != null,
                         label = { Text("タスク名（1〜128文字）") },
-                        supportingText = {
-                            if (addParentError != null) Text(addParentError!!)
-                        }
+                        supportingText = { if (addParentError != null) Text(addParentError!!) }
                     )
                 },
                 confirmButton = {
                     TextButton(onClick = {
                         val name = newTaskName.trim().take(128)
                         when {
-                            name.isEmpty() -> {
-                                addParentError = "1文字以上で入力してください"
-                            }
-
-                            viewModel.hasDuplicateParentName(name) -> {
-                                addParentError = "同名の親タスクが既に存在します"
-                            }
+                            name.isEmpty() -> addParentError = "1文字以上で入力してください"
+                            viewModel.hasDuplicateParentName(name) -> addParentError =
+                                "同名の親タスクが既に存在します"
 
                             else -> {
                                 viewModel.addParentTask(name)
@@ -806,9 +822,7 @@ fun DBTaskScreen(
                         singleLine = true,
                         isError = addChildError != null,
                         label = { Text("タスク名（1〜128文字）") },
-                        supportingText = {
-                            if (addChildError != null) Text(addChildError!!)
-                        }
+                        supportingText = { if (addChildError != null) Text(addChildError!!) }
                     )
                 },
                 confirmButton = {
@@ -816,16 +830,10 @@ fun DBTaskScreen(
                         val pid = showAddChildDialogFor
                         val name = newChildName.trim().take(128)
                         when {
-                            pid == null -> { /* no-op */
-                            }
-
-                            name.isEmpty() -> {
-                                addChildError = "1文字以上で入力してください"
-                            }
-
-                            viewModel.hasDuplicateChildName(pid, name) -> {
+                            pid == null -> {}
+                            name.isEmpty() -> addChildError = "1文字以上で入力してください"
+                            viewModel.hasDuplicateChildName(pid, name) ->
                                 addChildError = "同名のタスクがこのプロジェクトに存在します"
-                            }
 
                             else -> {
                                 viewModel.addChildTask(pid, name)
@@ -1050,7 +1058,9 @@ private fun SubtaskPicker(
                             text = t.name,
                             style = MaterialTheme.typography.bodyLarge,
                             modifier = Modifier.weight(1f),
-                            color = textColor
+                            color = textColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Box(
                             modifier = Modifier
@@ -1083,6 +1093,471 @@ private fun SubtaskPicker(
                                 }
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* =========================
+   左ページ：マルチ日タイムライン（Googleカレンダー週表示風）
+   ========================= */
+@Composable
+private fun TimelineScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
+    LaunchedEffect(Unit) { viewModel.ensureHistoryFirstPage() }
+
+    val history by viewModel.historyItems.collectAsStateWithLifecycle()
+
+    var dayCount by rememberSaveable { mutableIntStateOf(3) }     // 3/5/7 切替
+    var anchorOffset by rememberSaveable { mutableIntStateOf(0) } // 0=今日起点、±dayCountでページ送り
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    val startOfToday = remember(nowMs) { midnightOf(nowMs) }
+    val startMs = remember(startOfToday, anchorOffset) {
+        startOfToday + anchorOffset * 24L * 60L * 60L * 1000L
+    }
+    val endMs = remember(startMs, dayCount) { startMs + dayCount * 24L * 60L * 60L * 1000L }
+
+    val f = remember { SimpleDateFormat("yyyy/MM/dd (EEE)", Locale.getDefault()) }
+    val headerLabel = remember(startMs, endMs, dayCount) {
+        val first = f.format(Date(startMs))
+        val last = f.format(Date(endMs - 1))
+        if (dayCount == 1) first else "$first 〜 $last"
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(12.dp)
+    ) {
+        // ヘッダ（移動・今日へ・表示切替）
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { anchorOffset -= dayCount }) {
+                Icon(Icons.Filled.ChevronLeft, contentDescription = "prev")
+            }
+            Text(
+                headerLabel,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f)
+            )
+            if (anchorOffset != 0) {
+                TextButton(onClick = { anchorOffset = 0 }) { Text("今日へ") }
+            }
+            IconButton(onClick = { anchorOffset += dayCount }) {
+                Icon(Icons.Filled.ChevronRight, contentDescription = "next")
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            SegButton("3日", active = dayCount == 3) { dayCount = 3 }
+            SegButton("5日", active = dayCount == 5) { dayCount = 5 }
+            SegButton("7日", active = dayCount == 7) { dayCount = 7 }
+            Spacer(Modifier.weight(1f))
+            OutlinedButton(onClick = {
+                nowMs = System.currentTimeMillis()
+                viewModel.reloadHistory()
+            }) {
+                Icon(Icons.Filled.Refresh, contentDescription = "refresh")
+                Spacer(Modifier.width(8.dp)); Text("更新")
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // 履歴を各日に分割（はみ出しは日単位にクランプ）
+        val blocksByDay: List<List<TimelineBlock>> = remember(history, startMs, dayCount) {
+            val days = List(dayCount) { mutableListOf<TimelineBlock>() }
+            history.forEach { h ->
+                val itemStart = h.pressedAt
+                val itemEnd = h.pressedAt + max(0L, h.durationMillis)
+                if (itemEnd <= startMs || itemStart >= endMs) return@forEach
+                for (i in 0 until dayCount) {
+                    val dStart = startMs + i * 24L * 60L * 60L * 1000L
+                    val dEnd = dStart + 24L * 60L * 60L * 1000L
+                    val s = max(itemStart, dStart)
+                    val e = minOf(itemEnd, dEnd)
+                    if (e > s) {
+                        days[i].add(TimelineBlock(s, e, h.taskName, h.color))
+                    }
+                }
+            }
+            days.map { it.sortedBy { b -> b.startMs } }
+        }
+
+        MultiDayTimeline(
+            startMs = startMs,
+            dayCount = dayCount,
+            blocksByDay = blocksByDay
+        )
+    }
+}
+
+private data class TimelineBlock(
+    val startMs: Long,
+    val endMs: Long,
+    val name: String,
+    val color: Color
+)
+
+@Composable
+private fun MultiDayTimeline(
+    startMs: Long,
+    dayCount: Int,
+    blocksByDay: List<List<TimelineBlock>>,
+    modifier: Modifier = Modifier
+) {
+    val HOUR_HEIGHT = 48.dp
+    val GUTTER = 40.dp
+    val totalHeight = HOUR_HEIGHT * 24
+    val dateFmt = remember { SimpleDateFormat("M/d (E)", Locale.getDefault()) }
+
+    val scroll = rememberScrollState()
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .verticalScroll(scroll)
+            .height(totalHeight + 0.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+    ) {
+        // 左：時間ガター
+        Column(
+            modifier = Modifier
+                .width(GUTTER)
+                .fillMaxHeight()
+                .background(MaterialTheme.colorScheme.surface)
+        ) {
+            repeat(25) { h ->
+                Box(
+                    modifier = Modifier
+                        .height(HOUR_HEIGHT)
+                        .width(GUTTER),
+                    contentAlignment = Alignment.TopEnd
+                ) {
+                    if (h in 0..23) {
+                        Text(
+                            text = String.format("%02d", h),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(end = 4.dp, top = 2.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // 右：日カラム群
+        Row(
+            Modifier
+                .weight(1f)
+                .fillMaxHeight()
+        ) {
+            repeat(dayCount) { i ->
+                val dayStart = startMs + i * 24L * 60L * 60L * 1000L
+                val label = dateFmt.format(Date(dayStart))
+                DayColumn(
+                    label = label,
+                    hourHeight = HOUR_HEIGHT,
+                    blocks = blocksByDay.getOrNull(i).orEmpty(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DayColumn(
+    label: String,
+    hourHeight: Dp,
+    blocks: List<TimelineBlock>,
+    modifier: Modifier = Modifier
+) {
+    val hourHeightPx = with(LocalDensity.current) { hourHeight.toPx() }
+
+    // 🎯 ここで必要な色を先に取り出す
+    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    val outline = MaterialTheme.colorScheme.outline
+    val outline40 = outline.copy(alpha = 0.4f)
+    val onSurface = MaterialTheme.colorScheme.onSurface
+
+    Box(modifier = modifier) {
+        // 背景グリッド
+        Canvas(Modifier.matchParentSize()) {
+            val w = size.width
+            val h = size.height
+            val step = h / 24f
+            // 日付ヘッダ帯
+            drawRect(
+                color = surfaceVariant,
+                size = androidx.compose.ui.geometry.Size(w, hourHeightPx * 0.75f)
+            )
+            // 時間線
+            repeat(25) { i ->
+                val y = step * i
+                drawLine(
+                    color = outline40,
+                    start = androidx.compose.ui.geometry.Offset(0f, y),
+                    end = androidx.compose.ui.geometry.Offset(w, y),
+                    strokeWidth = if (i % 6 == 0) 2f else 1f
+                )
+            }
+        }
+
+        // 日付ラベル
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(hourHeight * 0.75f)
+                .padding(horizontal = 8.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Text(label, style = MaterialTheme.typography.labelLarge)
+        }
+
+        // ブロック群
+        blocks.forEach { b ->
+            val startMin = minutesOfDay(b.startMs)
+            val endMin = minutesOfDay(b.endMs)
+            val top = hourHeight * (startMin / 60f)
+            val height = hourHeight * ((endMin - startMin).coerceAtLeast(1) / 60f)
+
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 4.dp)
+                    .offset(y = top)
+                    .fillMaxWidth()
+                    .height(height)
+                    .background(b.color.copy(alpha = 0.9f), RoundedCornerShape(6.dp))
+                    .border(1.dp, outline, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    b.name,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = onSurface
+                )
+            }
+        }
+    }
+}
+
+private fun midnightOf(timeMs: Long): Long {
+    val cal = Calendar.getInstance().apply {
+        timeInMillis = timeMs
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    return cal.timeInMillis
+}
+
+private fun minutesOfDay(ms: Long): Int {
+    val cal = Calendar.getInstance().apply { timeInMillis = ms }
+    return cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+}
+
+/* =========================
+   右ページ：期間集計グラフ
+   ========================= */
+@Composable
+private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
+    LaunchedEffect(Unit) { viewModel.ensureHistoryFirstPage() }
+
+    val history by viewModel.historyItems.collectAsStateWithLifecycle()
+    var days by rememberSaveable { mutableIntStateOf(7) } // 7/30/90
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    val onRefresh = {
+        nowMs = System.currentTimeMillis()
+        viewModel.reloadHistory()
+    }
+
+    val cutoff = remember(nowMs, days) { nowMs - days * 24L * 60L * 60L * 1000L }
+
+    data class Agg(val taskId: Long, val name: String, val color: Color, val totalMs: Long)
+
+    val aggregated: List<Agg> = remember(history, cutoff) {
+        val map = LinkedHashMap<Long, Agg>()
+        history.filter { it.pressedAt >= cutoff }.forEach { row ->
+            val existing = map[row.taskId]
+            if (existing == null) {
+                map[row.taskId] =
+                    Agg(row.taskId, row.taskName, row.color, max(0L, row.durationMillis))
+            } else {
+                map[row.taskId] =
+                    existing.copy(totalMs = existing.totalMs + max(0L, row.durationMillis))
+            }
+        }
+        map.values.sortedByDescending { it.totalMs }.toList()
+    }
+
+    val totalAll = aggregated.sumOf { it.totalMs }.coerceAtLeast(1L)
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text("集計", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(12.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SegButton("7日", active = days == 7) { days = 7 }
+            SegButton("30日", active = days == 30) { days = 30 }
+            SegButton("90日", active = days == 90) { days = 90 }
+            Spacer(Modifier.weight(1f))
+            OutlinedButton(onClick = onRefresh) {
+                Icon(Icons.Filled.Refresh, contentDescription = "refresh")
+                Spacer(Modifier.width(8.dp))
+                Text("更新")
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "期間: 過去${days}日 / 合計 ${(totalAll / 1000 / 60)} 分",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        if (aggregated.isEmpty()) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                tonalElevation = 2.dp,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("データがありません。記録するとここに表示されます。")
+                }
+            }
+        } else {
+            val top = aggregated.take(8)
+            BarChart(
+                entries = top.map { it.name to it.totalMs.toFloat() },
+                colors = top.map { it.color },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1.4f)
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            Column {
+                top.forEach { a ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(14.dp)
+                                .background(a.color, RoundedCornerShape(3.dp))
+                                .border(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.outline,
+                                    RoundedCornerShape(3.dp)
+                                )
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            a.name,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        val minutes = (a.totalMs / 1000 / 60).toInt()
+                        val ratio = (a.totalMs.toDouble() / totalAll.toDouble() * 100.0)
+                        Text(
+                            "${minutes}分  (${ratio.roundToInt()}%)",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SegButton(label: String, active: Boolean, onClick: () -> Unit) {
+    if (active) {
+        FilledTonalButton(onClick = onClick, shape = RoundedCornerShape(999.dp)) {
+            Text(label)
+        }
+    } else {
+        OutlinedButton(onClick = onClick, shape = RoundedCornerShape(999.dp)) {
+            Text(label)
+        }
+    }
+}
+
+/** シンプルな横向き棒グラフ（Compose Canvas） */
+@Composable
+private fun BarChart(
+    entries: List<Pair<String, Float>>,
+    colors: List<Color>,
+    modifier: Modifier = Modifier,
+    barCornerRadius: Float = 16f
+) {
+    val maxVal = (entries.maxOfOrNull { it.second } ?: 1f).coerceAtLeast(1f)
+    LocalDensity.current
+
+    Column(modifier = modifier) {
+        entries.forEachIndexed { index, (label, value) ->
+            val ratio = value / maxVal
+            val barColor = colors.getOrNull(index) ?: MaterialTheme.colorScheme.primary
+
+            Column(Modifier.padding(vertical = 6.dp)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(22.dp)
+                        .background(
+                            MaterialTheme.colorScheme.surfaceVariant,
+                            RoundedCornerShape(999.dp)
+                        )
+                ) {
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth(ratio)
+                            .height(22.dp)
+                    ) {
+                        drawRoundRect(
+                            color = barColor,
+                            cornerRadius = CornerRadius(barCornerRadius, barCornerRadius)
+                        )
                     }
                 }
             }

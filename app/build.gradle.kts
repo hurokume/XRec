@@ -80,6 +80,8 @@ dependencies {
     // Compose で Flow/StateFlow を安全に collect
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
 
+    implementation("androidx.compose.material:material-icons-extended")
+
     // テスト
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

@@ -193,4 +193,25 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         val n = normalizeName(name)
         return parents.value.any { normalizeName(it.parent.name) == n }
     }
+
+    // --- タイムライン用 ---
+    private val _timelineItems = MutableStateFlow<List<HistoryItemUi>>(emptyList())
+    val timelineItems: StateFlow<List<HistoryItemUi>> = _timelineItems
+
+    /** 指定区間 [startMs, endMs) に重なる履歴をロードして StateFlow に反映 */
+    fun loadTimelineRange(startMs: Long, endMs: Long) {
+        viewModelScope.launch {
+            val rows = repo.loadHistoryRange(startMs, endMs)
+            _timelineItems.value = rows.map {
+                HistoryItemUi(
+                    id = it.eventId,
+                    taskId = it.taskId,
+                    taskName = it.taskName,
+                    color = Color(it.colorInt ?: 0xFF9E9E9E.toInt()),
+                    pressedAt = it.pressedAtEpochMs,
+                    durationMillis = it.durationMillis.coerceAtLeast(0L)
+                )
+            }
+        }
+    }
 }

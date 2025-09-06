@@ -98,4 +98,8 @@ class TaskRepository(private val dao: TaskDao) {
     suspend fun updateSortOrdersForParent(parentId: Long, idsInOrder: List<Long>) {
         dao.updateSortOrdersForParent(parentId, idsInOrder)
     }
+
+    suspend fun loadHistoryRange(startMs: Long, endMs: Long): List<HistoryRowDb> {
+        return dao.getEventsInRange(startMs, endMs)
+    }
 }
