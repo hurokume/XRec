@@ -1,7 +1,9 @@
 package com.example.timerecorder
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -65,11 +67,14 @@ import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.Checkbox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -93,6 +98,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
@@ -140,6 +146,13 @@ fun AppRoot(viewModel: TaskViewModel) {
     val scope = rememberCoroutineScope()
     val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
 
+    val ctx = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
+
+    var showImportDialog by rememberSaveable { mutableStateOf(false) }
+    var importText by rememberSaveable { mutableStateOf("") }
+    var replaceAll by rememberSaveable { mutableStateOf(false) }
+
     var currentPage by remember { mutableIntStateOf(pagerState.currentPage) }
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.currentPage }
@@ -166,12 +179,38 @@ fun AppRoot(viewModel: TaskViewModel) {
                                     screen = AppScreen.History
                                     viewModel.ensureHistoryFirstPage()
                                 }
-
-                                "settings" -> { /* TODO */
+                                "export" -> {
+                                    scope.launch {
+                                        try {
+                                            val text = viewModel.exportTasksJson()
+                                            val send = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(Intent.EXTRA_TEXT, text)
+                                                putExtra(
+                                                    Intent.EXTRA_SUBJECT,
+                                                    "TimeRecorder Tasks Export"
+                                                )
+                                            }
+                                            ctx.startActivity(
+                                                Intent.createChooser(
+                                                    send,
+                                                    "Export tasks as JSON"
+                                                )
+                                            )
+                                        } catch (e: Exception) {
+                                            Toast.makeText(
+                                                ctx,
+                                                "Export 失敗: ${e.message}",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
                                 }
-
-                                "help" -> { /* TODO */
+                                "import" -> {
+                                    showImportDialog = true
                                 }
+                                "settings" -> { /* TODO */ }
+                                "help" -> { /* TODO */ }
                             }
                         }
                     )
@@ -183,6 +222,7 @@ fun AppRoot(viewModel: TaskViewModel) {
                     modifier = Modifier
                         .fillMaxSize()
                         .statusBarsPadding(),
+                    snackbarHost = { SnackbarHost(hostState = snackbar) },
                     topBar = {
                         TopAppBar(
                             navigationIcon = {},
@@ -191,7 +231,6 @@ fun AppRoot(viewModel: TaskViewModel) {
                                     text = when (screen) {
                                         AppScreen.Main ->
                                             if (sortMode) "並び替え" else stringResource(R.string.header_title)
-
                                         AppScreen.History -> "History"
                                     },
                                     style = MaterialTheme.typography.titleLarge
@@ -242,6 +281,70 @@ fun AppRoot(viewModel: TaskViewModel) {
                             viewModel = viewModel
                         )
                     }
+
+                    // ===== Import ダイアログ =====
+                    if (showImportDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showImportDialog = false },
+                            title = { Text("Import (JSON)") },
+                            text = {
+                                Column {
+                                    Text(
+                                        "エクスポートした JSON をここに貼り付けてください。",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    OutlinedTextField(
+                                        value = importText,
+                                        onValueChange = { importText = it },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(160.dp),
+                                        placeholder = {
+                                            Text(
+                                                "[\n  {\"name\":\"Project\",\"color\":16753928,\"children\":[{\"name\":\"Task\"}]}\n]"
+                                            )
+                                        }
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(
+                                            checked = replaceAll,
+                                            onCheckedChange = { replaceAll = it }
+                                        )
+                                        Text("既存を全て削除して置き換える")
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        try {
+                                            viewModel.importTasksFromJson(
+                                                importText,
+                                                replaceAll
+                                            )
+                                            importText = ""
+                                            replaceAll = false
+                                            showImportDialog = false
+                                            snackbar.showSnackbar("Import 完了")
+                                        } catch (e: Exception) {
+                                            Toast.makeText(
+                                                ctx,
+                                                "Import 失敗: ${e.message}",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
+                                }) { Text("実行") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showImportDialog = false }) {
+                                    Text("キャンセル")
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -273,6 +376,19 @@ fun DrawerSheet(onItemSelected: (String) -> Unit) {
             label = { Text("History") },
             selected = false,
             onClick = { onItemSelected("history") },
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+        )
+        // ★ Export / Import 追加
+        NavigationDrawerItem(
+            label = { Text("Export (JSON)") },
+            selected = false,
+            onClick = { onItemSelected("export") },
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+        )
+        NavigationDrawerItem(
+            label = { Text("Import (JSON)") },
+            selected = false,
+            onClick = { onItemSelected("import") },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
         NavigationDrawerItem(

@@ -19,6 +19,10 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY sortOrder, id")
     suspend fun getChildren(parentId: Long): List<TaskEntity>
 
+    /** 追加: 1回だけ子タスク一覧を取得（FlowでなくList） */
+    @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY sortOrder, id")
+    suspend fun getChildrenOnce(parentId: Long?): List<TaskEntity>
+
     @Insert
     suspend fun insertTask(task: TaskEntity): Long
 
@@ -28,15 +32,12 @@ interface TaskDao {
     @Delete
     suspend fun deleteTask(task: TaskEntity)
 
-    // 追加: 親タスク配下の子を一括削除
     @Query("DELETE FROM tasks WHERE parentId = :parentId")
     suspend fun deleteChildren(parentId: Long)
 
-    // 追加: タスクID指定で削除
     @Query("DELETE FROM tasks WHERE id = :id")
     suspend fun deleteTaskById(id: Long)
 
-    // 追加: タスクの色を更新（ARGB Int）
     @Query("UPDATE tasks SET colorInt = :colorInt WHERE id = :id")
     suspend fun updateTaskColor(id: Long, colorInt: Int)
 
@@ -64,7 +65,6 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY sortOrder, id")
     fun observeChildren(parentId: Long): Flow<List<TaskEntity>>
 
-    // 履歴ページ（HistoryRowDb がトップレベルにある想定）
     @Query(
         """
         SELECT e.id AS eventId,
@@ -93,7 +93,7 @@ interface TaskDao {
     @Transaction
     suspend fun updateSortOrdersForParent(parentId: Long, idsInOrder: List<Long>) {
         idsInOrder.forEachIndexed { index, id ->
-            updateSortOrder(id, index)    // ← UPDATE tasks SET sortOrder = :index WHERE id = :id
+            updateSortOrder(id, index)
         }
     }
 
@@ -103,7 +103,6 @@ interface TaskDao {
     @Query("SELECT COUNT(*) FROM tasks WHERE parentId IS :parentId AND name = :name")
     suspend fun countByNameInParent(parentId: Long?, name: String): Int
 
-    // 区間に重なる履歴を取得
     @Query(
         """
         SELECT e.id AS eventId,
@@ -119,7 +118,5 @@ interface TaskDao {
         ORDER BY e.pressedAtEpochMs ASC
         """
     )
-
     suspend fun getEventsInRange(startMs: Long, endMs: Long): List<HistoryRowDb>
-
 }

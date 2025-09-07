@@ -9,12 +9,16 @@ import com.example.timerecorder.data.TaskRepository
 import com.example.timerecorder.data.db.ActiveWithTask
 import com.example.timerecorder.data.db.AppDatabase
 import com.example.timerecorder.data.db.ParentWithChildren
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class HistoryItemUi(
     val id: Long,
@@ -59,9 +63,7 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         repo.observeActive()
             .map { a: ActiveWithTask? ->
                 if (a == null) return@map null
-
                 val start = a.active.startedAtEpochMs
-
                 ActiveUi(
                     taskId = a.task.id,
                     taskName = a.task.name,
@@ -239,6 +241,90 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
                     pressedAt = it.pressedAtEpochMs,
                     durationMillis = it.durationMillis.coerceAtLeast(0L)
                 )
+            }
+        }
+    }
+
+    // =======================================
+    // Export / Import（タスク名＋色＋直下の子）  👇
+    // =======================================
+
+    /**
+     * 現在の親タスク＋直下の子タスクと色を JSON 文字列でエクスポート。
+     *
+     * フォーマット：
+     * [
+     *   {
+     *     "name": "Parent",
+     *     "color": 16753928,       // null の場合は省略可
+     *     "children": [ {"name":"Child1"}, {"name":"Child2"} ]
+     *   },
+     *   ...
+     * ]
+     */
+    suspend fun exportTasksJson(): String = withContext(Dispatchers.Default) {
+        val arr = JSONArray()
+        parents.value.forEach { group ->
+            val obj = JSONObject().apply {
+                put("name", group.parent.name)
+                group.parent.colorInt?.let { put("color", it) }
+                val kids = JSONArray()
+                group.children.forEach { c ->
+                    kids.put(JSONObject().apply { put("name", c.name) })
+                }
+                put("children", kids)
+            }
+            arr.put(obj)
+        }
+        arr.toString(2) // pretty print
+    }
+
+    /**
+     * JSONから Import。replaceAll=true の場合は既存の親を全削除してから取り込み。
+     * 既存に同名の親がある場合はマージ（子は同名重複を避けて追加）。
+     */
+    fun importTasksFromJson(json: String, replaceAll: Boolean) = viewModelScope.launch {
+        val nowParents = parents.value
+
+        // 置換なら全部消す（進行中は止めない/履歴は保持）
+        if (replaceAll) {
+            // 既存親を順に削除
+            nowParents.forEach { repo.deleteProject(it.parent.id) }
+        }
+
+        // 現在の親名 → id / 色 の索引（マージ用）
+        suspend fun findParentIdByName(name: String): Long? =
+            parents.value.firstOrNull { it.parent.name == name }?.parent?.id
+
+        // JSON を解析
+        val root = JSONArray(json)
+        for (i in 0 until root.length()) {
+            val p = root.optJSONObject(i) ?: continue
+            val parentName = p.optString("name", "").trim().take(128)
+            if (parentName.isEmpty()) continue
+
+            val colorInt = if (p.has("color")) p.optInt("color") else null
+            val parentId: Long = when (val existing = findParentIdByName(parentName)) {
+                null -> repo.addTask(parentName, null)
+                else -> existing
+            }
+            // 色設定（新規時は null のままも可）
+            if (colorInt != null) repo.changeColor(parentId, colorInt)
+
+            // 子を取り込み
+            val children = p.optJSONArray("children") ?: JSONArray()
+            // 既存の子名集合（重複追加を防止）
+            val existingChildNames =
+                parents.value.firstOrNull { it.parent.id == parentId }?.children?.map { it.name }
+                    ?.toMutableSet() ?: mutableSetOf()
+
+            for (j in 0 until children.length()) {
+                val c = children.optJSONObject(j) ?: continue
+                val childName = c.optString("name", "").trim().take(128)
+                if (childName.isEmpty()) continue
+                if (existingChildNames.contains(childName)) continue
+                repo.addTask(childName, parentId)
+                existingChildNames.add(childName)
             }
         }
     }
