@@ -42,14 +42,14 @@ android {
     }
 }
 
-// （任意）Room のスキーマを出力しておくとマイグレーション管理に便利
+// Room のスキーマを出力（任意だが推奨）
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
     arg("room.generateKotlin", "true")
 }
 
 dependencies {
-    // Compose BOM でバージョン統一
+    // Compose BOM で統一
     implementation(platform(libs.androidx.compose.bom))
 
     // 基本
@@ -61,27 +61,27 @@ dependencies {
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.compose.foundation.layout)
+    implementation(libs.androidx.compose.runtime.saveable)
 
     // Material Design
     implementation(libs.androidx.material3)
     implementation("androidx.compose.material:material-icons-extended")
 
-    // ---- Room（KSP 使用）----
+    // Navigation（追加：AddTask画面への遷移で使用）
+    implementation("androidx.navigation:navigation-compose:2.8.3")
+
+    // Room（KSP）
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
-    implementation(libs.androidx.compose.runtime.saveable)
-    implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.foundation)
-    implementation(libs.androidx.compose.foundation.layout)
     ksp("androidx.room:room-compiler:2.6.1")
+
+    // JSON
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
-    // （任意）テストで使う場合
-    // testImplementation("androidx.room:room-testing:2.6.1")
 
     // Compose で Flow/StateFlow を安全に collect
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
-
-    implementation("androidx.compose.material:material-icons-extended")
 
     // テスト
     testImplementation(libs.junit)
