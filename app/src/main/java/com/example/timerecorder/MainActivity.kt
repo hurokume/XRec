@@ -926,6 +926,20 @@ fun DBTaskScreen(
                                                                 System.currentTimeMillis()
                                                         }
                                                     ) {
+                                                        // ★ 追加：サブタスクを追加
+                                                        DropdownMenuItem(
+                                                            text = { Text("サブタスクを追加") },
+                                                            onClick = {
+                                                                menuForChildTaskId = null
+                                                                newChildName = ""
+                                                                addChildError = null
+                                                                // 親 = この子タスクID → サブタスク追加になる
+                                                                showAddChildDialogFor = child.id
+                                                                lastInteractionTime =
+                                                                    System.currentTimeMillis()
+                                                            }
+                                                        )
+
                                                         DropdownMenuItem(
                                                             text = { Text("名前を変更") },
                                                             onClick = {

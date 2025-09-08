@@ -1,224 +1,198 @@
 package com.example.timerecorder.data
 
+import androidx.room.withTransaction
 import com.example.timerecorder.data.db.ActiveTaskEntity
 import com.example.timerecorder.data.db.ActiveWithTask
+import com.example.timerecorder.data.db.AppDatabase
 import com.example.timerecorder.data.db.HistoryRowDb
 import com.example.timerecorder.data.db.ParentWithChildren
+import com.example.timerecorder.data.db.SessionDao
 import com.example.timerecorder.data.db.TaskDao
 import com.example.timerecorder.data.db.TaskEntity
 import com.example.timerecorder.data.db.TaskEventEntity
+import com.example.timerecorder.data.db.TaskSessionEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
-import kotlin.math.max
+import org.json.JSONArray
+import org.json.JSONObject
 
-class TaskRepository(private val dao: TaskDao) {
+class TaskRepository(
+    private val db: AppDatabase,
+    private val sessionDao: SessionDao,
+    private val taskDao: TaskDao
+) {
+    // ---------------- 観測系 ----------------
+    fun observeTree(): Flow<List<ParentWithChildren>> = taskDao.observeParentsWithChildren()
+    fun observeChildren(parentId: Long): Flow<List<TaskEntity>> = taskDao.observeChildren(parentId)
+    suspend fun hasChildren(taskId: Long): Boolean = taskDao.countChildren(taskId) > 0
+    fun observeActive(): Flow<ActiveWithTask?> = taskDao.observeActiveWithTask()
 
-    // ------- Observable DB streams -------
-    fun observeTree(): Flow<List<ParentWithChildren>> =
-        dao.observeParentsWithChildren()
+    // ---------------- 操作系（新規：短時間統合スイッチ） ----------------
+    /**
+     * 現在のタスクから newTaskId へ切替。
+     * 直前セッションが mergeThresholdSec（秒）以下なら短時間とみなし、新タスクへ「吸収」して前のセッションは削除。
+     * それ以外は通常終了→イベント記録→新規開始。
+     * どちらの場合も active_task_singleton は最新状態に更新。
+     */
+    suspend fun startOrSwitch(
+        newTaskId: Long,
+        now: Long,
+        mergeThresholdSec: Long = 60
+    ) = db.withTransaction {
+        val active = sessionDao.getActive()
 
-    suspend fun hasChildren(taskId: Long): Boolean =
-        dao.countChildren(taskId) > 0
+        // すでに同じタスクなら何もしない（開始時刻も維持）
+        if (active?.taskId == newTaskId) return@withTransaction
 
-    fun observeChildren(parentId: Long): Flow<List<TaskEntity>> =
-        dao.observeChildren(parentId)
-
-    fun observeActive(): Flow<ActiveWithTask?> =
-        dao.observeActiveWithTask()
-
-    // ------- Start / Stop active task -------
-    suspend fun startOrSwitch(taskId: Long, nowMs: Long) {
-        val active = dao.getActiveOrNull()
-        if (active != null) {
-            val duration = max(0L, nowMs - active.startedAtEpochMs)
-            dao.insertEvent(
-                TaskEventEntity(
-                    taskId = active.taskId,
-                    pressedAtEpochMs = active.startedAtEpochMs,
-                    durationMillis = duration
+        if (active == null) {
+            // 新規開始
+            val start = now
+            sessionDao.insert(
+                TaskSessionEntity(
+                    taskId = newTaskId,
+                    startedAt = start,
+                    endedAt = null
                 )
             )
+            taskDao.upsertActive(ActiveTaskEntity(taskId = newTaskId, startedAtEpochMs = start))
+            return@withTransaction
         }
-        dao.upsertActive(
-            ActiveTaskEntity(
-                taskId = taskId,
-                startedAtEpochMs = nowMs
+
+        val durationMs = now - active.startedAt
+        val thresholdMs = mergeThresholdSec * 1000L
+
+        if (durationMs <= thresholdMs) {
+            // 短時間：前セッションを破棄し、新タスクを「前の開始時刻」で開始＝吸収
+            val mergedStart = active.startedAt
+            sessionDao.deleteById(active.id)
+            sessionDao.insert(
+                TaskSessionEntity(
+                    taskId = newTaskId,
+                    startedAt = mergedStart,
+                    endedAt = null
+                )
             )
-        )
+            taskDao.upsertActive(
+                ActiveTaskEntity(
+                    taskId = newTaskId,
+                    startedAtEpochMs = mergedStart
+                )
+            )
+            // ※イベントは作らない（前の短時間は履歴に残さない設計）
+        } else {
+            // 通常切替：前セッションを終了してイベント化 → 新タスク開始
+            sessionDao.updateEnd(active.id, now)
+            taskDao.insertEvent(
+                TaskEventEntity(
+                    taskId = active.taskId,
+                    pressedAtEpochMs = active.startedAt,
+                    durationMillis = (now - active.startedAt).coerceAtLeast(0L)
+                )
+            )
+            sessionDao.insert(
+                TaskSessionEntity(
+                    taskId = newTaskId,
+                    startedAt = now,
+                    endedAt = null
+                )
+            )
+            taskDao.upsertActive(ActiveTaskEntity(taskId = newTaskId, startedAtEpochMs = now))
+        }
     }
 
-    suspend fun stopActive(nowMs: Long) {
-        val active = dao.getActiveOrNull() ?: return
-        val duration = max(0L, nowMs - active.startedAtEpochMs)
-        dao.insertEvent(
+    /** 停止：実行中セッションを終了して履歴に記録、アクティブをクリア */
+    suspend fun stopActive(nowMs: Long) = db.withTransaction {
+        val active = sessionDao.getActive() ?: return@withTransaction
+        sessionDao.updateEnd(active.id, nowMs)
+        taskDao.insertEvent(
             TaskEventEntity(
                 taskId = active.taskId,
-                pressedAtEpochMs = active.startedAtEpochMs,
-                durationMillis = duration
+                pressedAtEpochMs = active.startedAt,
+                durationMillis = (nowMs - active.startedAt).coerceAtLeast(0L)
             )
         )
-        dao.clearActive()
+        taskDao.clearActive()
     }
 
-    // ------- History -------
-    suspend fun loadHistoryPage(page: Int, pageSize: Int): List<HistoryRowDb> {
-        val offset = page * pageSize
-        return dao.getEventsPage(limit = pageSize, offset = offset)
-    }
-
-    suspend fun clearHistory() = dao.clearAllEvents()
-
-    // ------- Tasks CRUD -------
+    // ---------------- タスク CRUD / 並び順 / 色 ----------------
     suspend fun addTask(name: String, parentId: Long?): Long {
-        val next = dao.getMaxSortOrder(parentId) + 1
-        return dao.insertTask(TaskEntity(name = name, parentId = parentId, sortOrder = next))
+        val next = taskDao.getMaxSortOrder(parentId) + 1
+        return taskDao.insertTask(TaskEntity(name = name, parentId = parentId, sortOrder = next))
     }
 
     suspend fun deleteProject(parentId: Long) {
-        dao.deleteChildren(parentId)
-        dao.deleteTaskById(parentId)
+        taskDao.deleteChildren(parentId)
+        taskDao.deleteTaskById(parentId)
     }
 
-    suspend fun changeColor(taskId: Long, colorInt: Int) {
-        dao.updateTaskColor(taskId, colorInt)
+    suspend fun changeColor(id: Long, colorInt: Int) = taskDao.updateTaskColor(id, colorInt)
+    suspend fun renameTask(taskId: Long, newName: String) = taskDao.updateTaskName(taskId, newName)
+    suspend fun deleteTaskById(taskId: Long) = taskDao.deleteTaskById(taskId)
+    suspend fun updateSortOrdersForParent(parentId: Long, idsInOrder: List<Long>) =
+        taskDao.updateSortOrdersForParent(parentId, idsInOrder)
+
+    // ---------------- 履歴（task_events） ----------------
+    suspend fun loadHistoryPage(page: Int, pageSize: Int): List<HistoryRowDb> {
+        val offset = page * pageSize
+        return taskDao.getEventsPage(limit = pageSize, offset = offset)
     }
 
-    suspend fun renameTask(taskId: Long, newName: String) {
-        dao.updateTaskName(taskId, newName)
-    }
+    suspend fun loadHistoryRange(startMs: Long, endMs: Long): List<HistoryRowDb> =
+        taskDao.getEventsInRange(startMs, endMs)
 
-    suspend fun deleteTaskById(taskId: Long) {
-        dao.deleteTaskById(taskId)
-    }
-
-    suspend fun updateSortOrdersForParent(parentId: Long, idsInOrder: List<Long>) {
-        dao.updateSortOrdersForParent(parentId, idsInOrder)
-    }
-
-    suspend fun loadHistoryRange(startMs: Long, endMs: Long): List<HistoryRowDb> {
-        return dao.getEventsInRange(startMs, endMs)
-    }
-
-    // =========================================================================
-    // Import / Export（親 → 子 → 孫 … 全階層を JSON 化）
-    // 追加の DAO メソッドなしで動くように、Flow の最初の値を同期的に取得して再帰します。
-    // =========================================================================
-
-    /** Export ルート JSON オブジェクト */
-    @Serializable
-    data class TaskExportRoot(
-        val version: Int = 1,
-        /** 親（ルート）タスク群。各ノードの children に子 → 孫 … を含む。 */
-        val projects: List<TaskExportNode>
-    )
-
-    /** 階層ノード（親/子/孫 すべて同じ型で表す） */
-    @Serializable
-    data class TaskExportNode(
-        val id: Long? = null,
-        val name: String,
-        val colorInt: Int? = null,
-        val children: List<TaskExportNode> = emptyList()
-    )
-
-    /** 直下の “子” を 1 回だけ同期取得（Flow の first() を使用） */
-    private suspend fun loadChildrenOnce(parentId: Long): List<TaskEntity> =
-        observeChildren(parentId).first()
-
-    /** ルート（親 = parentId が null）の一覧を 1 回だけ同期取得 */
-    private suspend fun loadRootParentsOnce(): List<TaskEntity> =
-        observeTree().first().map { it.parent }
-
-    /** （再帰）TaskEntity から輸出用ノードを構築（子→孫…を全収集） */
-    private suspend fun buildExportNode(task: TaskEntity): TaskExportNode {
-        val childEntities = loadChildrenOnce(task.id)
-        val childNodes = mutableListOf<TaskExportNode>()
-        for (child in childEntities) {
-            childNodes += buildExportNode(child) // ← 孫以降もここで必ず取り込む
-        }
-        return TaskExportNode(
-            id = task.id,
-            name = task.name,
-            colorInt = task.colorInt,
-            children = childNodes
-        )
-    }
-
-    /**
-     * 親タスク / 子タスク / サブタスク（孫）をすべて含む JSON をエクスポート。
-     * @param pretty prettyPrint を有効にするか
-     */
-    suspend fun exportTasksJson(pretty: Boolean = true): String {
-        val parents = loadRootParentsOnce()
-        val nodes = mutableListOf<TaskExportNode>()
-        for (p in parents) {
-            nodes += buildExportNode(p)
-        }
-        val root = TaskExportRoot(version = 1, projects = nodes)
-        val json = if (pretty) Json { prettyPrint = true; encodeDefaults = true } else Json
-        return json.encodeToString(root)
-    }
-
-    /**
-     * JSON から階層ツリーを取り込み（同名があれば再利用。必要なら色も同期）
-     * @param jsonString exportTasksJson の出力
-     * @param updateColorOnMatch true で同名再利用時に色も更新
-     */
-    suspend fun importTasksJson(
-        jsonString: String,
-        updateColorOnMatch: Boolean = true
-    ): ImportResult {
-        val root = Json.decodeFromString<TaskExportRoot>(jsonString)
-        var created = 0
-        var reused = 0
-
-        fun normalize(name: String) = name.trim().lowercase()
-
-        suspend fun findExistingChild(parentId: Long?, name: String): TaskEntity? {
-            val list = if (parentId == null) {
-                loadRootParentsOnce()
-            } else {
-                loadChildrenOnce(parentId)
+    // ---------------- Export / Import ----------------
+    suspend fun exportTasksJson(): String {
+        // 親＋直下の子を一括取得（1回だけ）
+        val groups = observeTree().first()
+        val arr = JSONArray()
+        groups.forEach { g ->
+            val obj = JSONObject().apply {
+                put("name", g.parent.name)
+                g.parent.colorInt?.let { put("color", it) }
+                val kids = JSONArray()
+                g.children.forEach { c -> kids.put(JSONObject().put("name", c.name)) }
+                put("children", kids)
             }
-            val n = normalize(name)
-            return list.firstOrNull { normalize(it.name) == n }
+            arr.put(obj)
         }
-
-        // （再帰）ノードを作成 or 再利用し、子（孫以降も含む）を取り込む
-        suspend fun importNode(node: TaskExportNode, parentId: Long?): Long {
-            val existing = findExistingChild(parentId, node.name)
-            val taskId = if (existing != null) {
-                if (updateColorOnMatch && node.colorInt != null && node.colorInt != existing.colorInt) {
-                    dao.updateTaskColor(existing.id, node.colorInt)
-                }
-                reused += 1
-                existing.id
-            } else {
-                val id = addTask(node.name, parentId)
-                if (node.colorInt != null) {
-                    dao.updateTaskColor(id, node.colorInt)
-                }
-                created += 1
-                id
-            }
-
-            for (child in node.children) {
-                importNode(child, taskId)
-            }
-            return taskId
-        }
-
-        for (project in root.projects) {
-            importNode(project, parentId = null)
-        }
-        return ImportResult(created = created, reused = reused)
+        return arr.toString(2)
     }
 
-    data class ImportResult(
-        val created: Int,
-        val reused: Int
-    )
+    suspend fun importTasksJson(json: String, replaceAll: Boolean) = db.withTransaction {
+        val current = observeTree().first()
+
+        if (replaceAll) {
+            current.forEach { p ->
+                taskDao.deleteChildren(p.parent.id)
+                taskDao.deleteTaskById(p.parent.id)
+            }
+        }
+
+        // 名前 → 既存親ID の索引（マージ用）
+        fun findParentIdByName(name: String): Long? =
+            current.firstOrNull { it.parent.name == name }?.parent?.id
+
+        val root = JSONArray(json)
+        for (i in 0 until root.length()) {
+            val p = root.optJSONObject(i) ?: continue
+            val parentName = p.optString("name", "").trim().take(128)
+            if (parentName.isEmpty()) continue
+
+            val colorInt = if (p.has("color")) p.optInt("color") else null
+
+            val parentId: Long = findParentIdByName(parentName)
+                ?: addTask(parentName, null)
+
+            if (colorInt != null) changeColor(parentId, colorInt)
+
+            val children = p.optJSONArray("children") ?: JSONArray()
+            for (j in 0 until children.length()) {
+                val c = children.optJSONObject(j) ?: continue
+                val childName = c.optString("name", "").trim().take(128)
+                if (childName.isEmpty()) continue
+                val dup = taskDao.countByNameInParent(parentId, childName) > 0
+                if (!dup) addTask(childName, parentId)
+            }
+        }
+    }
 }
