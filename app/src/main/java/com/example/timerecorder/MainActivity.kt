@@ -13,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -102,6 +103,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -199,10 +201,10 @@ fun AppRoot(
     val ctx = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
 
-    // ▼ タイムラインで選択中の taskId を保持
+    // タイムラインで選択中の taskId を保持（null で未選択）
     var selectedTimelineTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
 
-    // ▼ ViewModel のワンショット UI イベントを収集して Snackbar を表示
+    // ViewModel のワンショット UI イベントを収集して Snackbar を表示
     LaunchedEffect(Unit) {
         viewModel.events.collectLatest { ev ->
             when (ev) {
@@ -336,27 +338,31 @@ fun AppRoot(
                         )
                     },
                     bottomBar = {
-                        // Main 画面のみ BottomBar を表示
                         if (screen == AppScreen.Main) {
-                            AdaptiveBottomBar(
-                                currentPage = currentPage,
-                                // ▼ タイムライン選択時だけアイコンA/Bを出す
-                                timelineSelected = selectedTimelineTaskId != null,
-                                onActionA = {
-                                    selectedTimelineTaskId?.let { id ->
-                                        // 任意のアクション（例：Snackbar）
-                                        scope.launch { snackbar.showSnackbar("Action A on #$id") }
-                                    }
-                                },
-                                onActionB = {
-                                    selectedTimelineTaskId?.let { id ->
-                                        scope.launch { snackbar.showSnackbar("Action B on #$id") }
-                                    }
-                                },
-                                onLeftAction = { /* 予備アクション */ },
-                                onSortAction = { sortMode = true },
-                                onRightAction = { /* 予備アクション */ }
-                            )
+                            // 左ページでは選択時のみ、他ページは常に表示
+                            val showBar = when (currentPage) {
+                                0 -> selectedTimelineTaskId != null
+                                else -> true
+                            }
+                            if (showBar) {
+                                AdaptiveBottomBar(
+                                    currentPage = currentPage,
+                                    timelineSelected = (selectedTimelineTaskId != null),
+                                    onActionA = {
+                                        selectedTimelineTaskId?.let { id ->
+                                            scope.launch { snackbar.showSnackbar("Action A on #$id") }
+                                        }
+                                    },
+                                    onActionB = {
+                                        selectedTimelineTaskId?.let { id ->
+                                            scope.launch { snackbar.showSnackbar("Action B on #$id") }
+                                        }
+                                    },
+                                    onLeftAction = { /* 予備 */ },
+                                    onSortAction = { sortMode = true },
+                                    onRightAction = { /* 予備 */ }
+                                )
+                            }
                         }
                     }
                 ) { innerPadding ->
@@ -368,7 +374,6 @@ fun AppRoot(
                             viewModel = viewModel,
                             sortMode = sortMode,
                             onNavigateAddTask = onNavigateAddTask,
-                            // ▼ タイムライン選択の受け渡し
                             selectedTimelineTaskId = selectedTimelineTaskId,
                             onTimelineTaskSelected = { tid -> selectedTimelineTaskId = tid }
                         )
@@ -519,9 +524,8 @@ fun MainPager(
     viewModel: TaskViewModel,
     sortMode: Boolean,
     onNavigateAddTask: () -> Unit,
-    // ▼ タイムライン選択受け渡し
     selectedTimelineTaskId: Long?,
-    onTimelineTaskSelected: (Long) -> Unit
+    onTimelineTaskSelected: (Long?) -> Unit
 ) {
     HorizontalPager(
         state = pagerState,
@@ -582,14 +586,14 @@ fun DBTaskScreen(
 
     var menuForChildTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var renameTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var renameTaskCurrentName by rememberSaveable { mutableStateOf<String>("") }
-    var renameTaskText by rememberSaveable { mutableStateOf<String>("") }
+    var renameTaskCurrentName by rememberSaveable { mutableStateOf("") }
+    var renameTaskText by rememberSaveable { mutableStateOf("") }
     var confirmDeleteTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var confirmDeleteTaskName by rememberSaveable { mutableStateOf<String>("") }
+    var confirmDeleteTaskName by rememberSaveable { mutableStateOf("") }
 
     var colorPickForParentId by rememberSaveable { mutableStateOf<Long?>(null) }
     var confirmDeleteParentId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var confirmDeleteParentName by rememberSaveable { mutableStateOf<String>("") }
+    var confirmDeleteParentName by rememberSaveable { mutableStateOf("") }
 
     val presetColors =
         listOf(0xFFEF9A9A, 0xFFA5D6A7, 0xFF90CAF9, 0xFFFFF59D, 0xFFCE93D8).map { Color(it) }
@@ -855,6 +859,7 @@ fun DBTaskScreen(
                                                             selectedTaskId = child.id
                                                             lastInteractionTime =
                                                                 System.currentTimeMillis()
+                                                            val scopeLocal = this
                                                             scope.launch {
                                                                 val has =
                                                                     viewModel.hasChildren(child.id)
@@ -1377,9 +1382,8 @@ private fun TimelineScreen(
     viewModel: TaskViewModel,
     modifier: Modifier = Modifier,
     onAddRecord: () -> Unit,
-    // ▼ 追加：タイムライン上の選択
     selectedTaskId: Long?,
-    onSelectTask: (Long) -> Unit
+    onSelectTask: (Long?) -> Unit
 ) {
     LaunchedEffect(Unit) { viewModel.ensureHistoryFirstPage() }
 
@@ -1530,9 +1534,8 @@ private fun MultiDayTimeline(
     dayCount: Int,
     blocksByDay: List<List<TimelineBlock>>,
     modifier: Modifier = Modifier,
-    // ▼ 追加：選択状態とハンドラ
     selectedTaskId: Long? = null,
-    onSelectTask: (Long) -> Unit = {}
+    onSelectTask: (Long?) -> Unit = {}
 ) {
     val HOUR_HEIGHT = 48.dp
     val GUTTER = 40.dp
@@ -1548,11 +1551,15 @@ private fun MultiDayTimeline(
             .height(totalHeight + 0.dp)
             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
     ) {
+        // 左側時間ガター：ここをタップしても選択解除
         Column(
             modifier = Modifier
                 .width(GUTTER)
                 .fillMaxHeight()
                 .background(MaterialTheme.colorScheme.surface)
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { onSelectTask(null) })
+                }
         ) {
             repeat(25) { h ->
                 Box(
@@ -1603,9 +1610,8 @@ private fun DayColumn(
     hourHeight: Dp,
     blocks: List<TimelineBlock>,
     modifier: Modifier = Modifier,
-    // ▼ 追加：選択状態とハンドラ
     selectedTaskId: Long? = null,
-    onSelectTask: (Long) -> Unit = {}
+    onSelectTask: (Long?) -> Unit = {}
 ) {
     val hourHeightPx = with(LocalDensity.current) { hourHeight.toPx() }
 
@@ -1614,7 +1620,11 @@ private fun DayColumn(
     val outline40 = outline.copy(alpha = 0.4f)
     val onSurface = MaterialTheme.colorScheme.onSurface
 
-    Box(modifier = modifier) {
+    Box(
+        modifier = modifier
+            // ▼ タスク以外（背景）をタップしたら選択解除
+            .pointerInput(Unit) { detectTapGestures(onTap = { onSelectTask(null) }) }
+    ) {
         Canvas(Modifier.matchParentSize()) {
             val w = size.width
             val h = size.height
@@ -1644,6 +1654,7 @@ private fun DayColumn(
             Text(label, style = MaterialTheme.typography.labelLarge)
         }
 
+        // 各タスクブロック（ここをタップした時は選択）
         blocks.forEach { b ->
             val startMin = minutesOfDay(b.startMs)
             val endMin = minutesOfDay(b.endMs)
@@ -2021,7 +2032,6 @@ private fun HistoryRowCard(row: HistoryItemUi) {
 @Composable
 fun AdaptiveBottomBar(
     currentPage: Int,
-    // ▼ 追加：タイムライン選択状態とページ0のアクション
     timelineSelected: Boolean = false,
     onActionA: () -> Unit = {},
     onActionB: () -> Unit = {},
@@ -2034,17 +2044,17 @@ fun AdaptiveBottomBar(
             BottomAppBar {
                 if (timelineSelected) {
                     IconButton(onClick = onActionA) {
-                        Icon(Icons.Filled.AddCircle, contentDescription = "Action A")
+                        Icon(
+                            painter = painterResource(id = R.drawable.content_cut_24px),
+                            contentDescription = "content_cut_24"
+                        )
                     }
-                    Spacer(Modifier.weight(1f))
                     IconButton(onClick = onActionB) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Action B")
+                        Icon(
+                            painter = painterResource(id = R.drawable.edit_24px),
+                            contentDescription = "edit_24"
+                        )
                     }
-                } else {
-                    IconButton(onClick = onLeftAction) {
-                        Icon(Icons.Filled.AddCircle, contentDescription = "Left action")
-                    }
-                    Text("左ページ", modifier = Modifier.padding(start = 8.dp))
                 }
             }
         }
