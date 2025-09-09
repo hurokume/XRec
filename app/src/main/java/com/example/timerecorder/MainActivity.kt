@@ -199,7 +199,10 @@ fun AppRoot(
     val ctx = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
 
-    // ▼ 追加：ViewModel のワンショット UI イベントを収集して Snackbar を表示
+    // ▼ タイムラインで選択中の taskId を保持
+    var selectedTimelineTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+
+    // ▼ ViewModel のワンショット UI イベントを収集して Snackbar を表示
     LaunchedEffect(Unit) {
         viewModel.events.collectLatest { ev ->
             when (ev) {
@@ -337,6 +340,19 @@ fun AppRoot(
                         if (screen == AppScreen.Main) {
                             AdaptiveBottomBar(
                                 currentPage = currentPage,
+                                // ▼ タイムライン選択時だけアイコンA/Bを出す
+                                timelineSelected = selectedTimelineTaskId != null,
+                                onActionA = {
+                                    selectedTimelineTaskId?.let { id ->
+                                        // 任意のアクション（例：Snackbar）
+                                        scope.launch { snackbar.showSnackbar("Action A on #$id") }
+                                    }
+                                },
+                                onActionB = {
+                                    selectedTimelineTaskId?.let { id ->
+                                        scope.launch { snackbar.showSnackbar("Action B on #$id") }
+                                    }
+                                },
                                 onLeftAction = { /* 予備アクション */ },
                                 onSortAction = { sortMode = true },
                                 onRightAction = { /* 予備アクション */ }
@@ -351,7 +367,10 @@ fun AppRoot(
                             pagerState = pagerState,
                             viewModel = viewModel,
                             sortMode = sortMode,
-                            onNavigateAddTask = onNavigateAddTask
+                            onNavigateAddTask = onNavigateAddTask,
+                            // ▼ タイムライン選択の受け渡し
+                            selectedTimelineTaskId = selectedTimelineTaskId,
+                            onTimelineTaskSelected = { tid -> selectedTimelineTaskId = tid }
                         )
 
                         AppScreen.History -> HistoryScreen(
@@ -499,7 +518,10 @@ fun MainPager(
     pagerState: PagerState,
     viewModel: TaskViewModel,
     sortMode: Boolean,
-    onNavigateAddTask: () -> Unit
+    onNavigateAddTask: () -> Unit,
+    // ▼ タイムライン選択受け渡し
+    selectedTimelineTaskId: Long?,
+    onTimelineTaskSelected: (Long) -> Unit
 ) {
     HorizontalPager(
         state = pagerState,
@@ -508,7 +530,9 @@ fun MainPager(
         when (page) {
             0 -> TimelineScreen(
                 viewModel = viewModel,
-                onAddRecord = onNavigateAddTask
+                onAddRecord = onNavigateAddTask,
+                selectedTaskId = selectedTimelineTaskId,
+                onSelectTask = onTimelineTaskSelected
             )
 
             1 -> DBTaskScreen(viewModel = viewModel, sortMode = sortMode)
@@ -558,14 +582,14 @@ fun DBTaskScreen(
 
     var menuForChildTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var renameTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var renameTaskCurrentName by rememberSaveable { mutableStateOf("") }
-    var renameTaskText by rememberSaveable { mutableStateOf("") }
+    var renameTaskCurrentName by rememberSaveable { mutableStateOf<String>("") }
+    var renameTaskText by rememberSaveable { mutableStateOf<String>("") }
     var confirmDeleteTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var confirmDeleteTaskName by rememberSaveable { mutableStateOf("") }
+    var confirmDeleteTaskName by rememberSaveable { mutableStateOf<String>("") }
 
     var colorPickForParentId by rememberSaveable { mutableStateOf<Long?>(null) }
     var confirmDeleteParentId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var confirmDeleteParentName by rememberSaveable { mutableStateOf("") }
+    var confirmDeleteParentName by rememberSaveable { mutableStateOf<String>("") }
 
     val presetColors =
         listOf(0xFFEF9A9A, 0xFFA5D6A7, 0xFF90CAF9, 0xFFFFF59D, 0xFFCE93D8).map { Color(it) }
@@ -831,7 +855,6 @@ fun DBTaskScreen(
                                                             selectedTaskId = child.id
                                                             lastInteractionTime =
                                                                 System.currentTimeMillis()
-                                                            val scopeLocal = this
                                                             scope.launch {
                                                                 val has =
                                                                     viewModel.hasChildren(child.id)
@@ -1353,7 +1376,10 @@ private fun SubtaskPicker(
 private fun TimelineScreen(
     viewModel: TaskViewModel,
     modifier: Modifier = Modifier,
-    onAddRecord: () -> Unit
+    onAddRecord: () -> Unit,
+    // ▼ 追加：タイムライン上の選択
+    selectedTaskId: Long?,
+    onSelectTask: (Long) -> Unit
 ) {
     LaunchedEffect(Unit) { viewModel.ensureHistoryFirstPage() }
 
@@ -1435,21 +1461,27 @@ private fun TimelineScreen(
                 remember(history, activeUi, parents, startMs, endMs, dayCount, nowMs) {
                     val days = List(dayCount) { mutableListOf<TimelineBlock>() }
 
-                    fun addClampedBlock(s: Long, e: Long, name: String, color: Color) {
+                    fun addClampedBlock(
+                        s: Long,
+                        e: Long,
+                        name: String,
+                        color: Color,
+                        taskId: Long
+                    ) {
                         if (e <= startMs || s >= endMs) return
                         repeat(dayCount) { i ->
                             val dStart = startMs + i * 24L * 60L * 60L * 1000L
                             val dEnd = dStart + 24L * 60L * 60L * 1000L
                             val cs = maxOf(s, dStart)
                             val ce = minOf(e, dEnd)
-                            if (ce > cs) days[i].add(TimelineBlock(cs, ce, name, color))
+                            if (ce > cs) days[i].add(TimelineBlock(cs, ce, name, color, taskId))
                         }
                     }
 
                     history.forEach { h ->
                         val itemStart = h.pressedAt
                         val itemEnd = h.pressedAt + max(0L, h.durationMillis)
-                        addClampedBlock(itemStart, itemEnd, h.taskName, h.color)
+                        addClampedBlock(itemStart, itemEnd, h.taskName, h.color, h.taskId)
                     }
 
                     activeUi?.let { a ->
@@ -1457,7 +1489,7 @@ private fun TimelineScreen(
                         if (start > 0L) {
                             val color = colorForTask(a.taskId, defaultTaskColor)
                             val end = nowMs
-                            addClampedBlock(start, end, a.taskName, color)
+                            addClampedBlock(start, end, a.taskName, color, a.taskId)
                         }
                     }
 
@@ -1467,7 +1499,9 @@ private fun TimelineScreen(
             MultiDayTimeline(
                 startMs = startMs,
                 dayCount = dayCount,
-                blocksByDay = blocksByDay
+                blocksByDay = blocksByDay,
+                selectedTaskId = selectedTaskId,
+                onSelectTask = onSelectTask
             )
         }
 
@@ -1486,7 +1520,8 @@ private data class TimelineBlock(
     val startMs: Long,
     val endMs: Long,
     val name: String,
-    val color: Color
+    val color: Color,
+    val taskId: Long
 )
 
 @Composable
@@ -1494,7 +1529,10 @@ private fun MultiDayTimeline(
     startMs: Long,
     dayCount: Int,
     blocksByDay: List<List<TimelineBlock>>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // ▼ 追加：選択状態とハンドラ
+    selectedTaskId: Long? = null,
+    onSelectTask: (Long) -> Unit = {}
 ) {
     val HOUR_HEIGHT = 48.dp
     val GUTTER = 40.dp
@@ -1547,6 +1585,8 @@ private fun MultiDayTimeline(
                     label = label,
                     hourHeight = HOUR_HEIGHT,
                     blocks = blocksByDay.getOrNull(i).orEmpty(),
+                    selectedTaskId = selectedTaskId,
+                    onSelectTask = onSelectTask,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
@@ -1562,7 +1602,10 @@ private fun DayColumn(
     label: String,
     hourHeight: Dp,
     blocks: List<TimelineBlock>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // ▼ 追加：選択状態とハンドラ
+    selectedTaskId: Long? = null,
+    onSelectTask: (Long) -> Unit = {}
 ) {
     val hourHeightPx = with(LocalDensity.current) { hourHeight.toPx() }
 
@@ -1607,6 +1650,10 @@ private fun DayColumn(
             val top = hourHeight * (startMin / 60f)
             val height = hourHeight * ((endMin - startMin).coerceAtLeast(1) / 60f)
 
+            val isSelected = selectedTaskId == b.taskId
+            val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else outline
+            val borderWidth = if (isSelected) 2.dp else 1.dp
+
             Box(
                 modifier = Modifier
                     .padding(horizontal = 4.dp)
@@ -1614,7 +1661,8 @@ private fun DayColumn(
                     .fillMaxWidth()
                     .height(height)
                     .background(b.color.copy(alpha = 0.9f), RoundedCornerShape(6.dp))
-                    .border(1.dp, outline, RoundedCornerShape(6.dp))
+                    .border(borderWidth, borderColor, RoundedCornerShape(6.dp))
+                    .clickable { onSelectTask(b.taskId) }
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text(
@@ -1973,6 +2021,10 @@ private fun HistoryRowCard(row: HistoryItemUi) {
 @Composable
 fun AdaptiveBottomBar(
     currentPage: Int,
+    // ▼ 追加：タイムライン選択状態とページ0のアクション
+    timelineSelected: Boolean = false,
+    onActionA: () -> Unit = {},
+    onActionB: () -> Unit = {},
     onLeftAction: () -> Unit = {},
     onSortAction: () -> Unit = {},
     onRightAction: () -> Unit = {}
@@ -1980,10 +2032,20 @@ fun AdaptiveBottomBar(
     when (currentPage) {
         0 -> {
             BottomAppBar {
-                IconButton(onClick = onLeftAction) {
-                    Icon(Icons.Filled.AddCircle, contentDescription = "Left action")
+                if (timelineSelected) {
+                    IconButton(onClick = onActionA) {
+                        Icon(Icons.Filled.AddCircle, contentDescription = "Action A")
+                    }
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = onActionB) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Action B")
+                    }
+                } else {
+                    IconButton(onClick = onLeftAction) {
+                        Icon(Icons.Filled.AddCircle, contentDescription = "Left action")
+                    }
+                    Text("左ページ", modifier = Modifier.padding(start = 8.dp))
                 }
-                Text("左ページ", modifier = Modifier.padding(start = 8.dp))
             }
         }
 
@@ -2315,7 +2377,6 @@ private fun DropdownField(
         }
     }
 }
-
 
 @Composable
 private fun TimeField(
