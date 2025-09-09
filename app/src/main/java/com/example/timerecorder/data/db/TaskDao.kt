@@ -119,4 +119,11 @@ interface TaskDao {
         """
     )
     suspend fun getEventsInRange(startMs: Long, endMs: Long): List<HistoryRowDb>
+
+    @Query("DELETE FROM task_events WHERE id = :eventId")
+    suspend fun deleteEventById(eventId: Long)
+
+    @Query("UPDATE task_events SET pressedAtEpochMs = :newStart, durationMillis = :newDuration WHERE id = :eventId")
+    suspend fun updateEventTime(eventId: Long, newStart: Long, newDuration: Long)
+
 }

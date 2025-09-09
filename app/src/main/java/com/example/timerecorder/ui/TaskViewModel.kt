@@ -234,6 +234,8 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         repo.importTasksJson(json, replaceAll)
     }
 
+    suspend fun hasOverlap(startMs: Long, endMs: Long): Boolean = repo.hasOverlap(startMs, endMs)
+
     fun addManualRecord(taskId: Long, startedAt: Long, endedAt: Long) {
         viewModelScope.launch {
             if (endedAt <= startedAt) {

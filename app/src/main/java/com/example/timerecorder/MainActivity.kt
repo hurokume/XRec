@@ -2028,11 +2028,12 @@ fun BlankScreen(label: String, modifier: Modifier = Modifier) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddTaskScreen(
+fun AddTaskScreen(
     onBack: () -> Unit,
     viewModel: TaskViewModel
 ) {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     val parents by viewModel.parents.collectAsStateWithLifecycle()
 
@@ -2091,6 +2092,12 @@ private fun AddTaskScreen(
             cal.get(java.util.Calendar.DAY_OF_MONTH)
         ).show()
     }
+
+    // 上書き確認ダイアログの状態
+    var showOverwriteDialog by rememberSaveable { mutableStateOf(false) }
+    var pendingTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var pendingStart by rememberSaveable { mutableLongStateOf(0L) }
+    var pendingEnd by rememberSaveable { mutableLongStateOf(0L) }
 
     Scaffold(
         topBar = {
@@ -2209,9 +2216,19 @@ private fun AddTaskScreen(
                         ).show()
 
                         else -> {
-                            // ここで ViewModel に保存要求
-                            viewModel.addManualRecord(finalTaskId!!, startMs, endMs)
-                            onBack()
+                            scope.launch {
+                                // 上書き警告フロー
+                                val overlap = viewModel.hasOverlap(startMs, endMs)
+                                if (overlap) {
+                                    pendingTaskId = finalTaskId!!
+                                    pendingStart = startMs
+                                    pendingEnd = endMs
+                                    showOverwriteDialog = true
+                                } else {
+                                    viewModel.addManualRecord(finalTaskId!!, startMs, endMs)
+                                    onBack()
+                                }
+                            }
                         }
                     }
                 }) { Text("保存") }
@@ -2219,6 +2236,34 @@ private fun AddTaskScreen(
 
             Spacer(Modifier.weight(1f))
         }
+    }
+
+    // 上書き警告ダイアログ
+    if (showOverwriteDialog) {
+        AlertDialog(
+            onDismissRequest = { showOverwriteDialog = false },
+            title = { Text("重複する記録を上書きします") },
+            text = {
+                Text(
+                    "この期間には既存の記録が存在します。\n" +
+                            "追加する記録を優先し、重複部分は削除または切り詰められます。続行しますか？"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val t = pendingTaskId
+                    if (t != null) {
+                        // ここで実際に追加（内部で既存イベントを調整）
+                        viewModel.addManualRecord(t, pendingStart, pendingEnd)
+                    }
+                    showOverwriteDialog = false
+                    onBack()
+                }) { Text("上書きして追加") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showOverwriteDialog = false }) { Text("キャンセル") }
+            }
+        )
     }
 }
 

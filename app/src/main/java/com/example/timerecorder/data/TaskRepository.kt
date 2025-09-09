@@ -208,26 +208,76 @@ class TaskRepository(
      * 履歴画面は task_events を参照しているため、events も必ず追加する。
      * セッション表（task_sessions）にも“終了済み”として残す。
      */
-    suspend fun addManualRecord(taskId: Long, startedAt: Long, endedAt: Long) =
-        db.withTransaction {
-            val duration = (endedAt - startedAt).coerceAtLeast(0L)
+    suspend fun addManualRecord(taskId: Long, startedAt: Long, endedAt: Long) = db.withTransaction {
+        require(endedAt > startedAt) { "end must be after start" }
 
-            // 履歴イベント（履歴画面が参照するテーブル）
-            taskDao.insertEvent(
-                TaskEventEntity(
-                    taskId = taskId,
-                    pressedAtEpochMs = startedAt,
-                    durationMillis = duration
-                )
-            )
+        val start = startedAt
+        val end = endedAt
 
-            // セッション（終了済みレコードとして保管）
-            sessionDao.insert(
-                TaskSessionEntity(
-                    taskId = taskId,
-                    startedAt = startedAt,
-                    endedAt = endedAt
-                )
-            )
+        // 1) 重複している既存イベントを取得
+        val overlaps = taskDao.getEventsInRange(start, end)
+
+        // 2) 既存イベントを「追加イベントを優先」で上書き調整
+        overlaps.forEach { e ->
+            val es = e.pressedAtEpochMs
+            val ee = e.pressedAtEpochMs + kotlin.math.max(0L, e.durationMillis)
+
+            when {
+                // 追加区間が完全に覆う：削除（Case1 の B/C）
+                es >= start && ee <= end -> {
+                    taskDao.deleteEventById(e.eventId)
+                }
+                // 右側が食い込む：右端を切り詰め（...～start）
+                es < start && ee <= end -> {
+                    val newDur = start - es
+                    if (newDur > 0) taskDao.updateEventTime(e.eventId, es, newDur)
+                    else taskDao.deleteEventById(e.eventId)
+                }
+                // 左側が食い込む：左端を切り詰め（end～...）（Case2 の C）
+                es >= start && ee > end -> {
+                    val newStart = end
+                    val newDur = ee - end
+                    if (newDur > 0) taskDao.updateEventTime(e.eventId, newStart, newDur)
+                    else taskDao.deleteEventById(e.eventId)
+                }
+                // 追加区間が中央に刺さる：左右で分割（...～start）と（end～...）
+                es < start && ee > end -> {
+                    val leftDur = start - es
+                    val rightDur = ee - end
+
+                    if (leftDur > 0) {
+                        // 既存イベント本体は左側に縮める
+                        taskDao.updateEventTime(e.eventId, es, leftDur)
+                    } else {
+                        // 左が0なら消して右を別イベントで作る
+                        taskDao.deleteEventById(e.eventId)
+                    }
+                    if (rightDur > 0) {
+                        taskDao.insertEvent(
+                            TaskEventEntity(
+                                taskId = e.taskId,
+                                pressedAtEpochMs = end,
+                                durationMillis = rightDur
+                            )
+                        )
+                    }
+                }
+            }
         }
+
+        // 3) 追加イベントを最後に挿入（最優先）
+        taskDao.insertEvent(
+            TaskEventEntity(
+                taskId = taskId,
+                pressedAtEpochMs = start,
+                durationMillis = end - start
+            )
+        )
+    }
+
+    suspend fun hasOverlap(startedAt: Long, endedAt: Long): Boolean {
+        if (endedAt <= startedAt) return false
+        return taskDao.getEventsInRange(startedAt, endedAt).isNotEmpty()
+    }
+
 }
