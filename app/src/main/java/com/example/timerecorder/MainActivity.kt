@@ -114,6 +114,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.timerecorder.ui.HistoryItemUi
 import com.example.timerecorder.ui.TaskViewModel
+import com.example.timerecorder.ui.UiEvent
 import com.example.timerecorder.ui.theme.TimeRecorderTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -164,9 +165,10 @@ class MainActivity : ComponentActivity() {
                                 onNavigateAddTask = { navController.navigate(Routes.AddTask) }
                             )
                         }
-                        // タスク記録追加（プレースホルダ）
+                        // タスク記録追加フォーム
                         composable(Routes.AddTask) {
                             AddTaskScreen(
+                                viewModel = taskViewModel,
                                 onBack = { navController.popBackStack() }
                             )
                         }
@@ -196,6 +198,15 @@ fun AppRoot(
 
     val ctx = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
+
+    // ▼ 追加：ViewModel のワンショット UI イベントを収集して Snackbar を表示
+    LaunchedEffect(Unit) {
+        viewModel.events.collectLatest { ev ->
+            when (ev) {
+                is UiEvent.ShowMessage -> snackbar.showSnackbar(ev.message)
+            }
+        }
+    }
 
     // Import ダイアログの状態
     var showImportDialog by rememberSaveable { mutableStateOf(false) }
@@ -498,19 +509,17 @@ fun MainPager(
             0 -> TimelineScreen(
                 viewModel = viewModel,
                 onAddRecord = onNavigateAddTask
-            ) // 左ページ：マルチ日タイムライン
-            1 -> DBTaskScreen(viewModel = viewModel, sortMode = sortMode) // 中央：タスク
-            2 -> StatsScreen(viewModel = viewModel) // 右ページ：集計グラフ
+            )
+
+            1 -> DBTaskScreen(viewModel = viewModel, sortMode = sortMode)
+            2 -> StatsScreen(viewModel = viewModel)
         }
     }
 }
 
 /* ------- 中央ページ UI State ------- */
 private sealed interface TaskCenterUiState {
-    /** 通常の一覧表示 */
     data object List : TaskCenterUiState
-
-    /** サブタスク選択中（親タスクの情報付き） */
     data class SubtaskSelect(
         val parentTitle: String,
         val parentId: Long,
@@ -530,31 +539,23 @@ fun DBTaskScreen(
     modifier: Modifier = Modifier,
     sortMode: Boolean
 ) {
-    // タスク構成（親→子のグループ）
+    val ctx = LocalContext.current   // Toast などで使う場合に備え。未使用でもビルドは可。
     val parents by viewModel.parents.collectAsStateWithLifecycle()
-    // 実行中タスクの UI 状態
     val activeUi by viewModel.activeUi.collectAsStateWithLifecycle()
-    // コルーチンスコープ（DB 更新など）
     val scope = rememberCoroutineScope()
 
-    // 現在の UI サブ状態（通常/サブタスク選択）
     var ui by remember { mutableStateOf<TaskCenterUiState>(TaskCenterUiState.List) }
-
-    // ハイライト対象（実行中 or クリックしたタスク）
     var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
 
-    // 追加／ダイアログ用 state（親）
     var showAddDialog by rememberSaveable { mutableStateOf(false) }
     var newTaskName by rememberSaveable { mutableStateOf("") }
     var addParentError by rememberSaveable { mutableStateOf<String?>(null) }
 
-    // 親行のメニュー＆子追加ダイアログ
     var menuForParentId by rememberSaveable { mutableStateOf<Long?>(null) }
     var showAddChildDialogFor by rememberSaveable { mutableStateOf<Long?>(null) }
     var newChildName by rememberSaveable { mutableStateOf("") }
     var addChildError by rememberSaveable { mutableStateOf<String?>(null) }
 
-    // 子タスク行メニュー（リネーム/削除）
     var menuForChildTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var renameTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var renameTaskCurrentName by rememberSaveable { mutableStateOf("") }
@@ -562,16 +563,13 @@ fun DBTaskScreen(
     var confirmDeleteTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var confirmDeleteTaskName by rememberSaveable { mutableStateOf("") }
 
-    // 親の色変更／削除
     var colorPickForParentId by rememberSaveable { mutableStateOf<Long?>(null) }
     var confirmDeleteParentId by rememberSaveable { mutableStateOf<Long?>(null) }
     var confirmDeleteParentName by rememberSaveable { mutableStateOf("") }
 
-    // プリセット色
     val presetColors =
         listOf(0xFFEF9A9A, 0xFFA5D6A7, 0xFF90CAF9, 0xFFFFF59D, 0xFFCE93D8).map { Color(it) }
 
-    // FAB の自動フェードアウト制御
     var fabVisible by rememberSaveable { mutableStateOf(true) }
     var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(lastInteractionTime) {
@@ -580,37 +578,29 @@ fun DBTaskScreen(
         fabVisible = false
     }
 
-    // スクロール監視（操作があればタイマー延長）
     val listState = rememberLazyListState()
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
             .collect { lastInteractionTime = System.currentTimeMillis() }
     }
 
-// 実行中タスクに合わせてハイライトを更新（サブ状態はリセット）
-// 小タスク（サブタスク）が選択・実行中なら、その直上の子タスク行をハイライトする
+    // 実行中タスクに合わせてハイライトを更新（サブ状態はリセット）
     LaunchedEffect(activeUi, parents) {
-        // 初期化
         selectedTaskId = null
         ui = TaskCenterUiState.List
 
         val a = activeUi ?: return@LaunchedEffect
 
-        // 1) 直接この画面に並んでいる子タスクなら、その行をハイライト
         val directGroup = parents.firstOrNull { group -> group.children.any { it.id == a.taskId } }
         if (directGroup != null) {
             selectedTaskId = a.taskId
             return@LaunchedEffect
         }
 
-        // 2) 直接の子でない場合（= 小タスク）:
-        //    親の子タスクそれぞれのサブタスクをスナップショットで確認して、
-        //    該当する直上の子タスクIDをハイライト対象にする
         var highlightParentChildId: Long? = null
         outer@ for (group in parents) {
             for (child in group.children) {
                 if (viewModel.hasChildren(child.id)) {
-                    // Flow を一度だけ取得（LaunchedEffect内なので suspend OK）
                     val subs = viewModel.children(child.id).first()
                     if (subs.any { it.id == a.taskId }) {
                         highlightParentChildId = child.id
@@ -622,7 +612,6 @@ fun DBTaskScreen(
         selectedTaskId = highlightParentChildId
     }
 
-    // 並び替えモード時に使用：親ごとの並び順を保持
     val reorderLists = remember(sortMode, parents) {
         mutableStateMapOf<Long, MutableList<Long>>().apply {
             parents.forEach { group ->
@@ -631,11 +620,9 @@ fun DBTaskScreen(
         }
     }
 
-    // ドラッグ中の情報
     var draggingTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var draggingDy by remember { mutableFloatStateOf(0f) }
 
-    /** 並び替え結果を ViewModel に反映 */
     fun commitOrder(parentId: Long) {
         reorderLists[parentId]?.let { ordered ->
             viewModel.reorderChildren(parentId, ordered)
@@ -649,7 +636,6 @@ fun DBTaskScreen(
                 .padding(16.dp)
         ) {
             when (val s = ui) {
-                // ------- 通常一覧 -------
                 TaskCenterUiState.List -> {
                     Text(
                         text = if (sortMode) "長押しして上下にドラッグすると並び替えできます"
@@ -668,16 +654,13 @@ fun DBTaskScreen(
                             val parentColor = p.parent.colorInt?.let { Color(it) }
                                 ?: MaterialTheme.colorScheme.primary
 
-                            // 子タスクを id → エンティティに引けるように保持
                             val childById =
                                 remember(p.children) { p.children.associateBy { it.id } }
-                            // この親の現在の並び順
                             val order: MutableList<Long> =
                                 reorderLists[p.parent.id] ?: p.children.map { it.id }
                                     .toMutableList()
                             reorderLists[p.parent.id] = order
 
-                            // 子タスク行の中心座標（ドラッグ判定に利用）
                             val centers = remember(p.parent.id) { mutableStateMapOf<Long, Float>() }
 
                             Card(
@@ -693,7 +676,6 @@ fun DBTaskScreen(
                             ) {
                                 Column(Modifier.padding(12.dp)) {
 
-                                    // 親行（タイトル＋メニュー）
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically
@@ -755,7 +737,6 @@ fun DBTaskScreen(
                                     order.forEach { childId ->
                                         val child = childById[childId] ?: return@forEach
 
-                                        // ハイライト（選択中 or 実行中）
                                         val isSelected = selectedTaskId == child.id && !sortMode
                                         val bg =
                                             if (isSelected) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surface
@@ -764,7 +745,6 @@ fun DBTaskScreen(
                                         val textColor =
                                             if (isSelected) Color.Red else MaterialTheme.colorScheme.onSurface
 
-                                        // ドラッグ中は zIndex と移動量を変更
                                         val isDragging = draggingTaskId == child.id
                                         val z = if (isDragging) 1f else 0f
 
@@ -780,7 +760,6 @@ fun DBTaskScreen(
                                                 .zIndex(z)
                                                 .then(
                                                     if (sortMode)
-                                                    // 並び替えモード：座標を記録し、長押しドラッグで上下入れ替え
                                                         Modifier
                                                             .onGloballyPositioned { coords ->
                                                                 val c =
@@ -848,11 +827,11 @@ fun DBTaskScreen(
                                                                 )
                                                             }
                                                     else
-                                                    // 通常モード：クリックで選択→子ありならサブタスク選択へ
                                                         Modifier.clickable {
                                                             selectedTaskId = child.id
                                                             lastInteractionTime =
                                                                 System.currentTimeMillis()
+                                                            val scopeLocal = this
                                                             scope.launch {
                                                                 val has =
                                                                     viewModel.hasChildren(child.id)
@@ -864,6 +843,7 @@ fun DBTaskScreen(
                                                                             color = parentColor
                                                                         )
                                                                 } else {
+                                                                    // ▼ ここは結果判定せず、ViewModel に任せる
                                                                     viewModel.onTaskPressed(child.id)
                                                                 }
                                                             }
@@ -880,7 +860,6 @@ fun DBTaskScreen(
                                                     .padding(horizontal = 12.dp, vertical = 8.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                // タスク名
                                                 Text(
                                                     text = child.name,
                                                     style = MaterialTheme.typography.bodyLarge,
@@ -889,7 +868,6 @@ fun DBTaskScreen(
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
-                                                // 親色のインジケーター
                                                 Box(
                                                     modifier = Modifier
                                                         .size(16.dp)
@@ -904,7 +882,6 @@ fun DBTaskScreen(
                                                         )
                                                 )
                                                 Spacer(Modifier.width(8.dp))
-                                                // 子タスクのメニュー（名前変更/削除）
                                                 if (!sortMode) {
                                                     IconButton(onClick = {
                                                         menuForChildTaskId = child.id
@@ -926,20 +903,33 @@ fun DBTaskScreen(
                                                                 System.currentTimeMillis()
                                                         }
                                                     ) {
-                                                        // ★ 追加：サブタスクを追加
+                                                        DropdownMenuItem(
+                                                            text = { Text("サブタスクを編集") },
+                                                            onClick = {
+                                                                menuForChildTaskId = null
+                                                                ui =
+                                                                    TaskCenterUiState.SubtaskSelect(
+                                                                        parentTitle = child.name,
+                                                                        parentId = child.id,
+                                                                        color = parentColor
+                                                                    )
+                                                                lastInteractionTime =
+                                                                    System.currentTimeMillis()
+                                                            }
+                                                        )
+
+                                                        // サブタスク追加
                                                         DropdownMenuItem(
                                                             text = { Text("サブタスクを追加") },
                                                             onClick = {
                                                                 menuForChildTaskId = null
                                                                 newChildName = ""
                                                                 addChildError = null
-                                                                // 親 = この子タスクID → サブタスク追加になる
                                                                 showAddChildDialogFor = child.id
                                                                 lastInteractionTime =
                                                                     System.currentTimeMillis()
                                                             }
                                                         )
-
                                                         DropdownMenuItem(
                                                             text = { Text("名前を変更") },
                                                             onClick = {
@@ -973,7 +963,6 @@ fun DBTaskScreen(
                     }
                 }
 
-                // ------- サブタスク選択 -------
                 is TaskCenterUiState.SubtaskSelect -> {
                     SubtaskPicker(
                         title = "${s.parentTitle} のサブタスク",
@@ -984,7 +973,7 @@ fun DBTaskScreen(
                             lastInteractionTime = System.currentTimeMillis()
                         },
                         onPick = { pickedId ->
-                            // サブタスクを開始
+                            // ▼ ここも結果判定せず、ViewModel に任せる（Snackbar は AppRoot が受け取る）
                             viewModel.onTaskPressed(pickedId)
                             ui = TaskCenterUiState.List
                             lastInteractionTime = System.currentTimeMillis()
@@ -1007,8 +996,6 @@ fun DBTaskScreen(
         }
 
         // ====== 各種ダイアログ ======
-
-        // 親タスク追加（重複禁止）
         if (showAddDialog) {
             AlertDialog(
                 onDismissRequest = { showAddDialog = false },
@@ -1055,7 +1042,6 @@ fun DBTaskScreen(
             )
         }
 
-        // 子タスク追加（同一プロジェクト内で重複禁止）
         if (showAddChildDialogFor != null) {
             AlertDialog(
                 onDismissRequest = { showAddChildDialogFor = null },
@@ -1107,7 +1093,6 @@ fun DBTaskScreen(
             )
         }
 
-        // 親色の変更（プリセットから選択）
         if (colorPickForParentId != null) {
             AlertDialog(
                 onDismissRequest = { colorPickForParentId = null },
@@ -1143,7 +1128,6 @@ fun DBTaskScreen(
             )
         }
 
-        // 親削除確認
         if (confirmDeleteParentId != null) {
             AlertDialog(
                 onDismissRequest = { confirmDeleteParentId = null },
@@ -1164,7 +1148,6 @@ fun DBTaskScreen(
             )
         }
 
-        // タスク名変更
         if (renameTaskId != null) {
             AlertDialog(
                 onDismissRequest = { renameTaskId = null },
@@ -1200,7 +1183,6 @@ fun DBTaskScreen(
             )
         }
 
-        // タスク削除確認
         if (confirmDeleteTaskId != null) {
             AlertDialog(
                 onDismissRequest = { confirmDeleteTaskId = null },
@@ -1219,18 +1201,16 @@ fun DBTaskScreen(
             )
         }
 
-        // 右下 FAB（親 or 子の追加）
         if (fabVisible) {
             FloatingActionButton(
                 onClick = {
                     when (val s = ui) {
-                        // サブタスク選択中なら子タスク追加
                         is TaskCenterUiState.SubtaskSelect -> {
                             newChildName = ""
                             addChildError = null
                             showAddChildDialogFor = s.parentId
                         }
-                        // 通常は親タスク追加
+
                         else -> {
                             newTaskName = ""
                             addParentError = null
@@ -1265,12 +1245,10 @@ private fun SubtaskPicker(
     onDeleteRequest: (Long, String) -> Unit,
     viewModel: TaskViewModel
 ) {
-    // Flow<List<...>> なので初期値を渡すオーバーロードを使用
     val subtasks by viewModel.children(parentId)
         .collectAsStateWithLifecycle(initialValue = emptyList())
     var selectedSubId by rememberSaveable { mutableStateOf<Long?>(null) }
 
-    // 実行中変更に追従してハイライト
     val activeUi by viewModel.activeUi.collectAsStateWithLifecycle()
     LaunchedEffect(activeUi, subtasks) {
         val aid = activeUi?.taskId
@@ -1280,7 +1258,6 @@ private fun SubtaskPicker(
     }
 
     Column(Modifier.fillMaxSize()) {
-        // ヘッダ（戻る）
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1292,7 +1269,6 @@ private fun SubtaskPicker(
             Text(text = title, style = MaterialTheme.typography.titleMedium)
         }
 
-        // サブタスク一覧
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
@@ -1331,7 +1307,6 @@ private fun SubtaskPicker(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        // 親色（インジケータ）
                         Box(
                             modifier = Modifier
                                 .size(16.dp)
@@ -1340,7 +1315,6 @@ private fun SubtaskPicker(
                         )
                         Spacer(Modifier.width(8.dp))
 
-                        // 個別メニュー
                         var menuExpanded by remember { mutableStateOf(false) }
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(Icons.Filled.Menu, contentDescription = "Subtask menu")
@@ -1375,37 +1349,28 @@ private fun SubtaskPicker(
    左ページ：マルチ日タイムライン（Googleカレンダー週表示風）
    ========================= */
 
-/**
- * タイムテーブル。履歴＋進行中のブロックを日別に描画。
- * @param onAddRecord 右下 FAB（過去記録の追加）押下で呼ばれる
- */
 @Composable
 private fun TimelineScreen(
     viewModel: TaskViewModel,
     modifier: Modifier = Modifier,
     onAddRecord: () -> Unit
 ) {
-    // 初回で履歴の先頭ページを確保
     LaunchedEffect(Unit) { viewModel.ensureHistoryFirstPage() }
 
-    // 履歴・実行中・タスク色参照
     val history by viewModel.historyItems.collectAsStateWithLifecycle()
     val activeUi by viewModel.activeUi.collectAsStateWithLifecycle()
     val parents by viewModel.parents.collectAsStateWithLifecycle()
 
-    // 表示日数と基準日のスクロール位置（ページ送り）
-    var dayCount by rememberSaveable { mutableIntStateOf(3) }     // 3/5/7 切替
-    var anchorOffset by rememberSaveable { mutableIntStateOf(0) } // 0=今日起点、±dayCountでページ送り
+    var dayCount by rememberSaveable { mutableIntStateOf(3) }
+    var anchorOffset by rememberSaveable { mutableIntStateOf(0) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    // 表示期間（startMs〜endMs）
     val startOfToday = remember(nowMs) { midnightOf(nowMs) }
     val startMs = remember(startOfToday, anchorOffset) {
         startOfToday + anchorOffset * 24L * 60L * 60L * 1000L
     }
     val endMs = remember(startMs, dayCount) { startMs + dayCount * 24L * 60L * 60L * 1000L }
 
-    // 期間ヘッダの表示
     val f = remember { SimpleDateFormat("yyyy/MM/dd (EEE)", Locale.getDefault()) }
     val headerLabel = remember(startMs, endMs, dayCount) {
         val first = f.format(Date(startMs))
@@ -1413,10 +1378,8 @@ private fun TimelineScreen(
         if (dayCount == 1) first else "$first 〜 $last"
     }
 
-    // テーマ色（タスク色が未設定の時に使用）
     val defaultTaskColor = MaterialTheme.colorScheme.onSurface
 
-    // 子タスク ID から親色を引く簡易関数
     fun colorForTask(taskId: Long, defaultColor: Color): Color {
         val group = parents.firstOrNull { g -> g.children.any { it.id == taskId } }
         return group?.parent?.colorInt?.let { Color(it) } ?: defaultColor
@@ -1430,7 +1393,6 @@ private fun TimelineScreen(
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // ヘッダ（← →、今日へ、日数切替）
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { anchorOffset -= dayCount }) {
                     Icon(Icons.Filled.ChevronLeft, contentDescription = "prev")
@@ -1458,7 +1420,6 @@ private fun TimelineScreen(
                 SegButton("5日", active = dayCount == 5) { dayCount = 5 }
                 SegButton("7日", active = dayCount == 7) { dayCount = 7 }
                 Spacer(Modifier.weight(1f))
-                // 「更新」：現在時刻を更新し、履歴をリロード
                 OutlinedButton(onClick = {
                     nowMs = System.currentTimeMillis()
                     viewModel.reloadHistory()
@@ -1470,12 +1431,10 @@ private fun TimelineScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            // 履歴 + 進行中を各日に分割（はみ出しは日単位にクランプ）
             val blocksByDay: List<List<TimelineBlock>> =
                 remember(history, activeUi, parents, startMs, endMs, dayCount, nowMs) {
                     val days = List(dayCount) { mutableListOf<TimelineBlock>() }
 
-                    // 指定区間を日区切りで分割して追加
                     fun addClampedBlock(s: Long, e: Long, name: String, color: Color) {
                         if (e <= startMs || s >= endMs) return
                         repeat(dayCount) { i ->
@@ -1487,14 +1446,12 @@ private fun TimelineScreen(
                         }
                     }
 
-                    // 履歴を集計
                     history.forEach { h ->
                         val itemStart = h.pressedAt
                         val itemEnd = h.pressedAt + max(0L, h.durationMillis)
                         addClampedBlock(itemStart, itemEnd, h.taskName, h.color)
                     }
 
-                    // 進行中（開始〜今）を仮ブロックとして描画
                     activeUi?.let { a ->
                         val start = a.startEpochMs
                         if (start > 0L) {
@@ -1504,11 +1461,9 @@ private fun TimelineScreen(
                         }
                     }
 
-                    // 各日で開始時刻順に並べる
                     days.map { it.sortedBy { b -> b.startMs } }
                 }
 
-            // タイムライン描画
             MultiDayTimeline(
                 startMs = startMs,
                 dayCount = dayCount,
@@ -1516,7 +1471,6 @@ private fun TimelineScreen(
             )
         }
 
-        // ✅ タイムテーブル画面用の「＋」ボタン（タスク記録追加画面へ遷移）
         FloatingActionButton(
             onClick = onAddRecord,
             modifier = Modifier
@@ -1528,7 +1482,6 @@ private fun TimelineScreen(
     }
 }
 
-/** タイムライン上の 1 ブロック（開始・終了・表示名・色） */
 private data class TimelineBlock(
     val startMs: Long,
     val endMs: Long,
@@ -1536,9 +1489,6 @@ private data class TimelineBlock(
     val color: Color
 )
 
-/**
- * 日数分のカラムを並べたタイムライン本体（時間グリッド＋ブロック描画）
- */
 @Composable
 private fun MultiDayTimeline(
     startMs: Long,
@@ -1551,7 +1501,6 @@ private fun MultiDayTimeline(
     val totalHeight = HOUR_HEIGHT * 24
     val dateFmt = remember { SimpleDateFormat("M/d (E)", Locale.getDefault()) }
 
-    // 縦スクロール（全時間分の高さ）
     val scroll = rememberScrollState()
 
     Row(
@@ -1561,7 +1510,6 @@ private fun MultiDayTimeline(
             .height(totalHeight + 0.dp)
             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
     ) {
-        // 左：時間ガター（00〜24）
         Column(
             modifier = Modifier
                 .width(GUTTER)
@@ -1587,7 +1535,6 @@ private fun MultiDayTimeline(
             }
         }
 
-        // 右：日カラム群
         Row(
             Modifier
                 .weight(1f)
@@ -1610,9 +1557,6 @@ private fun MultiDayTimeline(
     }
 }
 
-/**
- * 1 日分のカラム（背景グリッド＋ブロック群）
- */
 @Composable
 private fun DayColumn(
     label: String,
@@ -1622,24 +1566,20 @@ private fun DayColumn(
 ) {
     val hourHeightPx = with(LocalDensity.current) { hourHeight.toPx() }
 
-    // 使用色を先に抜き出しておく（Recompose 範囲の最小化）
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
     val outline = MaterialTheme.colorScheme.outline
     val outline40 = outline.copy(alpha = 0.4f)
     val onSurface = MaterialTheme.colorScheme.onSurface
 
     Box(modifier = modifier) {
-        // 背景グリッド（時間線）
         Canvas(Modifier.matchParentSize()) {
             val w = size.width
             val h = size.height
             val step = h / 24f
-            // 日付ヘッダ帯
             drawRect(
                 color = surfaceVariant,
                 size = Size(w, hourHeightPx * 0.75f)
             )
-            // 時間線（1h 毎、6h 毎は太線）
             repeat(25) { i ->
                 val y = step * i
                 drawLine(
@@ -1651,7 +1591,6 @@ private fun DayColumn(
             }
         }
 
-        // 日付ラベル
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1662,7 +1601,6 @@ private fun DayColumn(
             Text(label, style = MaterialTheme.typography.labelLarge)
         }
 
-        // ブロック群（開始分→オフセット、長さ→高さ）
         blocks.forEach { b ->
             val startMin = minutesOfDay(b.startMs)
             val endMin = minutesOfDay(b.endMs)
@@ -1691,7 +1629,6 @@ private fun DayColumn(
     }
 }
 
-/** 与えられた時刻（ms）を 0:00 に切り下げたミリ秒にする */
 private fun midnightOf(timeMs: Long): Long {
     val cal = Calendar.getInstance().apply {
         timeInMillis = timeMs
@@ -1703,7 +1640,6 @@ private fun midnightOf(timeMs: Long): Long {
     return cal.timeInMillis
 }
 
-/** 1 日の中での分位置（例: 13:30 -> 810）を返す */
 private fun minutesOfDay(ms: Long): Int {
     val cal = Calendar.getInstance().apply { timeInMillis = ms }
     return cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
@@ -1713,45 +1649,33 @@ private fun minutesOfDay(ms: Long): Int {
    右ページ：期間集計グラフ
    ========================= */
 
-/**
- * 指定期間（7/30/90 日）でタスク時間を集計し、棒グラフ＋リストで表示。
- */
 @Composable
 private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
-    // 初回で履歴の先頭ページを確保
     LaunchedEffect(Unit) { viewModel.ensureHistoryFirstPage() }
 
-    // 履歴・実行中・タスク色参照
     val history by viewModel.historyItems.collectAsStateWithLifecycle()
     val activeUi by viewModel.activeUi.collectAsStateWithLifecycle()
     val parents by viewModel.parents.collectAsStateWithLifecycle()
 
-    // 期間選択と「今」の更新
-    var days by rememberSaveable { mutableIntStateOf(7) } // 7/30/90
+    var days by rememberSaveable { mutableIntStateOf(7) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    // 再読み込み押下で現在時刻と履歴を更新
-    val onRefresh = {
+    val onRefresh: () -> Unit = {
         nowMs = System.currentTimeMillis()
         viewModel.reloadHistory()
     }
 
-    // 集計の下限時刻（この時刻以降のものを合計）
     val cutoff = remember(nowMs, days) { nowMs - days * 24L * 60L * 60L * 1000L }
 
-    // テーマ色（タスク色が未設定の時に使用）
     val defaultTaskColor = MaterialTheme.colorScheme.primary
 
-    // 子タスク ID から親色を引く簡易関数
     fun colorForTask(taskId: Long, defaultColor: Color): Color {
         val group = parents.firstOrNull { g -> g.children.any { it.id == taskId } }
         return group?.parent?.colorInt?.let { Color(it) } ?: defaultColor
     }
 
-    // 単純な集計データの入れ物
     data class Agg(val taskId: Long, val name: String, val color: Color, val totalMs: Long)
 
-    // 履歴と進行中を合算して集計
     val aggregated: List<Agg> = remember(history, activeUi, parents, cutoff, nowMs) {
         val map = LinkedHashMap<Long, Agg>()
 
@@ -1762,12 +1686,10 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
             else map[taskId] = cur.copy(totalMs = cur.totalMs + ms)
         }
 
-        // 履歴
         history.filter { it.pressedAt >= cutoff }.forEach { row ->
             addMs(row.taskId, row.taskName, row.color, max(0L, row.durationMillis))
         }
 
-        // 進行中（cutoff 以降）を加算
         activeUi?.let { a ->
             val s = maxOf(a.startEpochMs, cutoff)
             val e = nowMs
@@ -1777,7 +1699,6 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
         map.values.sortedByDescending { it.totalMs }.toList()
     }
 
-    // 合計（分母 0 回避のため 1 に丸め）
     val totalAll = aggregated.sumOf { it.totalMs }.coerceAtLeast(1L)
 
     Column(
@@ -1788,7 +1709,6 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
         Text("集計", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(12.dp))
 
-        // 期間切替と更新ボタン
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SegButton("7日", active = days == 7) { days = 7 }
             SegButton("30日", active = days == 30) { days = 30 }
@@ -1810,7 +1730,6 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
 
         Spacer(Modifier.height(12.dp))
 
-        // 上位8件をグラフに
         if (aggregated.isEmpty()) {
             Surface(
                 modifier = Modifier
@@ -1840,7 +1759,6 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
 
             Spacer(Modifier.height(12.dp))
 
-            // 明細
             Column {
                 top.forEach { a ->
                     Row(
@@ -1879,7 +1797,6 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
     }
 }
 
-/** セグメント風ボタン（選択時はトーナル、非選択はアウトライン） */
 @Composable
 private fun SegButton(label: String, active: Boolean, onClick: () -> Unit) {
     if (active) {
@@ -1893,11 +1810,6 @@ private fun SegButton(label: String, active: Boolean, onClick: () -> Unit) {
     }
 }
 
-/**
- * シンプルな横向き棒グラフ（Compose Canvas）
- * @param entries （ラベル, 値）リスト
- * @param colors 棒の色リスト（entries と同順）
- */
 @Composable
 private fun BarChart(
     entries: List<Pair<String, Float>>,
@@ -1906,7 +1818,7 @@ private fun BarChart(
     barCornerRadius: Float = 16f
 ) {
     val maxVal = (entries.maxOfOrNull { it.second } ?: 1f).coerceAtLeast(1f)
-    LocalDensity.current // 現在の Density を触っておく（Lint 抑制）
+    LocalDensity.current
 
     Column(modifier = modifier) {
         entries.forEachIndexed { index, (label, value) ->
@@ -1922,7 +1834,6 @@ private fun BarChart(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(4.dp))
-                // 背景トラック
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1932,7 +1843,6 @@ private fun BarChart(
                             RoundedCornerShape(999.dp)
                         )
                 ) {
-                    // 実バー
                     Canvas(
                         modifier = Modifier
                             .fillMaxWidth(ratio)
@@ -1951,9 +1861,6 @@ private fun BarChart(
 
 /* ------- History（100件ページング・末尾付近で追加ロード） ------- */
 
-/**
- * 履歴一覧。末尾付近までスクロールしたら次ページを読み込む。
- */
 @Composable
 fun HistoryScreen(modifier: Modifier = Modifier, viewModel: TaskViewModel) {
     val items by viewModel.historyItems.collectAsStateWithLifecycle()
@@ -1963,7 +1870,6 @@ fun HistoryScreen(modifier: Modifier = Modifier, viewModel: TaskViewModel) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // 画面に表示された最後の index を見て、末尾近くなら追加ロード
     LaunchedEffect(items.size) {
         if (items.isEmpty()) return@LaunchedEffect
         val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
@@ -2005,7 +1911,6 @@ fun HistoryScreen(modifier: Modifier = Modifier, viewModel: TaskViewModel) {
             }
         }
 
-        // 右下に「再読み込み」ボタン
         FloatingActionButton(
             onClick = { viewModel.reloadHistory() },
             modifier = Modifier
@@ -2017,7 +1922,6 @@ fun HistoryScreen(modifier: Modifier = Modifier, viewModel: TaskViewModel) {
     }
 }
 
-/** 履歴 1 行分のカード表示（開始日時・色・所要時間） */
 @SuppressLint("DefaultLocale")
 @Composable
 private fun HistoryRowCard(row: HistoryItemUi) {
@@ -2051,7 +1955,6 @@ private fun HistoryRowCard(row: HistoryItemUi) {
                 )
             }
             Spacer(Modifier.width(12.dp))
-            // 色インジケータ
             Box(
                 modifier = Modifier
                     .size(16.dp)
@@ -2067,14 +1970,6 @@ private fun HistoryRowCard(row: HistoryItemUi) {
     }
 }
 
-/* ------- BottomBar / Blank ------- */
-
-/**
- * ページごとに内容が変わる BottomBar。
- * - 左ページ：左アクションのみ
- * - 中央ページ：並び替えボタン
- * - 右ページ：右アクションのみ
- */
 @Composable
 fun AdaptiveBottomBar(
     currentPage: Int,
@@ -2113,7 +2008,6 @@ fun AdaptiveBottomBar(
     }
 }
 
-/** 何も表示するものがない時のプレースホルダ */
 @Composable
 fun BlankScreen(label: String, modifier: Modifier = Modifier) {
     Box(
@@ -2129,36 +2023,268 @@ fun BlankScreen(label: String, modifier: Modifier = Modifier) {
 }
 
 /* =========================
-   タスク追加画面（プレースホルダ）
+   タスク追加画面（実装版：過去記録の手動追加）
    ========================= */
 
-/**
- * タスク記録を追加するための画面（現状はプレースホルダ）。
- * - 戻る（←）で直前の画面へ復帰。
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddTaskScreen(onBack: () -> Unit) {
+private fun AddTaskScreen(
+    onBack: () -> Unit,
+    viewModel: TaskViewModel
+) {
+    val ctx = LocalContext.current
+
+    val parents by viewModel.parents.collectAsStateWithLifecycle()
+
+    var selectedParentId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var selectedSubtaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+
+    // 選択された親配下の子タスク
+    val tasksInParent = remember(selectedParentId, parents) {
+        parents.firstOrNull { it.parent.id == selectedParentId }?.children.orEmpty()
+    }
+
+    // 選択された子タスク配下のサブタスク
+    val subtasks by remember(selectedTaskId) {
+        if (selectedTaskId != null) {
+            viewModel.children(selectedTaskId!!)
+        } else {
+            kotlinx.coroutines.flow.flowOf(emptyList())
+        }
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    // 初期値：直近1時間
+    var startMs by rememberSaveable { mutableLongStateOf(System.currentTimeMillis() - 60 * 60 * 1000L) }
+    var endMs by rememberSaveable { mutableLongStateOf(System.currentTimeMillis()) }
+
+    val dfFull =
+        remember { java.text.SimpleDateFormat("yyyy/MM/dd HH:mm", java.util.Locale.getDefault()) }
+
+    fun pickDateTime(
+        initial: Long,
+        onPicked: (Long) -> Unit
+    ) {
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = initial }
+        android.app.DatePickerDialog(
+            ctx,
+            { _, y, m, d ->
+                cal.set(java.util.Calendar.YEAR, y)
+                cal.set(java.util.Calendar.MONTH, m)
+                cal.set(java.util.Calendar.DAY_OF_MONTH, d)
+                android.app.TimePickerDialog(
+                    ctx,
+                    { _, hh, mm ->
+                        cal.set(java.util.Calendar.HOUR_OF_DAY, hh)
+                        cal.set(java.util.Calendar.MINUTE, mm)
+                        cal.set(java.util.Calendar.SECOND, 0)
+                        cal.set(java.util.Calendar.MILLISECOND, 0)
+                        onPicked(cal.timeInMillis)
+                    },
+                    cal.get(java.util.Calendar.HOUR_OF_DAY),
+                    cal.get(java.util.Calendar.MINUTE),
+                    true
+                ).show()
+            },
+            cal.get(java.util.Calendar.YEAR),
+            cal.get(java.util.Calendar.MONTH),
+            cal.get(java.util.Calendar.DAY_OF_MONTH)
+        ).show()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("タスク記録を追加") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        // 既存アイコンセット内で流用
                         Icon(Icons.Filled.ChevronLeft, contentDescription = "Back")
                     }
                 }
             )
         }
     ) { inner ->
-        Box(
+        Column(
             modifier = Modifier
                 .padding(inner)
-                .fillMaxSize(),
-            contentAlignment = Alignment.Center
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text("ここに過去記録を追加するフォームを実装します。")
+            Text(
+                "親タスク / タスク / サブタスク（任意）と、開始・終了の日時を指定して保存します。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // 親タスク
+            DropdownField(
+                label = "親タスク",
+                current = parents.firstOrNull { it.parent.id == selectedParentId }?.parent?.name
+                    ?: "選択してください",
+                enabled = parents.isNotEmpty(),
+                items = parents.map { it.parent.id to it.parent.name },
+                onSelect = { id ->
+                    selectedParentId = id
+                    selectedTaskId = null
+                    selectedSubtaskId = null
+                }
+            )
+
+            // タスク（子）
+            DropdownField(
+                label = "タスク",
+                current = tasksInParent.firstOrNull { it.id == selectedTaskId }?.name
+                    ?: if (selectedParentId == null) "（親タスク未選択）" else "選択してください",
+                enabled = selectedParentId != null && tasksInParent.isNotEmpty(),
+                items = tasksInParent.map { it.id to it.name },
+                onSelect = { id ->
+                    selectedTaskId = id
+                    selectedSubtaskId = null
+                }
+            )
+
+            // サブタスク（任意）
+            DropdownField(
+                label = "サブタスク（任意）",
+                current = when {
+                    selectedTaskId == null -> "（タスク未選択）"
+                    subtasks.isEmpty() -> "（サブタスクなし）"
+                    selectedSubtaskId == null -> "未選択"
+                    else -> subtasks.firstOrNull { it.id == selectedSubtaskId }?.name ?: "未選択"
+                },
+                enabled = selectedTaskId != null && subtasks.isNotEmpty(),
+                items = subtasks.map { it.id to it.name },
+                onSelect = { id -> selectedSubtaskId = id }
+            )
+
+            // 開始日時
+            TimeField(
+                label = "開始",
+                valueText = dfFull.format(java.util.Date(startMs)),
+                onClick = {
+                    pickDateTime(startMs) { picked ->
+                        startMs = picked
+                        if (endMs <= startMs) endMs = startMs + 5 * 60 * 1000L // 開始≧終了なら終了を自動スライド
+                    }
+                }
+            )
+
+            // 終了日時
+            TimeField(
+                label = "終了",
+                valueText = dfFull.format(java.util.Date(endMs)),
+                onClick = {
+                    pickDateTime(endMs) { picked ->
+                        endMs = picked
+                        if (endMs <= startMs) startMs = endMs - 5 * 60 * 1000L
+                    }
+                }
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(onClick = onBack) { Text("キャンセル") }
+                FilledTonalButton(onClick = {
+                    val baseTaskId = selectedTaskId
+                    val finalTaskId = selectedSubtaskId ?: baseTaskId
+                    when {
+                        selectedParentId == null -> Toast.makeText(
+                            ctx,
+                            "親タスクを選択してください",
+                            Toast.LENGTH_SHORT
+                        ).show()
+
+                        baseTaskId == null -> Toast.makeText(
+                            ctx,
+                            "タスクを選択してください",
+                            Toast.LENGTH_SHORT
+                        ).show()
+
+                        endMs <= startMs -> Toast.makeText(
+                            ctx,
+                            "終了は開始より後にしてください",
+                            Toast.LENGTH_SHORT
+                        ).show()
+
+                        else -> {
+                            // ここで ViewModel に保存要求
+                            viewModel.addManualRecord(finalTaskId!!, startMs, endMs)
+                            onBack()
+                        }
+                    }
+                }) { Text("保存") }
+            }
+
+            Spacer(Modifier.weight(1f))
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DropdownField(
+    label: String,
+    current: String,
+    enabled: Boolean = true,
+    items: List<Pair<Long, String>>,
+    onSelect: (Long) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    // アンカー用コンテナ
+    Box(modifier = Modifier.fillMaxWidth()) {
+        // 表示用の読み取り専用 TextField
+        OutlinedTextField(
+            value = current,
+            onValueChange = {},
+            readOnly = true,
+            enabled = enabled,
+            label = { Text(label) },
+            modifier = Modifier
+                .fillMaxWidth()
+        )
+
+        // フィールド全体をクリックでメニュー展開
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clickable(enabled = enabled) { expanded = true }
+        )
+
+        // 通常の DropdownMenu を使う
+        DropdownMenu(
+            expanded = expanded && enabled,
+            onDismissRequest = { expanded = false }
+        ) {
+            items.forEach { (id, name) ->
+                DropdownMenuItem(
+                    text = { Text(name) },
+                    onClick = {
+                        onSelect(id)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun TimeField(
+    label: String,
+    valueText: String,
+    onClick: () -> Unit
+) {
+    OutlinedTextField(
+        value = valueText,
+        onValueChange = {},
+        readOnly = true,
+        label = { Text(label) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    )
 }

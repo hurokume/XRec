@@ -16,6 +16,24 @@ import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** タスク切替えの結果（UI でメッセージ表示に利用） */
+sealed class SwitchResult {
+    /** すでに同じタスクを実行中（何もしない） */
+    data object NoChange : SwitchResult()
+
+    /** 実行中なし → 新規開始 */
+    data class StartedFresh(val startedAt: Long) : SwitchResult()
+
+    /** 通常切替（前タスクを終了し、履歴に記録） */
+    data class SwitchedNormal(val prevDurationMs: Long) : SwitchResult()
+
+    /** 短時間だったため「統合」した（前タスクは履歴に残さない） */
+    data class MergedShort(
+        val prevDurationMs: Long,
+        val thresholdMs: Long
+    ) : SwitchResult()
+}
+
 class TaskRepository(
     private val db: AppDatabase,
     private val sessionDao: SessionDao,
@@ -27,25 +45,17 @@ class TaskRepository(
     suspend fun hasChildren(taskId: Long): Boolean = taskDao.countChildren(taskId) > 0
     fun observeActive(): Flow<ActiveWithTask?> = taskDao.observeActiveWithTask()
 
-    // ---------------- 操作系（新規：短時間統合スイッチ） ----------------
-    /**
-     * 現在のタスクから newTaskId へ切替。
-     * 直前セッションが mergeThresholdSec（秒）以下なら短時間とみなし、新タスクへ「吸収」して前のセッションは削除。
-     * それ以外は通常終了→イベント記録→新規開始。
-     * どちらの場合も active_task_singleton は最新状態に更新。
-     */
+    // ---------------- 操作系（短時間統合スイッチ） ----------------
     suspend fun startOrSwitch(
         newTaskId: Long,
         now: Long,
         mergeThresholdSec: Long = 60
-    ) = db.withTransaction {
+    ): SwitchResult = db.withTransaction {
         val active = sessionDao.getActive()
 
-        // すでに同じタスクなら何もしない（開始時刻も維持）
-        if (active?.taskId == newTaskId) return@withTransaction
+        if (active?.taskId == newTaskId) return@withTransaction SwitchResult.NoChange
 
         if (active == null) {
-            // 新規開始
             val start = now
             sessionDao.insert(
                 TaskSessionEntity(
@@ -55,14 +65,13 @@ class TaskRepository(
                 )
             )
             taskDao.upsertActive(ActiveTaskEntity(taskId = newTaskId, startedAtEpochMs = start))
-            return@withTransaction
+            return@withTransaction SwitchResult.StartedFresh(startedAt = start)
         }
 
         val durationMs = now - active.startedAt
         val thresholdMs = mergeThresholdSec * 1000L
 
         if (durationMs <= thresholdMs) {
-            // 短時間：前セッションを破棄し、新タスクを「前の開始時刻」で開始＝吸収
             val mergedStart = active.startedAt
             sessionDao.deleteById(active.id)
             sessionDao.insert(
@@ -78,9 +87,8 @@ class TaskRepository(
                     startedAtEpochMs = mergedStart
                 )
             )
-            // ※イベントは作らない（前の短時間は履歴に残さない設計）
+            SwitchResult.MergedShort(prevDurationMs = durationMs, thresholdMs = thresholdMs)
         } else {
-            // 通常切替：前セッションを終了してイベント化 → 新タスク開始
             sessionDao.updateEnd(active.id, now)
             taskDao.insertEvent(
                 TaskEventEntity(
@@ -97,6 +105,7 @@ class TaskRepository(
                 )
             )
             taskDao.upsertActive(ActiveTaskEntity(taskId = newTaskId, startedAtEpochMs = now))
+            SwitchResult.SwitchedNormal(prevDurationMs = durationMs)
         }
     }
 
@@ -142,7 +151,6 @@ class TaskRepository(
 
     // ---------------- Export / Import ----------------
     suspend fun exportTasksJson(): String {
-        // 親＋直下の子を一括取得（1回だけ）
         val groups = observeTree().first()
         val arr = JSONArray()
         groups.forEach { g ->
@@ -168,7 +176,6 @@ class TaskRepository(
             }
         }
 
-        // 名前 → 既存親ID の索引（マージ用）
         fun findParentIdByName(name: String): Long? =
             current.firstOrNull { it.parent.name == name }?.parent?.id
 
@@ -195,4 +202,32 @@ class TaskRepository(
             }
         }
     }
+
+    /**
+     * 手動追加した「過去の記録」を保存する。
+     * 履歴画面は task_events を参照しているため、events も必ず追加する。
+     * セッション表（task_sessions）にも“終了済み”として残す。
+     */
+    suspend fun addManualRecord(taskId: Long, startedAt: Long, endedAt: Long) =
+        db.withTransaction {
+            val duration = (endedAt - startedAt).coerceAtLeast(0L)
+
+            // 履歴イベント（履歴画面が参照するテーブル）
+            taskDao.insertEvent(
+                TaskEventEntity(
+                    taskId = taskId,
+                    pressedAtEpochMs = startedAt,
+                    durationMillis = duration
+                )
+            )
+
+            // セッション（終了済みレコードとして保管）
+            sessionDao.insert(
+                TaskSessionEntity(
+                    taskId = taskId,
+                    startedAt = startedAt,
+                    endedAt = endedAt
+                )
+            )
+        }
 }

@@ -5,13 +5,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.timerecorder.data.SwitchResult
 import com.example.timerecorder.data.TaskRepository
 import com.example.timerecorder.data.db.ActiveWithTask
 import com.example.timerecorder.data.db.AppDatabase
 import com.example.timerecorder.data.db.ParentWithChildren
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -33,14 +36,23 @@ data class ActiveUi(
 )
 
 private const val HISTORY_PAGE_SIZE = 100
+private const val DEFAULT_MERGE_THRESHOLD_SECONDS: Long = 60
+
+/** UI への一度きり通知（Snackbar/Toast 用） */
+sealed interface UiEvent {
+    data class ShowMessage(val message: String) : UiEvent
+}
 
 class TaskViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repo: TaskRepository
 
+    // ワンショットの UI イベント
+    private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
+    val events = _events.asSharedFlow()
+
     init {
         val db = AppDatabase.get(app.applicationContext, viewModelScope)
-        // ★ Repository へ AppDatabase / SessionDao / TaskDao を渡す
         repo = TaskRepository(
             db = db,
             sessionDao = db.sessionDao(),
@@ -71,7 +83,20 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- 操作 ----
     fun onTaskPressed(taskId: Long) = viewModelScope.launch {
-        repo.startOrSwitch(newTaskId = taskId, now = System.currentTimeMillis())
+        val result = repo.startOrSwitch(
+            newTaskId = taskId,
+            now = System.currentTimeMillis(),
+            mergeThresholdSec = DEFAULT_MERGE_THRESHOLD_SECONDS
+        )
+
+        if (result is SwitchResult.MergedShort) {
+            val prevSec = (result.prevDurationMs / 1000).coerceAtLeast(0)
+            val thresholdSec = (result.thresholdMs / 1000).coerceAtLeast(0)
+            _events.tryEmit(
+                UiEvent.ShowMessage("直前のタスクが ${prevSec}秒（しきい値 ${thresholdSec}秒）未満だったため統合しました")
+            )
+        }
+
         reloadHistory()
         ensureHistoryFirstPage()
     }
@@ -112,16 +137,16 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
             durationMillis = durationMillis
         )
 
-    fun loadNextHistoryPage(pageSize: Int = HISTORY_PAGE_SIZE) {
-        if (_historyLoading.value || _historyEndReached.value) return
-        viewModelScope.launch {
-            _historyLoading.value = true
-            val rows = repo.loadHistoryPage(historyPage, pageSize)
-            val mapped = rows.map { it.toUi() }
-            _historyItems.value = _historyItems.value + mapped
-            if (rows.size < pageSize) _historyEndReached.value = true else historyPage += 1
-            _historyLoading.value = false
+    fun loadNextHistoryPage(pageSize: Int = HISTORY_PAGE_SIZE) = viewModelScope.launch {
+        if (_historyEndReached.value) return@launch
+        val rows = repo.loadHistoryPage(historyPage, pageSize)
+        if (rows.isEmpty()) {
+            _historyEndReached.value = true
+            return@launch
         }
+        _historyItems.value = _historyItems.value + rows.map { it.toUi() }
+        historyPage++
+        _historyEndReached.value = rows.size < pageSize
     }
 
     private fun loadHistoryPageInternal(reset: Boolean) {
@@ -139,14 +164,14 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun reloadHistory(pageSize: Int = HISTORY_PAGE_SIZE) {
-        viewModelScope.launch {
-            _historyItems.value = emptyList()
-            _historyEndReached.value = false
-            historyPage = 0
-            historyInitialized = false
-            loadNextHistoryPage(pageSize)
-        }
+    fun reloadHistory(pageSize: Int = HISTORY_PAGE_SIZE) = viewModelScope.launch {
+        historyPage = 0
+        _historyEndReached.value = false
+
+        val first = repo.loadHistoryPage(0, pageSize)
+        _historyItems.value = first.map { it.toUi() }
+        _historyEndReached.value = first.size < pageSize
+        historyInitialized = true
     }
 
     // ---- タスク CRUD / 並び順 / 色 ----
@@ -167,7 +192,7 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     fun reorderChildren(parentId: Long, idsInOrder: List<Long>) =
         viewModelScope.launch { repo.updateSortOrdersForParent(parentId, idsInOrder) }
 
-    // ---- 名前重複チェック（UI ヘルパ）----
+    // ---- 名前重複チェック ----
     private fun normalizeName(name: String) = name.trim().lowercase()
     fun hasDuplicateChildName(parentId: Long, name: String): Boolean {
         if (name.isBlank()) return false
@@ -190,7 +215,16 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val rows = repo.loadHistoryRange(startMs, endMs)
             _timelineItems.value =
-                rows.map { it.toUi().copy(durationMillis = it.durationMillis.coerceAtLeast(0L)) }
+                rows.map {
+                    HistoryItemUi(
+                        id = it.eventId,
+                        taskId = it.taskId,
+                        taskName = it.taskName,
+                        color = Color(it.colorInt ?: 0xFF9E9E9E.toInt()),
+                        pressedAt = it.pressedAtEpochMs,
+                        durationMillis = it.durationMillis.coerceAtLeast(0L)
+                    )
+                }
         }
     }
 
@@ -198,5 +232,21 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun exportTasksJson(): String = repo.exportTasksJson()
     fun importTasksFromJson(json: String, replaceAll: Boolean) = viewModelScope.launch {
         repo.importTasksJson(json, replaceAll)
+    }
+
+    fun addManualRecord(taskId: Long, startedAt: Long, endedAt: Long) {
+        viewModelScope.launch {
+            if (endedAt <= startedAt) {
+                _events.emit(UiEvent.ShowMessage("終了は開始より後にしてください"))
+                return@launch
+            }
+            try {
+                repo.addManualRecord(taskId, startedAt, endedAt)
+                reloadHistory() // 反映
+                _events.emit(UiEvent.ShowMessage("記録を追加しました"))
+            } catch (t: Throwable) {
+                _events.emit(UiEvent.ShowMessage("追加に失敗: ${t.message}"))
+            }
+        }
     }
 }
