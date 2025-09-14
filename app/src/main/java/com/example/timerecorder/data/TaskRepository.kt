@@ -280,4 +280,8 @@ class TaskRepository(
         return taskDao.getEventsInRange(startedAt, endedAt).isNotEmpty()
     }
 
+    suspend fun deleteEventById(eventId: Long) = db.withTransaction {
+        taskDao.deleteEventById(eventId)
+    }
+
 }

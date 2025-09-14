@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -236,6 +237,9 @@ fun AppRoot(
     var selectedTimelineStartMs by rememberSaveable { mutableLongStateOf(-1L) }
     var selectedTimelineEndMs by rememberSaveable { mutableLongStateOf(-1L) }
     var selectedTimelineEventId by rememberSaveable { mutableStateOf<Long?>(null) }
+
+    var showDeleteEventDialog by rememberSaveable { mutableStateOf(false) }
+    var pendingDeleteEventId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     // ViewModel のワンショット UI イベントを収集して Snackbar を表示
     LaunchedEffect(Unit) {
@@ -436,7 +440,19 @@ fun AppRoot(
                                     },
                                     onLeftAction = { /* 予備 */ },
                                     onSortAction = { sortMode = true },
-                                    onRightAction = { /* 予備 */ }
+                                    onRightAction = { /* 予備 */ },
+                                    onDeleteAction = {
+                                        val eid = selectedTimelineEventId
+                                        val s = selectedTimelineStartMs
+                                        val e = selectedTimelineEndMs
+                                        if (eid == null || eid <= 0L || s < 0L || e <= s) {
+                                            scope.launch { snackbar.showSnackbar("削除できない記録です") }
+                                            return@AdaptiveBottomBar
+                                        }
+                                        pendingDeleteEventId = eid
+                                        showDeleteEventDialog = true
+                                    }
+
                                 )
                             }
                         }
@@ -548,6 +564,37 @@ fun AppRoot(
                                 TextButton(onClick = { showImportDialog = false }) {
                                     Text("キャンセル")
                                 }
+                            }
+                        )
+                    }
+                    if (showDeleteEventDialog) {
+                        AlertDialog(
+                            onDismissRequest = {
+                                pendingDeleteEventId = null
+                                showDeleteEventDialog = false
+                            },
+                            title = { Text("記録を削除") },
+                            text = { Text("選択中の記録を削除します。よろしいですか？") },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    pendingDeleteEventId?.let { eid ->
+                                        // ViewModel 側の削除 API（名称はプロジェクトに合わせて）
+                                        viewModel.deleteEvent(eid)
+                                    }
+                                    // 選択解除
+                                    selectedTimelineEventId = null
+                                    selectedTimelineTaskId = null
+                                    selectedTimelineStartMs = -1L
+                                    selectedTimelineEndMs = -1L
+                                    pendingDeleteEventId = null
+                                    showDeleteEventDialog = false
+                                }) { Text("削除") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = {
+                                    pendingDeleteEventId = null
+                                    showDeleteEventDialog = false
+                                }) { Text("キャンセル") }
                             }
                         )
                     }
@@ -1678,7 +1725,7 @@ private fun MultiDayTimeline(
     selectedEventId: Long? = null,
     onSelectEvent: (Long?) -> Unit = {},
     onSelectTask: (Long?) -> Unit = {},
-    onSelectBlock: (Long, Long, Long, Long) -> Unit = { _, _, _, _ -> }
+    onSelectBlock: (Long, Long, Long, Long) -> Unit = { _: Long, _: Long, _: Long, _: Long -> }
 ) {
     val HOUR_HEIGHT = 48.dp
     val GUTTER = 40.dp
@@ -1759,7 +1806,7 @@ private fun DayColumn(
     modifier: Modifier = Modifier,
     onSelectEvent: (Long?) -> Unit = {},
     selectedEventId: Long? = null,
-    onSelectBlock: (Long /*eventId*/, Long /*taskId*/, Long /*start*/, Long /*end*/) -> Unit = { _, _, _, _ -> }
+    onSelectBlock: (Long, Long, Long, Long) -> Unit = { _: Long, _: Long, _: Long, _: Long -> }
 ) {
     val hourHeightPx = with(LocalDensity.current) { hourHeight.toPx() }
 
@@ -2188,7 +2235,8 @@ fun AdaptiveBottomBar(
     onActionB: () -> Unit = {},
     onLeftAction: () -> Unit = {},
     onSortAction: () -> Unit = {},
-    onRightAction: () -> Unit = {}
+    onRightAction: () -> Unit = {},
+    onDeleteAction: () -> Unit = {}
 ) {
     when (currentPage) {
         0 -> {
@@ -2205,6 +2253,9 @@ fun AdaptiveBottomBar(
                             painter = painterResource(id = R.drawable.edit_24px),
                             contentDescription = "edit_24"
                         )
+                    }
+                    IconButton(onClick = onDeleteAction) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Delete record")
                     }
                 }
             }

@@ -400,4 +400,19 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         _events.emit(UiEvent.ShowMessage("分割しました"))
     }
 
+    fun deleteEvent(eventId: Long) {
+        viewModelScope.launch {
+            try {
+                repo.deleteEventById(eventId)
+
+                // 履歴更新（UI反映）
+                reloadHistory()
+
+                // 任意：スナックバー用イベント
+                _events.emit(UiEvent.ShowMessage("記録を削除しました"))
+            } catch (e: Exception) {
+                _events.emit(UiEvent.ShowMessage("削除に失敗しました: ${e.message}"))
+            }
+        }
+    }
 }
