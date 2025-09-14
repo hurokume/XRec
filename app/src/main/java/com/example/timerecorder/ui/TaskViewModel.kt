@@ -415,4 +415,26 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    // 追加：CSV エクスポート
+    suspend fun exportEventsCsv(): String = repo.exportEventsCsv()
+
+    // 追加：CSV インポート
+    fun importEventsFromCsv(csv: String, replaceAll: Boolean) {
+        viewModelScope.launch {
+            try {
+                repo.importEventsFromCsv(csv, replaceAll)
+                reloadHistory()
+                _events.emit(UiEvent.ShowMessage("CSVインポート完了"))
+            } catch (e: Exception) {
+                _events.emit(UiEvent.ShowMessage("CSVインポート失敗: ${e.message}"))
+            }
+        }
+    }
+
+    // ▼ TaskViewModel に追加
+    suspend fun exportEventsTsv(): String = repo.exportEventsTsv()
+
+    suspend fun importEventsTsv(tsv: String, clearExisting: Boolean, createMissing: Boolean): Int =
+        repo.importEventsTsv(tsv, clearExisting, createMissing)
 }

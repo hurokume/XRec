@@ -284,4 +284,217 @@ class TaskRepository(
         taskDao.deleteEventById(eventId)
     }
 
+    // === CSV Export ===
+    suspend fun exportEventsCsv(): String {
+        val rows = taskDao.getAllEventsForCsv()
+
+        val fmt =
+            java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", java.util.Locale.getDefault())
+
+        fun csvEscape(s: String): String {
+            // カンマ・改行・ダブルクォートを含む場合は "..." で囲み、内部の " は "" にエスケープ
+            val needQuote = s.any { it == ',' || it == '"' || it == '\n' || it == '\r' }
+            val body = s.replace("\"", "\"\"")
+            return if (needQuote) "\"$body\"" else body
+        }
+
+        val sb = StringBuilder()
+        sb.appendLine("event_id,task_id,task_name,start_epoch_ms,end_epoch_ms,duration_ms,start_iso,end_iso")
+
+        rows.forEach { r ->
+            val start = r.pressedAtEpochMs
+            val dur = kotlin.math.max(0L, r.durationMillis)
+            val end = start + dur
+
+            val taskNameCsv = csvEscape(r.taskName) // ★ ここでタスク名を出力
+
+            val startIso = fmt.format(java.util.Date(start))
+            val endIso = fmt.format(java.util.Date(end))
+
+            sb.append(r.eventId).append(',')
+                .append(r.taskId).append(',')
+                .append(taskNameCsv).append(',')
+                .append(start).append(',')
+                .append(end).append(',')
+                .append(dur).append(',')
+                .append(startIso).append(',')
+                .append(endIso)
+                .append('\n')
+        }
+        return sb.toString()
+    }
+
+    // === CSV Import ===
+    suspend fun importEventsFromCsv(csv: String, replaceAll: Boolean) = db.withTransaction {
+        if (replaceAll) {
+            taskDao.clearAllEvents()
+        }
+        val lines = csv.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toList()
+        if (lines.isEmpty()) return@withTransaction
+
+        // 先頭行がヘッダーならスキップ
+        var idx = 0
+        val head = lines.first().lowercase()
+        if (head.contains("start_epoch_ms") && head.contains("end_epoch_ms")) idx = 1
+
+        for (i in idx until lines.size) {
+            val cols = parseCsvLine(lines[i])
+            // 想定: event_id, task_id, task_name, start_epoch_ms, end_epoch_ms, duration_ms, start_iso, end_iso
+            if (cols.size < 6) continue
+
+            val taskId = cols.getOrNull(1)?.toLongOrNull() ?: continue
+            val start = cols.getOrNull(3)?.toLongOrNull() ?: continue
+            val end = cols.getOrNull(4)?.toLongOrNull()
+                ?: (start + (cols.getOrNull(5)?.toLongOrNull() ?: 0L))
+            if (end <= start) continue
+
+            // 既存重複の調整は既存ロジックに委譲（新規を優先して調整）
+            addManualRecord(taskId, start, end)
+        }
+    }
+
+    // --- 行内カンマ＆ダブルクォート対応の簡易CSVパーサ ---
+    private fun parseCsvLine(line: String): List<String> {
+        val out = ArrayList<String>()
+        val sb = StringBuilder()
+        var inQuotes = false
+        var i = 0
+        while (i < line.length) {
+            val c = line[i]
+            when {
+                c == '"' -> {
+                    if (inQuotes && i + 1 < line.length && line[i + 1] == '"') {
+                        sb.append('"'); i++
+                    } else {
+                        inQuotes = !inQuotes
+                    }
+                }
+
+                c == ',' && !inQuotes -> {
+                    out.add(sb.toString())
+                    sb.setLength(0)
+                }
+
+                else -> sb.append(c)
+            }
+            i++
+        }
+        out.add(sb.toString())
+        return out
+    }
+
+    // ▼ TaskRepository.kt に追加（import等は適宜）
+    suspend fun exportEventsTsv(): String {
+        val rows = taskDao.getAllEventsForTsv()
+        val fmt =
+            java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", java.util.Locale.getDefault())
+
+        fun clean(s: String?): String =
+            (s ?: "").replace('\t', ' ').replace('\n', ' ').replace('\r', ' ')
+
+        val sb = StringBuilder()
+        sb.append("event_name\ttask_name\tsubtask_name\tstart_epoch_ms\tend_epoch_ms\tduration_ms\tstart_iso\tend_iso\n")
+
+        rows.forEach { r ->
+            val start = r.pressedAtEpochMs
+            val dur = kotlin.math.max(0L, r.durationMillis)
+            val end = start + dur
+
+            val startIso = fmt.format(java.util.Date(start))
+            val endIso = fmt.format(java.util.Date(end))
+
+            sb.append(clean(r.eventName)).append('\t')
+                .append(clean(r.taskName)).append('\t')
+                .append(clean(r.subtaskName)).append('\t')
+                .append(start).append('\t')
+                .append(end).append('\t')
+                .append(dur).append('\t')
+                .append(startIso).append('\t')
+                .append(endIso).append('\n')
+        }
+        return sb.toString()
+    }
+
+    /** TSVインポート（イベント）。既存イベントを全部消すかは引数で制御 */
+    suspend fun importEventsTsv(
+        tsv: String,
+        clearExistingEvents: Boolean = false,
+        createMissingTasks: Boolean = true
+    ): Int = db.withTransaction {
+        if (clearExistingEvents) {
+            taskDao.clearAllEvents()
+        }
+
+        var imported = 0
+
+        fun parseLongOrNull(s: String?) = s?.trim()?.takeIf { it.isNotEmpty() }?.toLongOrNull()
+
+        // 名前→ID（なければ作成）
+        suspend fun ensureTaskIds(
+            eventName: String,
+            taskName: String?,
+            subtaskName: String?
+        ): Long {
+            // 親（プロジェクト）
+            var projectId = taskDao.findTaskIdByNameInParent(null, eventName)
+            if (projectId == null) {
+                check(createMissingTasks) { "project '$eventName' not found" }
+                projectId = addTask(eventName, null)
+            }
+
+            // 子（タスク）
+            val taskBaseName = taskName ?: subtaskName ?: error("task/subtask name missing")
+            var childId = taskDao.findTaskIdByNameInParent(projectId, taskBaseName)
+            if (childId == null) {
+                check(createMissingTasks) { "task '$taskBaseName' under '$eventName' not found" }
+                childId = addTask(taskBaseName, projectId)
+            }
+
+            // サブタスク
+            if (!subtaskName.isNullOrBlank()) {
+                var subId = taskDao.findTaskIdByNameInParent(childId, subtaskName)
+                if (subId == null) {
+                    check(createMissingTasks) { "subtask '$subtaskName' under '$taskBaseName' not found" }
+                    subId = addTask(subtaskName, childId)
+                }
+                return subId
+            }
+            return childId
+        }
+
+        // 1行ずつ
+        tsv.lineSequence().forEachIndexed { idx, line ->
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) return@forEachIndexed
+            if (idx == 0 && trimmed.lowercase()
+                    .startsWith("event_name")
+            ) return@forEachIndexed // header
+
+            val cols = trimmed.split('\t')
+            if (cols.size < 6) return@forEachIndexed  // 必須列不足
+
+            val eventName = cols[0].ifEmpty { return@forEachIndexed }
+            val taskName = cols.getOrNull(1).orEmpty().ifBlank { null }
+            val subtaskName = cols.getOrNull(2).orEmpty().ifBlank { null }
+            val startMs = parseLongOrNull(cols.getOrNull(3)) ?: return@forEachIndexed
+            val endMs = parseLongOrNull(cols.getOrNull(4))
+                ?: (parseLongOrNull(cols.getOrNull(3))?.let { s ->
+                    val d = parseLongOrNull(cols.getOrNull(5)) ?: return@forEachIndexed
+                    s + d
+                }) ?: return@forEachIndexed
+
+            if (endMs <= startMs) return@forEachIndexed
+
+            // 名前解決 → taskId 決定（必要なら作成）
+            val taskId = ensureTaskIds(eventName, taskName, subtaskName)
+
+            // 既存調整込みで登録（重複範囲を優先上書き）
+            addManualRecord(taskId, startMs, endMs)
+            imported++
+        }
+        imported
+    }
 }

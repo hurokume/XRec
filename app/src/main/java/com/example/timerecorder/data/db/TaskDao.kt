@@ -131,4 +131,60 @@ interface TaskDao {
 
     @Query("UPDATE task_events SET taskId = :newTaskId WHERE id = :eventId")
     suspend fun updateEventTask(eventId: Long, newTaskId: Long)
+
+    @Query(
+        """
+    SELECT e.id AS eventId,
+           e.taskId AS taskId,
+           t.name AS taskName,
+           t.colorInt AS colorInt,
+           e.pressedAtEpochMs AS pressedAtEpochMs,
+           e.durationMillis AS durationMillis
+    FROM task_events e
+    JOIN tasks t ON t.id = e.taskId
+    ORDER BY e.pressedAtEpochMs ASC, e.id ASC
+    """
+    )
+    suspend fun getAllEventsForCsv(): List<HistoryRowDb>
+
+    // ▼ TaskDao.kt（ファイル先頭〜末尾の任意位置に追加）
+
+    data class TsvExportRow(
+        val eventName: String,        // 親（プロジェクト）
+        val taskName: String?,        // 子（タスク）: サブタスク記録時は親子の「子」、子タスク記録時は自身
+        val subtaskName: String?,     // 孫（サブタスク）: 子タスク記録時は null
+        val pressedAtEpochMs: Long,
+        val durationMillis: Long
+    )
+
+    @Query(
+        """
+    SELECT 
+      /* 親(プロジェクト)名 */
+      COALESCE(p.name, CASE WHEN c.parentId IS NULL THEN c.name ELSE t.name END) AS eventName,
+      /* タスク名（tがサブタスクならc.name、tが子タスクならt.name） */
+      CASE 
+         WHEN p.id IS NOT NULL THEN c.name
+         WHEN c.id IS NOT NULL AND c.parentId IS NULL THEN t.name
+         ELSE NULL
+      END AS taskName,
+      /* サブタスク名（tがサブタスクのときのみ） */
+      CASE 
+         WHEN p.id IS NOT NULL THEN t.name
+         ELSE NULL
+      END AS subtaskName,
+      e.pressedAtEpochMs AS pressedAtEpochMs,
+      e.durationMillis   AS durationMillis
+    FROM task_events e
+    JOIN tasks t ON t.id = e.taskId
+    LEFT JOIN tasks c ON c.id = t.parentId
+    LEFT JOIN tasks p ON p.id = c.parentId
+    ORDER BY e.pressedAtEpochMs ASC, e.id ASC
+    """
+    )
+    suspend fun getAllEventsForTsv(): List<TsvExportRow>
+
+    /* 名前→ID解決用（存在しなければ作る時に使う） */
+    @Query("SELECT id FROM tasks WHERE parentId IS :parentId AND name = :name LIMIT 1")
+    suspend fun findTaskIdByNameInParent(parentId: Long?, name: String): Long?
 }

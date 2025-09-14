@@ -241,6 +241,11 @@ fun AppRoot(
     var showDeleteEventDialog by rememberSaveable { mutableStateOf(false) }
     var pendingDeleteEventId by rememberSaveable { mutableStateOf<Long?>(null) }
 
+    var showImportTsvDialog by rememberSaveable { mutableStateOf(false) }
+    var importTsvText by rememberSaveable { mutableStateOf("") }
+    var clearExistingEvents by rememberSaveable { mutableStateOf(false) }
+    var createMissing by rememberSaveable { mutableStateOf(true) }
+
     // ViewModel のワンショット UI イベントを収集して Snackbar を表示
     LaunchedEffect(Unit) {
         viewModel.events.collectLatest { ev ->
@@ -288,6 +293,38 @@ fun AppRoot(
                                     screen = AppScreen.History
                                     // 履歴はページングされるため、先頭ページを確保
                                     viewModel.ensureHistoryFirstPage()
+                                }
+
+                                "export_tsv" -> {
+                                    scope.launch {
+                                        try {
+                                            val text = viewModel.exportEventsTsv()
+                                            val send = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/tab-separated-values"
+                                                putExtra(Intent.EXTRA_TEXT, text)
+                                                putExtra(
+                                                    Intent.EXTRA_SUBJECT,
+                                                    "TimeRecorder Events Export (TSV)"
+                                                )
+                                            }
+                                            ctx.startActivity(
+                                                Intent.createChooser(
+                                                    send,
+                                                    "Export records as TSV"
+                                                )
+                                            )
+                                        } catch (e: Exception) {
+                                            Toast.makeText(
+                                                ctx,
+                                                "Export TSV 失敗: ${e.message}",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
+                                }
+
+                                "import_tsv" -> {
+                                    showImportTsvDialog = true
                                 }
 
                                 "export" -> {
@@ -567,6 +604,74 @@ fun AppRoot(
                             }
                         )
                     }
+                    if (showImportTsvDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showImportTsvDialog = false },
+                            title = { Text("Import (TSV)") },
+                            text = {
+                                Column {
+                                    Text(
+                                        "次の形式のTSVを貼り付けてください。\n" +
+                                                "event_name\t task_name\t subtask_name\t start_epoch_ms\t end_epoch_ms\t duration_ms\t start_iso\t end_iso",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    OutlinedTextField(
+                                        value = importTsvText,
+                                        onValueChange = { importTsvText = it },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(160.dp),
+                                        placeholder = {
+                                            Text(
+                                                "WASTE\ttest\tda\t1757689200000\t1757692800000\t3600000\t2025-09-13T00:00:00+09:00\t2025-09-13T01:00:00+09:00"
+                                            )
+                                        }
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(
+                                            checked = clearExistingEvents,
+                                            onCheckedChange = { clearExistingEvents = it })
+                                        Text("既存の記録を全て削除してから取り込み")
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(
+                                            checked = createMissing,
+                                            onCheckedChange = { createMissing = it })
+                                        Text("存在しないプロジェクト/タスク/サブタスクを自動作成")
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        try {
+                                            val count = viewModel.importEventsTsv(
+                                                tsv = importTsvText,
+                                                clearExisting = clearExistingEvents,
+                                                createMissing = createMissing
+                                            )
+                                            showImportTsvDialog = false
+                                            importTsvText = ""
+                                            snackbar.showSnackbar("TSV Import 完了（$count 件）")
+                                        } catch (e: Exception) {
+                                            Toast.makeText(
+                                                ctx,
+                                                "Import 失敗: ${e.message}",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
+                                }) { Text("実行") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showImportTsvDialog = false }) {
+                                    Text("キャンセル")
+                                }
+                            }
+                        )
+                    }
                     if (showDeleteEventDialog) {
                         AlertDialog(
                             onDismissRequest = {
@@ -633,6 +738,24 @@ fun DrawerSheet(onItemSelected: (String) -> Unit) {
             label = { Text("History") },
             selected = false,
             onClick = { onItemSelected("history") },
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Manage Data",
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+        )
+        NavigationDrawerItem(
+            label = { Text("Export (TSV)") },
+            selected = false,
+            onClick = { onItemSelected("export_tsv") },
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+        )
+        NavigationDrawerItem(
+            label = { Text("Import (TSV)") },
+            selected = false,
+            onClick = { onItemSelected("import_tsv") },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
         // Export / Import
