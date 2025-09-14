@@ -126,4 +126,9 @@ interface TaskDao {
     @Query("UPDATE task_events SET pressedAtEpochMs = :newStart, durationMillis = :newDuration WHERE id = :eventId")
     suspend fun updateEventTime(eventId: Long, newStart: Long, newDuration: Long)
 
+    @Query("SELECT * FROM task_events WHERE id = :eventId")
+    suspend fun getEventById(eventId: Long): TaskEventEntity?
+
+    @Query("UPDATE task_events SET taskId = :newTaskId WHERE id = :eventId")
+    suspend fun updateEventTask(eventId: Long, newTaskId: Long)
 }

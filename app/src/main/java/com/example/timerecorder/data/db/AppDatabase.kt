@@ -62,8 +62,36 @@ abstract class AppDatabase : RoomDatabase() {
                     .also { INSTANCE = it }
             }
 
-        // 既存の prepopulate(...) はそのまま
-        internal suspend fun prepopulate(dao: TaskDao) { /* 省略（あなたの現行実装のまま） */
+        // 既存の prepopulate(...) はそのまま（過去の初期投入内容を復元）
+        internal suspend fun prepopulate(dao: TaskDao) {
+            // すでに何か入っていれば何もしない（重複生成回避）
+            // parentId IS NULL のタスク（親タスク）が 1 つでもあればスキップ
+            val hasAnyParent =
+                try {
+                    dao.getChildrenOnce(parentId = null).isNotEmpty()
+                } catch (_: Throwable) {
+                    false
+                }
+            if (hasAnyParent) return
+
+            // デフォルトの親タスク「Project」と、その配下に子タスク「Task」を 1 つ作成
+            // （以前の初期データと同等：UI のプレースホルダ JSON と揃えています）
+            val projectId = dao.insertTask(
+                TaskEntity(
+                    name = "Project",
+                    parentId = null,
+                    colorInt = 0xFF90CAF9.toInt(), // 任意の初期色（過去の色味に近い水色）
+                    sortOrder = 0
+                )
+            )
+            dao.insertTask(
+                TaskEntity(
+                    name = "Task",
+                    parentId = projectId,
+                    colorInt = null,
+                    sortOrder = 0
+                )
+            )
         }
     }
 }

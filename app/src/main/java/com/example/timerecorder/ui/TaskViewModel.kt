@@ -10,6 +10,8 @@ import com.example.timerecorder.data.TaskRepository
 import com.example.timerecorder.data.db.ActiveWithTask
 import com.example.timerecorder.data.db.AppDatabase
 import com.example.timerecorder.data.db.ParentWithChildren
+import com.example.timerecorder.data.db.TaskDao
+import com.example.timerecorder.data.db.TaskEventEntity
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -38,27 +40,22 @@ data class ActiveUi(
 private const val HISTORY_PAGE_SIZE = 100
 private const val DEFAULT_MERGE_THRESHOLD_SECONDS: Long = 60
 
-/** UI への一度きり通知（Snackbar/Toast 用） */
 sealed interface UiEvent {
     data class ShowMessage(val message: String) : UiEvent
 }
 
 class TaskViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val repo: TaskRepository
+    private val db = AppDatabase.get(app.applicationContext, viewModelScope)
+    private val taskDao: TaskDao = db.taskDao()
+    private val repo: TaskRepository = TaskRepository(
+        db = db,
+        sessionDao = db.sessionDao(),
+        taskDao = taskDao
+    )
 
-    // ワンショットの UI イベント
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
     val events = _events.asSharedFlow()
-
-    init {
-        val db = AppDatabase.get(app.applicationContext, viewModelScope)
-        repo = TaskRepository(
-            db = db,
-            sessionDao = db.sessionDao(),
-            taskDao = db.taskDao()
-        )
-    }
 
     val parents: StateFlow<List<ParentWithChildren>> =
         repo.observeTree()
@@ -81,7 +78,6 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    // ---- 操作 ----
     fun onTaskPressed(taskId: Long) = viewModelScope.launch {
         val result = repo.startOrSwitch(
             newTaskId = taskId,
@@ -108,7 +104,6 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     fun children(parentId: Long) = repo.observeChildren(parentId)
     suspend fun hasChildren(taskId: Long) = repo.hasChildren(taskId)
 
-    // ---- History ページング ----
     private val _historyItems = MutableStateFlow<List<HistoryItemUi>>(emptyList())
     val historyItems: StateFlow<List<HistoryItemUi>> = _historyItems
 
@@ -174,7 +169,6 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         historyInitialized = true
     }
 
-    // ---- タスク CRUD / 並び順 / 色 ----
     fun addParentTask(name: String) = viewModelScope.launch { repo.addTask(name, null) }
     fun addChildTask(parentId: Long, name: String) =
         viewModelScope.launch { repo.addTask(name, parentId) }
@@ -192,7 +186,6 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     fun reorderChildren(parentId: Long, idsInOrder: List<Long>) =
         viewModelScope.launch { repo.updateSortOrdersForParent(parentId, idsInOrder) }
 
-    // ---- 名前重複チェック ----
     private fun normalizeName(name: String) = name.trim().lowercase()
     fun hasDuplicateChildName(parentId: Long, name: String): Boolean {
         if (name.isBlank()) return false
@@ -207,7 +200,6 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         return parents.value.any { normalizeName(it.parent.name) == n }
     }
 
-    // ---- タイムライン：区間ロード ----
     private val _timelineItems = MutableStateFlow<List<HistoryItemUi>>(emptyList())
     val timelineItems: StateFlow<List<HistoryItemUi>> = _timelineItems
 
@@ -228,7 +220,6 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ---- Export / Import ----
     suspend fun exportTasksJson(): String = repo.exportTasksJson()
     fun importTasksFromJson(json: String, replaceAll: Boolean) = viewModelScope.launch {
         repo.importTasksJson(json, replaceAll)
@@ -244,11 +235,169 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
             }
             try {
                 repo.addManualRecord(taskId, startedAt, endedAt)
-                reloadHistory() // 反映
+                reloadHistory()
                 _events.emit(UiEvent.ShowMessage("記録を追加しました"))
             } catch (t: Throwable) {
                 _events.emit(UiEvent.ShowMessage("追加に失敗: ${t.message}"))
             }
         }
     }
+
+    fun editEventAbsorbNeighbors(
+        eventId: Long,
+        newTaskId: Long,
+        newStartMs: Long,
+        newEndMs: Long
+    ) = viewModelScope.launch {
+        if (newEndMs <= newStartMs) return@launch
+
+        val overlaps = taskDao.getEventsInRange(newStartMs, newEndMs)
+
+        overlaps.forEach { row ->
+            if (row.eventId == eventId) return@forEach
+
+            val s = row.pressedAtEpochMs
+            val e = row.pressedAtEpochMs + kotlin.math.max(0L, row.durationMillis)
+
+            when {
+                s >= newStartMs && e <= newEndMs -> {
+                    taskDao.deleteEventById(row.eventId)
+                }
+
+                s < newStartMs && e > newStartMs && e <= newEndMs -> {
+                    val newDur = newStartMs - s
+                    if (newDur > 0L) {
+                        taskDao.updateEventTime(row.eventId, s, newDur)
+                    } else {
+                        taskDao.deleteEventById(row.eventId)
+                    }
+                }
+
+                s >= newStartMs && s < newEndMs && e > newEndMs -> {
+                    val newStart = newEndMs
+                    val newDur = e - newEndMs
+                    if (newDur > 0L) {
+                        taskDao.updateEventTime(row.eventId, newStart, newDur)
+                    } else {
+                        taskDao.deleteEventById(row.eventId)
+                    }
+                }
+            }
+        }
+
+        taskDao.updateEventTask(eventId, newTaskId)
+        taskDao.updateEventTime(eventId, newStartMs, newEndMs - newStartMs)
+
+        reloadHistory()
+    }
+
+    fun upsertRecordAbsorbingNeighbors(taskId: Long, startMs: Long, endMs: Long) {
+        viewModelScope.launch {
+            if (endMs <= startMs) {
+                _events.emit(UiEvent.ShowMessage("終了は開始より後にしてください"))
+                return@launch
+            }
+
+            val overlaps = taskDao.getEventsInRange(startMs, endMs)
+
+            overlaps.forEach { row ->
+                val s = row.pressedAtEpochMs
+                val e = row.pressedAtEpochMs + kotlin.math.max(0L, row.durationMillis)
+
+                when {
+                    s >= startMs && e <= endMs -> {
+                        taskDao.deleteEventById(row.eventId)
+                    }
+
+                    s < startMs && e > startMs && e <= endMs -> {
+                        val newDur = startMs - s
+                        if (newDur > 0L) {
+                            taskDao.updateEventTime(row.eventId, s, newDur)
+                        } else {
+                            taskDao.deleteEventById(row.eventId)
+                        }
+                    }
+
+                    s >= startMs && s < endMs && e > endMs -> {
+                        val newStart = endMs
+                        val newDur = e - endMs
+                        if (newDur > 0L) {
+                            taskDao.updateEventTime(row.eventId, newStart, newDur)
+                        } else {
+                            taskDao.deleteEventById(row.eventId)
+                        }
+                    }
+
+                    s < startMs && e > endMs -> {
+                        val leftDur = startMs - s
+                        val rightStart = endMs
+                        val rightDur = e - endMs
+
+                        if (leftDur > 0L) {
+                            taskDao.updateEventTime(row.eventId, s, leftDur)
+                        } else {
+                            taskDao.deleteEventById(row.eventId)
+                        }
+
+                        if (rightDur > 0L) {
+                            taskDao.insertEvent(
+                                com.example.timerecorder.data.db.TaskEventEntity(
+                                    taskId = row.taskId,
+                                    pressedAtEpochMs = rightStart,
+                                    durationMillis = rightDur
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            taskDao.insertEvent(
+                com.example.timerecorder.data.db.TaskEventEntity(
+                    taskId = taskId,
+                    pressedAtEpochMs = startMs,
+                    durationMillis = endMs - startMs
+                )
+            )
+
+            reloadHistory()
+            _events.emit(UiEvent.ShowMessage("保存しました"))
+        }
+    }
+
+    /** はさみ機能：イベントをsplitAtMsで2つに分割 */
+    fun splitEventAt(eventId: Long, splitAtMs: Long) = viewModelScope.launch {
+        val ev = taskDao.getEventById(eventId)
+        if (ev == null) {
+            _events.emit(UiEvent.ShowMessage("対象の記録が見つかりません"))
+            return@launch
+        }
+
+        val s = ev.pressedAtEpochMs
+        val e = ev.pressedAtEpochMs + kotlin.math.max(0L, ev.durationMillis)
+
+        if (splitAtMs <= s || splitAtMs >= e) {
+            _events.emit(UiEvent.ShowMessage("分割時刻は記録の範囲内で指定してください"))
+            return@launch
+        }
+
+        val leftDur = splitAtMs - s
+        val rightDur = e - splitAtMs
+
+        // 左側を元イベントとして時間を更新
+        taskDao.updateEventTime(eventId, s, leftDur)
+
+        // 右側を新規イベントとして挿入（同じtaskIdのまま）
+        taskDao.insertEvent(
+            TaskEventEntity(
+                taskId = ev.taskId,
+                pressedAtEpochMs = splitAtMs,
+                durationMillis = rightDur
+            )
+        )
+
+        reloadHistory()
+        _events.emit(UiEvent.ShowMessage("分割しました"))
+    }
+
 }

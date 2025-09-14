@@ -111,9 +111,11 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.example.timerecorder.ui.HistoryItemUi
 import com.example.timerecorder.ui.TaskViewModel
 import com.example.timerecorder.ui.UiEvent
@@ -160,18 +162,45 @@ class MainActivity : ComponentActivity() {
                         navController = navController,
                         startDestination = Routes.Root
                     ) {
-                        // 既存UI（ドロワー＋ページャー等）は Root に載せる
                         composable(Routes.Root) {
                             AppRoot(
                                 viewModel = taskViewModel,
-                                onNavigateAddTask = { navController.navigate(Routes.AddTask) }
+                                onNavigateAddTask = { navController.navigate(Routes.AddTask) },
+                                onNavigateEditTask = { id, s, e ->
+                                    navController.navigate("${Routes.AddTask}?initialTaskId=$id&initialStartMs=$s&initialEndMs=$e")
+                                }
                             )
                         }
-                        // タスク記録追加フォーム
-                        composable(Routes.AddTask) {
+
+                        composable(
+                            route = "${Routes.AddTask}?initialTaskId={initialTaskId}&initialStartMs={initialStartMs}&initialEndMs={initialEndMs}",
+                            arguments = listOf(
+                                navArgument("initialTaskId") {
+                                    type = NavType.LongType
+                                    defaultValue = -1L
+                                },
+                                navArgument("initialStartMs") {
+                                    type = NavType.LongType
+                                    defaultValue = -1L
+                                },
+                                navArgument("initialEndMs") {
+                                    type = NavType.LongType
+                                    defaultValue = -1L
+                                }
+                            )
+                        ) { backStackEntry ->
+                            val initTask = backStackEntry.arguments?.getLong("initialTaskId")
+                                ?.takeIf { it >= 0L }
+                            val initStart = backStackEntry.arguments?.getLong("initialStartMs")
+                                ?.takeIf { it >= 0L }
+                            val initEnd = backStackEntry.arguments?.getLong("initialEndMs")
+                                ?.takeIf { it >= 0L }
                             AddTaskScreen(
                                 viewModel = taskViewModel,
-                                onBack = { navController.popBackStack() }
+                                onBack = { navController.popBackStack() },
+                                initialTaskId = initTask,
+                                initialStartMs = initStart,
+                                initialEndMs = initEnd
                             )
                         }
                     }
@@ -189,7 +218,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppRoot(
     viewModel: TaskViewModel,
-    onNavigateAddTask: () -> Unit
+    onNavigateAddTask: () -> Unit,
+    onNavigateEditTask: (Long, Long, Long) -> Unit
 ) {
     // ドロワーの開閉状態
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -203,6 +233,9 @@ fun AppRoot(
 
     // タイムラインで選択中の taskId を保持（null で未選択）
     var selectedTimelineTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var selectedTimelineStartMs by rememberSaveable { mutableLongStateOf(-1L) }
+    var selectedTimelineEndMs by rememberSaveable { mutableLongStateOf(-1L) }
+    var selectedTimelineEventId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     // ViewModel のワンショット UI イベントを収集して Snackbar を表示
     LaunchedEffect(Unit) {
@@ -232,6 +265,8 @@ fun AppRoot(
 
     // 並び替えモード（タスクの上下入れ替え）
     var sortMode by rememberSaveable { mutableStateOf(false) }
+
+    var showEdit by rememberSaveable { mutableStateOf(false) }
 
     // 右からドロワーを出したいので、RTL/LTR を切り替えて実現
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
@@ -349,13 +384,54 @@ fun AppRoot(
                                     currentPage = currentPage,
                                     timelineSelected = (selectedTimelineTaskId != null),
                                     onActionA = {
-                                        selectedTimelineTaskId?.let { id ->
-                                            scope.launch { snackbar.showSnackbar("Action A on #$id") }
+                                        val eid = selectedTimelineEventId
+                                        val s = selectedTimelineStartMs
+                                        val e = selectedTimelineEndMs
+                                        if (eid == null || eid <= 0L || s < 0L || e <= s) {
+                                            // active中など eventIdが無い/不正なら何もしない
+                                            scope.launch { snackbar.showSnackbar("分割できない記録です") }
+                                            return@AdaptiveBottomBar
                                         }
+
+                                        // 初期値: ブロック中央
+                                        val mid = (s + e) / 2
+                                        val calInit =
+                                            Calendar.getInstance().apply { timeInMillis = mid }
+                                        val initHour = calInit.get(Calendar.HOUR_OF_DAY)
+                                        val initMin = calInit.get(Calendar.MINUTE)
+
+                                        android.app.TimePickerDialog(
+                                            ctx,
+                                            { _, hh, mm ->
+                                                // 分割日は選択ブロックの開始日（ブロックは1日内にクランプ済み）
+                                                val base = Calendar.getInstance().apply {
+                                                    timeInMillis = s
+                                                    set(Calendar.HOUR_OF_DAY, hh)
+                                                    set(Calendar.MINUTE, mm)
+                                                    set(Calendar.SECOND, 0)
+                                                    set(Calendar.MILLISECOND, 0)
+                                                }.timeInMillis
+
+                                                if (base <= s || base >= e) {
+                                                    scope.launch { snackbar.showSnackbar("分割時刻は選択中の区間内で指定してください") }
+                                                } else {
+                                                    viewModel.splitEventAt(eid, base)
+                                                    // 選択は一旦クリア
+                                                    selectedTimelineEventId = null
+                                                    selectedTimelineTaskId = null
+                                                }
+                                            },
+                                            initHour, initMin, true
+                                        ).show()
                                     },
                                     onActionB = {
-                                        selectedTimelineTaskId?.let { id ->
-                                            scope.launch { snackbar.showSnackbar("Action B on #$id") }
+                                        val id = selectedTimelineTaskId
+                                        if (id != null && selectedTimelineStartMs >= 0 && selectedTimelineEndMs >= 0) {
+                                            onNavigateEditTask(
+                                                id,
+                                                selectedTimelineStartMs,
+                                                selectedTimelineEndMs
+                                            )
                                         }
                                     },
                                     onLeftAction = { /* 予備 */ },
@@ -375,7 +451,29 @@ fun AppRoot(
                             sortMode = sortMode,
                             onNavigateAddTask = onNavigateAddTask,
                             selectedTimelineTaskId = selectedTimelineTaskId,
-                            onTimelineTaskSelected = { tid -> selectedTimelineTaskId = tid }
+                            selectedTimelineEventId = selectedTimelineEventId,
+                            onTimelineTaskSelected = { tid ->
+                                selectedTimelineTaskId = tid
+                                if (tid == null) {
+                                    selectedTimelineEventId = null
+                                    selectedTimelineStartMs = -1L
+                                    selectedTimelineEndMs = -1L
+                                }
+                            },
+                            onTimelineEventSelected = { eid ->                                  // ★ 追加
+                                selectedTimelineEventId = eid
+                                if (eid == null) {
+                                    selectedTimelineTaskId = null
+                                    selectedTimelineStartMs = -1L
+                                    selectedTimelineEndMs = -1L
+                                }
+                            },
+                            onTimelineBlockSelected = { eid, tid, s, e ->
+                                selectedTimelineEventId = eid
+                                selectedTimelineTaskId = tid
+                                selectedTimelineStartMs = s
+                                selectedTimelineEndMs = e
+                            }
                         )
 
                         AppScreen.History -> HistoryScreen(
@@ -516,7 +614,6 @@ fun DrawerSheet(onItemSelected: (String) -> Unit) {
 /**
  * 3ページ（左：タイムライン / 中央：タスク / 右：集計）を横スワイプで切替。
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MainPager(
     modifier: Modifier = Modifier,
@@ -525,18 +622,21 @@ fun MainPager(
     sortMode: Boolean,
     onNavigateAddTask: () -> Unit,
     selectedTimelineTaskId: Long?,
-    onTimelineTaskSelected: (Long?) -> Unit
+    selectedTimelineEventId: Long?,
+    onTimelineTaskSelected: (Long?) -> Unit,
+    onTimelineEventSelected: (Long?) -> Unit,
+    onTimelineBlockSelected: (Long, Long, Long, Long) -> Unit
 ) {
-    HorizontalPager(
-        state = pagerState,
-        modifier = modifier.fillMaxSize()
-    ) { page ->
+    HorizontalPager(state = pagerState, modifier = modifier.fillMaxSize()) { page ->
         when (page) {
             0 -> TimelineScreen(
                 viewModel = viewModel,
                 onAddRecord = onNavigateAddTask,
                 selectedTaskId = selectedTimelineTaskId,
-                onSelectTask = onTimelineTaskSelected
+                onSelectTask = onTimelineTaskSelected,
+                selectedEventId = selectedTimelineEventId,
+                onSelectEvent = onTimelineEventSelected,
+                onSelectBlock = onTimelineBlockSelected
             )
 
             1 -> DBTaskScreen(viewModel = viewModel, sortMode = sortMode)
@@ -992,16 +1092,27 @@ fun DBTaskScreen(
                 }
 
                 is TaskCenterUiState.SubtaskSelect -> {
+                    // 親タスク（＝サブタスクの親となる子タスク）の最新名と色を parents から都度引く
+                    val liveChild = remember(s.parentId, parents) {
+                        parents.firstOrNull { g -> g.children.any { it.id == s.parentId } }
+                            ?.children?.firstOrNull { it.id == s.parentId }
+                    }
+                    val liveParentColor = remember(s.parentId, parents) {
+                        parents.firstOrNull { g -> g.children.any { it.id == s.parentId } }
+                            ?.parent?.colorInt?.let { Color(it) }
+                    }
+                    val liveTitle = "${liveChild?.name ?: s.parentTitle} のサブタスク"
+                    val colorForUi = liveParentColor ?: s.color
+
                     SubtaskPicker(
-                        title = "${s.parentTitle} のサブタスク",
+                        title = liveTitle,
                         parentId = s.parentId,
-                        color = s.color,
+                        color = colorForUi,
                         onBack = {
                             ui = TaskCenterUiState.List
                             lastInteractionTime = System.currentTimeMillis()
                         },
                         onPick = { pickedId ->
-                            // ▼ ここも結果判定せず、ViewModel に任せる（Snackbar は AppRoot が受け取る）
                             viewModel.onTaskPressed(pickedId)
                             ui = TaskCenterUiState.List
                             lastInteractionTime = System.currentTimeMillis()
@@ -1020,6 +1131,7 @@ fun DBTaskScreen(
                         viewModel = viewModel
                     )
                 }
+
             }
         }
 
@@ -1383,7 +1495,10 @@ private fun TimelineScreen(
     modifier: Modifier = Modifier,
     onAddRecord: () -> Unit,
     selectedTaskId: Long?,
-    onSelectTask: (Long?) -> Unit
+    onSelectTask: (Long?) -> Unit,
+    selectedEventId: Long?,
+    onSelectEvent: (Long?) -> Unit,
+    onSelectBlock: (Long, Long, Long, Long) -> Unit
 ) {
     LaunchedEffect(Unit) { viewModel.ensureHistoryFirstPage() }
 
@@ -1466,6 +1581,7 @@ private fun TimelineScreen(
                     val days = List(dayCount) { mutableListOf<TimelineBlock>() }
 
                     fun addClampedBlock(
+                        eventId: Long,
                         s: Long,
                         e: Long,
                         name: String,
@@ -1478,14 +1594,30 @@ private fun TimelineScreen(
                             val dEnd = dStart + 24L * 60L * 60L * 1000L
                             val cs = maxOf(s, dStart)
                             val ce = minOf(e, dEnd)
-                            if (ce > cs) days[i].add(TimelineBlock(cs, ce, name, color, taskId))
+                            if (ce > cs) days[i].add(
+                                TimelineBlock(
+                                    eventId,
+                                    cs,
+                                    ce,
+                                    name,
+                                    color,
+                                    taskId
+                                )
+                            )
                         }
                     }
 
                     history.forEach { h ->
                         val itemStart = h.pressedAt
                         val itemEnd = h.pressedAt + max(0L, h.durationMillis)
-                        addClampedBlock(itemStart, itemEnd, h.taskName, h.color, h.taskId)
+                        addClampedBlock(
+                            eventId = h.id,          // ★ ここでeventIdを渡す
+                            s = itemStart,
+                            e = itemEnd,
+                            name = h.taskName,
+                            color = h.color,
+                            taskId = h.taskId
+                        )
                     }
 
                     activeUi?.let { a ->
@@ -1493,7 +1625,11 @@ private fun TimelineScreen(
                         if (start > 0L) {
                             val color = colorForTask(a.taskId, defaultTaskColor)
                             val end = nowMs
-                            addClampedBlock(start, end, a.taskName, color, a.taskId)
+                            addClampedBlock(
+                                eventId = -1L, // ★ 分割対象外
+                                s = start, e = end,
+                                name = a.taskName, color = color, taskId = a.taskId
+                            )
                         }
                     }
 
@@ -1505,7 +1641,10 @@ private fun TimelineScreen(
                 dayCount = dayCount,
                 blocksByDay = blocksByDay,
                 selectedTaskId = selectedTaskId,
-                onSelectTask = onSelectTask
+                selectedEventId = selectedEventId,
+                onSelectEvent = onSelectEvent,
+                onSelectTask = onSelectTask,
+                onSelectBlock = onSelectBlock
             )
         }
 
@@ -1521,6 +1660,7 @@ private fun TimelineScreen(
 }
 
 private data class TimelineBlock(
+    val eventId: Long,
     val startMs: Long,
     val endMs: Long,
     val name: String,
@@ -1535,7 +1675,10 @@ private fun MultiDayTimeline(
     blocksByDay: List<List<TimelineBlock>>,
     modifier: Modifier = Modifier,
     selectedTaskId: Long? = null,
-    onSelectTask: (Long?) -> Unit = {}
+    selectedEventId: Long? = null,
+    onSelectEvent: (Long?) -> Unit = {},
+    onSelectTask: (Long?) -> Unit = {},
+    onSelectBlock: (Long, Long, Long, Long) -> Unit = { _, _, _, _ -> }
 ) {
     val HOUR_HEIGHT = 48.dp
     val GUTTER = 40.dp
@@ -1558,7 +1701,10 @@ private fun MultiDayTimeline(
                 .fillMaxHeight()
                 .background(MaterialTheme.colorScheme.surface)
                 .pointerInput(Unit) {
-                    detectTapGestures(onTap = { onSelectTask(null) })
+                    detectTapGestures(onTap = {
+                        onSelectEvent(null)
+                        onSelectTask(null)
+                    })
                 }
         ) {
             repeat(25) { h ->
@@ -1592,8 +1738,9 @@ private fun MultiDayTimeline(
                     label = label,
                     hourHeight = HOUR_HEIGHT,
                     blocks = blocksByDay.getOrNull(i).orEmpty(),
-                    selectedTaskId = selectedTaskId,
-                    onSelectTask = onSelectTask,
+                    selectedEventId = selectedEventId,
+                    onSelectEvent = onSelectEvent,
+                    onSelectBlock = onSelectBlock,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
@@ -1610,8 +1757,9 @@ private fun DayColumn(
     hourHeight: Dp,
     blocks: List<TimelineBlock>,
     modifier: Modifier = Modifier,
-    selectedTaskId: Long? = null,
-    onSelectTask: (Long?) -> Unit = {}
+    onSelectEvent: (Long?) -> Unit = {},
+    selectedEventId: Long? = null,
+    onSelectBlock: (Long /*eventId*/, Long /*taskId*/, Long /*start*/, Long /*end*/) -> Unit = { _, _, _, _ -> }
 ) {
     val hourHeightPx = with(LocalDensity.current) { hourHeight.toPx() }
 
@@ -1623,7 +1771,7 @@ private fun DayColumn(
     Box(
         modifier = modifier
             // ▼ タスク以外（背景）をタップしたら選択解除
-            .pointerInput(Unit) { detectTapGestures(onTap = { onSelectTask(null) }) }
+            .pointerInput(Unit) { detectTapGestures(onTap = { onSelectEvent(null) }) }
     ) {
         Canvas(Modifier.matchParentSize()) {
             val w = size.width
@@ -1661,7 +1809,7 @@ private fun DayColumn(
             val top = hourHeight * (startMin / 60f)
             val height = hourHeight * ((endMin - startMin).coerceAtLeast(1) / 60f)
 
-            val isSelected = selectedTaskId == b.taskId
+            val isSelected = selectedEventId == b.eventId
             val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else outline
             val borderWidth = if (isSelected) 2.dp else 1.dp
 
@@ -1673,7 +1821,10 @@ private fun DayColumn(
                     .height(height)
                     .background(b.color.copy(alpha = 0.9f), RoundedCornerShape(6.dp))
                     .border(borderWidth, borderColor, RoundedCornerShape(6.dp))
-                    .clickable { onSelectTask(b.taskId) }
+                    .clickable {
+                        onSelectEvent(b.eventId)
+                        onSelectBlock(b.eventId, b.taskId, b.startMs, b.endMs)
+                    }
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text(
@@ -2102,7 +2253,10 @@ fun BlankScreen(label: String, modifier: Modifier = Modifier) {
 @Composable
 fun AddTaskScreen(
     onBack: () -> Unit,
-    viewModel: TaskViewModel
+    viewModel: TaskViewModel,
+    initialTaskId: Long? = null,
+    initialStartMs: Long? = null,
+    initialEndMs: Long? = null
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -2112,6 +2266,34 @@ fun AddTaskScreen(
     var selectedParentId by rememberSaveable { mutableStateOf<Long?>(null) }
     var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var selectedSubtaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+
+    // initialTaskId が来たら初期選択に反映（子 or サブタスクを自動選択）
+    LaunchedEffect(initialTaskId, parents) {
+        val target = initialTaskId ?: return@LaunchedEffect
+
+        // 子タスク一致
+        parents.firstOrNull { g -> g.children.any { it.id == target } }?.let { g ->
+            selectedParentId = g.parent.id
+            selectedTaskId = target
+            selectedSubtaskId = null
+            return@LaunchedEffect
+        }
+
+        // サブタスク一致
+        outer@ for (g in parents) {
+            for (child in g.children) {
+                if (viewModel.hasChildren(child.id)) {
+                    val subs = viewModel.children(child.id).first()
+                    if (subs.any { it.id == target }) {
+                        selectedParentId = g.parent.id
+                        selectedTaskId = child.id
+                        selectedSubtaskId = target
+                        break@outer
+                    }
+                }
+            }
+        }
+    }
 
     // 選択された親配下の子タスク
     val tasksInParent = remember(selectedParentId, parents) {
@@ -2127,9 +2309,13 @@ fun AddTaskScreen(
         }
     }.collectAsStateWithLifecycle(initialValue = emptyList())
 
-    // 初期値：直近1時間
-    var startMs by rememberSaveable { mutableLongStateOf(System.currentTimeMillis() - 60 * 60 * 1000L) }
-    var endMs by rememberSaveable { mutableLongStateOf(System.currentTimeMillis()) }
+    // 開始・終了の初期値：編集遷移時（initialStart/End）があればそれを採用
+    var startMs by rememberSaveable {
+        mutableLongStateOf(initialStartMs ?: (System.currentTimeMillis() - 60 * 60 * 1000L))
+    }
+    var endMs by rememberSaveable {
+        mutableLongStateOf(initialEndMs ?: System.currentTimeMillis())
+    }
 
     val dfFull =
         remember { java.text.SimpleDateFormat("yyyy/MM/dd HH:mm", java.util.Locale.getDefault()) }
@@ -2244,7 +2430,7 @@ fun AddTaskScreen(
                 onClick = {
                     pickDateTime(startMs) { picked ->
                         startMs = picked
-                        if (endMs <= startMs) endMs = startMs + 5 * 60 * 1000L // 開始≧終了なら終了を自動スライド
+                        if (endMs <= startMs) endMs = startMs + 5 * 60 * 1000L
                     }
                 }
             )
@@ -2289,7 +2475,7 @@ fun AddTaskScreen(
 
                         else -> {
                             scope.launch {
-                                // 上書き警告フロー
+                                // 既存と重なる場合は上書き確認
                                 val overlap = viewModel.hasOverlap(startMs, endMs)
                                 if (overlap) {
                                     pendingTaskId = finalTaskId!!
@@ -2323,10 +2509,9 @@ fun AddTaskScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val t = pendingTaskId
-                    if (t != null) {
-                        // ここで実際に追加（内部で既存イベントを調整）
-                        viewModel.addManualRecord(t, pendingStart, pendingEnd)
+                    pendingTaskId?.let { t ->
+                        // 重複時は近傍吸収版で一度だけ登録・調整する
+                        viewModel.upsertRecordAbsorbingNeighbors(t, pendingStart, pendingEnd)
                     }
                     showOverwriteDialog = false
                     onBack()
