@@ -1874,7 +1874,7 @@ private fun TimelineScreen(
                             s = itemStart,
                             e = itemEnd,
                             name = h.taskName,
-                            color = h.color,
+                            color = colorForTask(h.taskId, h.color),
                             taskId = h.taskId
                         )
                     }
@@ -2252,7 +2252,12 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
         }
 
         history.filter { it.pressedAt >= cutoff }.forEach { row ->
-            addMs(row.taskId, row.taskName, row.color, max(0L, row.durationMillis))
+            addMs(
+                row.taskId,
+                row.taskName,
+                colorForTask(row.taskId, row.color),
+                max(0L, row.durationMillis)
+            )
         }
 
         activeUi?.let { a ->
