@@ -882,6 +882,9 @@ fun DBTaskScreen(
             .collect { lastInteractionTime = System.currentTimeMillis() }
     }
 
+    var showRgbPicker by rememberSaveable { mutableStateOf(false) }
+    var hexInput by rememberSaveable { mutableStateOf("") }
+
     // 実行中タスクに合わせてハイライトを更新（サブ状態はリセット）
     LaunchedEffect(activeUi, parents) {
         selectedTaskId = null
@@ -1404,30 +1407,100 @@ fun DBTaskScreen(
         }
 
         if (colorPickForParentId != null) {
+            // 初期色（プロジェクト現在色 or テーマ色）
+            val themePrimary = MaterialTheme.colorScheme.primary
+
+            val initColor = remember(colorPickForParentId, parents, themePrimary) {
+                parents.firstOrNull { it.parent.id == colorPickForParentId }
+                    ?.parent?.colorInt?.let { Color(it) }
+                    ?: themePrimary
+            }
+
+            LaunchedEffect(colorPickForParentId) {
+                hexInput = colorToHex(initColor, withAlpha = false)
+            }
+            val parsedHex = remember(hexInput) { parseHexColor(hexInput) }
+            val hexError = remember(parsedHex, hexInput) {
+                if (hexInput.isBlank()) null
+                else if (parsedHex == null) "形式: #RRGGBB または #AARRGGBB"
+                else null
+            }
+
             AlertDialog(
                 onDismissRequest = { colorPickForParentId = null },
                 title = { Text("色の変更") },
                 text = {
-                    Row {
-                        presetColors.forEach { c ->
+                    Column {
+                        // 1) プリセット
+                        Text("プリセット", style = MaterialTheme.typography.labelMedium)
+                        Spacer(Modifier.height(8.dp))
+                        Row {
+                            presetColors.forEach { c ->
+                                Box(
+                                    modifier = Modifier
+                                        .padding(end = 12.dp)
+                                        .size(32.dp)
+                                        .background(c, RoundedCornerShape(6.dp))
+                                        .border(
+                                            1.dp,
+                                            MaterialTheme.colorScheme.outline,
+                                            RoundedCornerShape(6.dp)
+                                        )
+                                        .clickable {
+                                            val id = colorPickForParentId
+                                            if (id != null) {
+                                                viewModel.changeParentColor(id, c)
+                                                colorPickForParentId = null
+                                            }
+                                        }
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(16.dp))
+
+                        // 2) HEX入力
+                        Text("HEX 指定", style = MaterialTheme.typography.labelMedium)
+                        Spacer(Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = hexInput,
+                                onValueChange = { hexInput = it.uppercase() },
+                                singleLine = true,
+                                isError = hexError != null,
+                                label = { Text("HEX (#RRGGBB / #AARRGGBB)") },
+                                supportingText = { if (hexError != null) Text(hexError!!) },
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            // プレビュー
                             Box(
                                 modifier = Modifier
-                                    .padding(end = 12.dp)
-                                    .size(32.dp)
-                                    .background(c, RoundedCornerShape(6.dp))
+                                    .size(36.dp)
+                                    .background(parsedHex ?: initColor, RoundedCornerShape(6.dp))
                                     .border(
                                         1.dp,
                                         MaterialTheme.colorScheme.outline,
                                         RoundedCornerShape(6.dp)
                                     )
-                                    .clickable {
-                                        val id = colorPickForParentId
-                                        if (id != null) {
-                                            viewModel.changeParentColor(id, c)
-                                            colorPickForParentId = null
-                                        }
-                                    }
                             )
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    val id = colorPickForParentId ?: return@OutlinedButton
+                                    val c = parsedHex ?: return@OutlinedButton
+                                    viewModel.changeParentColor(id, c)
+                                    colorPickForParentId = null
+                                },
+                                enabled = parsedHex != null
+                            ) { Text("HEXを適用") }
+
+                            FilledTonalButton(onClick = { showRgbPicker = true }) {
+                                Text("カラーピッカー…")
+                            }
                         }
                     }
                 },
@@ -1436,6 +1509,22 @@ fun DBTaskScreen(
                     TextButton(onClick = { colorPickForParentId = null }) { Text("閉じる") }
                 }
             )
+
+            // 3) カラーピッカー（RGB/Alphaスライダ）
+            if (showRgbPicker) {
+                RgbColorPickerDialog(
+                    initial = parsedHex ?: initColor,
+                    onDismiss = { showRgbPicker = false },
+                    onConfirm = { picked ->
+                        val id = colorPickForParentId
+                        if (id != null) {
+                            viewModel.changeParentColor(id, picked)
+                            colorPickForParentId = null
+                        }
+                        showRgbPicker = false
+                    }
+                )
+            }
         }
 
         if (confirmDeleteParentId != null) {
@@ -1989,8 +2078,8 @@ private fun DayColumn(
                     .offset(y = top)
                     .fillMaxWidth()
                     .height(height)
-                    .background(b.color.copy(alpha = 0.9f), RoundedCornerShape(6.dp))
-                    .border(borderWidth, borderColor, RoundedCornerShape(6.dp))
+                    .background(b.color.copy(alpha = 0.9f), RoundedCornerShape(0.dp))
+                    .border(borderWidth, borderColor, RoundedCornerShape(0.dp))
                     .clickable {
                         onSelectEvent(b.eventId)
                         onSelectBlock(b.eventId, b.taskId, b.startMs, b.endMs)
@@ -2023,6 +2112,102 @@ private fun midnightOf(timeMs: Long): Long {
 private fun minutesOfDay(ms: Long): Int {
     val cal = Calendar.getInstance().apply { timeInMillis = ms }
     return cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+}
+
+// ---------- Color ヘルパ ----------
+private fun parseHexColor(input: String): Color? {
+    val s = input.trim().removePrefix("#")
+    if (s.length != 6 && s.length != 8) return null
+    return try {
+        val argb = if (s.length == 6) "FF$s" else s
+        val a = argb.substring(0, 2).toInt(16)
+        val r = argb.substring(2, 4).toInt(16)
+        val g = argb.substring(4, 6).toInt(16)
+        val b = argb.substring(6, 8).toInt(16)
+        Color(r / 255f, g / 255f, b / 255f, a / 255f)
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun colorToHex(color: Color, withAlpha: Boolean = false): String {
+    val r = (color.red * 255).roundToInt().coerceIn(0, 255)
+    val g = (color.green * 255).roundToInt().coerceIn(0, 255)
+    val b = (color.blue * 255).roundToInt().coerceIn(0, 255)
+    val a = (color.alpha * 255).roundToInt().coerceIn(0, 255)
+    return if (withAlpha) String.format("#%02X%02X%02X%02X", a, r, g, b)
+    else String.format("#%02X%02X%02X", r, g, b)
+}
+
+// ---------- カラーピッカー（RGB/Alphaスライダー） ----------
+@Composable
+private fun RgbColorPickerDialog(
+    initial: Color,
+    onDismiss: () -> Unit,
+    onConfirm: (Color) -> Unit
+) {
+    var r by rememberSaveable { mutableIntStateOf((initial.red * 255).roundToInt()) }
+    var g by rememberSaveable { mutableIntStateOf((initial.green * 255).roundToInt()) }
+    var b by rememberSaveable { mutableIntStateOf((initial.blue * 255).roundToInt()) }
+    var a by rememberSaveable { mutableIntStateOf((initial.alpha * 255).roundToInt()) }
+
+    val current = Color(r / 255f, g / 255f, b / 255f, a / 255f)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("色を選択") },
+        text = {
+            Column {
+                // プレビュー＋HEX
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .background(current, RoundedCornerShape(8.dp))
+                            .border(
+                                1.dp,
+                                MaterialTheme.colorScheme.outline,
+                                RoundedCornerShape(8.dp)
+                            )
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        colorToHex(current, withAlpha = true),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+
+                ChannelSlider("R", r) { r = it }
+                ChannelSlider("G", g) { g = it }
+                ChannelSlider("B", b) { b = it }
+                ChannelSlider("A", a) { a = it }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(current) }) { Text("適用") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("キャンセル") }
+        }
+    )
+}
+
+@Composable
+private fun ChannelSlider(label: String, value: Int, onChange: (Int) -> Unit) {
+    Column(Modifier.padding(vertical = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, modifier = Modifier.width(20.dp))
+            Spacer(Modifier.width(8.dp))
+            androidx.compose.material3.Slider(
+                value = value.toFloat(),
+                onValueChange = { onChange(it.roundToInt().coerceIn(0, 255)) },
+                valueRange = 0f..255f,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(value.toString(), style = MaterialTheme.typography.labelMedium)
+        }
+    }
 }
 
 /* =========================
@@ -2762,4 +2947,256 @@ private fun TimeField(
             .fillMaxWidth()
             .clickable { onClick() }
     )
+}
+
+// ============================================
+// Previews for Main Screens (Timeline / Tasks / Stats)
+// ============================================
+
+// プレビュー用の簡単ヘルパ
+private fun msOf(baseMidnight: Long, hour: Int, minute: Int = 0): Long {
+    return baseMidnight + (hour * 60L + minute) * 60L * 1000L
+}
+
+// ---------- 左：タイムラインの見た目プレビュー ----------
+@androidx.compose.ui.tooling.preview.Preview(
+    name = "Timeline (3 days) – Light",
+    showBackground = true,
+    backgroundColor = 0xFFFFFFFF
+)
+@Composable
+private fun Preview_TimelineMain() {
+    TimeRecorderTheme {
+        val start = midnightOf(System.currentTimeMillis())
+        val dayCount = 3
+
+        // サンプルブロック（3日分）
+        val blocksByDay = listOf(
+            listOf(
+                TimelineBlock(
+                    eventId = 1L,
+                    startMs = msOf(start, 9, 0),
+                    endMs = msOf(start, 10, 30),
+                    name = "Email & Plan",
+                    color = Color(0xFF90CAF9),
+                    taskId = 101L
+                ),
+                TimelineBlock(
+                    eventId = 2L,
+                    startMs = msOf(start, 11, 0),
+                    endMs = msOf(start, 12, 0),
+                    name = "Design Review",
+                    color = Color(0xFFA5D6A7),
+                    taskId = 102L
+                ),
+                TimelineBlock(
+                    eventId = 3L,
+                    startMs = msOf(start, 14, 0),
+                    endMs = msOf(start, 17, 30),
+                    name = "Implementation",
+                    color = Color(0xFFFFF59D),
+                    taskId = 103L
+                ),
+            ),
+            listOf(
+                TimelineBlock(
+                    eventId = 4L,
+                    startMs = msOf(start + 24L * 60L * 60L * 1000L, 10, 0),
+                    endMs = msOf(start + 24L * 60L * 60L * 1000L, 12, 0),
+                    name = "1:1 / Mentoring",
+                    color = Color(0xFFCE93D8),
+                    taskId = 104L
+                )
+            ),
+            listOf(
+                TimelineBlock(
+                    eventId = 5L,
+                    startMs = msOf(start + 2L * 24L * 60L * 60L * 1000L, 13, 0),
+                    endMs = msOf(start + 2L * 24L * 60L * 60L * 1000L, 16, 0),
+                    name = "Documentation",
+                    color = Color(0xFFEF9A9A),
+                    taskId = 105L
+                )
+            )
+        )
+
+        MultiDayTimeline(
+            startMs = start,
+            dayCount = dayCount,
+            blocksByDay = blocksByDay,
+            selectedTaskId = null,
+            selectedEventId = null,
+            onSelectEvent = {},
+            onSelectTask = {},
+            onSelectBlock = { _, _, _, _ -> }
+        )
+    }
+}
+
+// ---------- 中央：タスク一覧の見た目プレビュー（モック） ----------
+@androidx.compose.ui.tooling.preview.Preview(
+    name = "Tasks – Light",
+    showBackground = true,
+    backgroundColor = 0xFFFFFFFF
+)
+@Composable
+private fun Preview_TasksMain() {
+    TimeRecorderTheme {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = "タスクを選択してください",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            listOf(
+                "Project A" to Color(0xFF90CAF9),
+                "Project B" to Color(0xFFA5D6A7),
+            ).forEach { (title, color) ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.primary,
+                            RoundedCornerShape(4.dp)
+                        ),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                title,
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Icon(Icons.Filled.Menu, contentDescription = null)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        (1..4).forEach { i ->
+                            val border = MaterialTheme.colorScheme.outline
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp)
+                                    .border(1.dp, border, RoundedCornerShape(2.dp)),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                shape = RoundedCornerShape(2.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Task $i",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .background(color, RoundedCornerShape(3.dp))
+                                            .border(
+                                                1.dp,
+                                                border,
+                                                RoundedCornerShape(3.dp)
+                                            )
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Icon(Icons.Filled.Menu, contentDescription = null)
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+        }
+    }
+}
+
+// ---------- 右：集計の見た目プレビュー（BarChartにダミーデータ） ----------
+@androidx.compose.ui.tooling.preview.Preview(
+    name = "Stats – Light",
+    showBackground = true,
+    backgroundColor = 0xFFFFFFFF
+)
+@Composable
+private fun Preview_StatsMain() {
+    TimeRecorderTheme {
+        val sampleNames = listOf(
+            "Design", "Coding", "Review", "Meeting", "Docs", "Ops", "Support", "Other"
+        )
+        val sampleVals = listOf(240f, 520f, 180f, 340f, 120f, 90f, 60f, 30f)
+        val sampleColors = listOf(
+            Color(0xFF90CAF9), Color(0xFFFFF59D), Color(0xFFA5D6A7), Color(0xFFEF9A9A),
+            Color(0xFFCE93D8), Color(0xFF80CBC4), Color(0xFFFFAB91), Color(0xFFB39DDB)
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            Text("集計", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "期間: 過去7日 / 合計 ${sampleVals.sum().toLong()} 分",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(12.dp))
+
+            BarChart(
+                entries = sampleNames.zip(sampleVals),
+                colors = sampleColors,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1.4f)
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            sampleNames.zip(sampleVals).zip(sampleColors).forEach { (nv, c) ->
+                val (name, value) = nv
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(14.dp)
+                            .background(c, RoundedCornerShape(3.dp))
+                            .border(
+                                1.dp,
+                                MaterialTheme.colorScheme.outline,
+                                RoundedCornerShape(3.dp)
+                            )
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        name,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text("${value.toInt()} 分", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
 }
