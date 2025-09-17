@@ -488,8 +488,11 @@ fun AppRoot(
                                         }
                                         pendingDeleteEventId = eid
                                         showDeleteEventDialog = true
+                                    },
+                                    showExtraIcon = sortMode,
+                                    onExtraAction = {                             // ★ 仮の動作（後で差し替え）
+                                        scope.launch { snackbar.showSnackbar("仮アイコンが押されました") }
                                     }
-
                                 )
                             }
                         }
@@ -2549,7 +2552,9 @@ fun AdaptiveBottomBar(
     onLeftAction: () -> Unit = {},
     onSortAction: () -> Unit = {},
     onRightAction: () -> Unit = {},
-    onDeleteAction: () -> Unit = {}
+    onDeleteAction: () -> Unit = {},
+    showExtraIcon: Boolean = false,
+    onExtraAction: () -> Unit = {},
 ) {
     when (currentPage) {
         0 -> {
@@ -2579,6 +2584,15 @@ fun AdaptiveBottomBar(
                 actions = {
                     IconButton(onClick = onSortAction) {
                         Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
+                    }
+                    if (showExtraIcon) {
+                        IconButton(onClick = onExtraAction) {
+                            // ★ 仮アイコン：設定アイコン（後でカスタムに差し替え）
+                            Icon(
+                                painter = painterResource(id = R.drawable.sort_by_alpha_24px),
+                                contentDescription = "Placeholder"
+                            )
+                        }
                     }
                 }
             )
