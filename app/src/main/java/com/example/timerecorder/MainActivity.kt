@@ -249,6 +249,45 @@ fun AppRoot(
     var clearExistingEvents by rememberSaveable { mutableStateOf(false) }
     var createMissing by rememberSaveable { mutableStateOf(true) }
 
+    val activeUi by taskVm.activeUi.collectAsStateWithLifecycle()
+    val parents by taskVm.parents.collectAsStateWithLifecycle()
+
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000)
+            nowMs = System.currentTimeMillis()
+        }
+    }
+
+    var runningPath by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(activeUi, parents) {
+        val a = activeUi ?: run { runningPath = null; return@LaunchedEffect }
+
+        // ① 直接：子タスクがアクティブ
+        parents.firstOrNull { g -> g.children.any { it.id == a.taskId } }?.let { g ->
+            runningPath = "${g.parent.name} / ${a.taskName}"
+            return@LaunchedEffect
+        }
+
+        // ② 孫：サブタスクがアクティブ
+        outer@ for (g in parents) {
+            for (child in g.children) {
+                if (taskVm.hasChildren(child.id)) {
+                    val subs = taskVm.children(child.id).first()
+                    if (subs.any { it.id == a.taskId }) {
+                        runningPath = "${g.parent.name} / ${child.name} / ${a.taskName}"
+                        break@outer
+                    }
+                }
+            }
+        }
+
+        // ③ 見つからない場合のフォールバック
+        if (runningPath == null) runningPath = a.taskName
+    }
+
     // ViewModel のワンショット UI イベントを収集して Snackbar を表示
     LaunchedEffect(Unit) {
         taskVm.events.collectLatest { ev ->
@@ -387,18 +426,34 @@ fun AppRoot(
                         TopAppBar(
                             navigationIcon = {},
                             title = {
-                                Text(
-                                    text = when (screen) {
-                                        AppScreen.Main ->
-                                            if (sortMode) "並び替え" else stringResource(R.string.header_title)
+                                val a = activeUi
+                                val titleText =
+                                    if (a != null && runningPath != null) {
+                                        val elapsed = (nowMs - a.startEpochMs).coerceAtLeast(0L)
+                                        val hh = (elapsed / 3_600_000L).toInt()
+                                        val mm = ((elapsed / 60_000L) % 60).toInt()
+                                        val ss = ((elapsed / 1_000L) % 60).toInt()
+                                        val hms = String.format("%02d:%02d:%02d", hh, mm, ss)
 
-                                        AppScreen.History -> "History"
-                                    },
-                                    style = MaterialTheme.typography.titleLarge
+                                        "${runningPath} ($hms)"
+                                    } else {
+                                        when (screen) {
+                                            AppScreen.Main -> if (sortMode) "並び替え" else stringResource(
+                                                R.string.header_title
+                                            )
+
+                                            AppScreen.History -> "History"
+                                        }
+                                    }
+
+                                Text(
+                                    titleText,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             },
                             actions = {
-                                // 並び替え中は「×」で終了、それ以外はメニューボタン
                                 if (screen == AppScreen.Main && sortMode) {
                                     IconButton(onClick = { sortMode = false }) {
                                         Icon(
