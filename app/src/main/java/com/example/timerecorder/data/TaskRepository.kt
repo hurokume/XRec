@@ -13,6 +13,7 @@ import com.example.timerecorder.data.db.TaskEventEntity
 import com.example.timerecorder.data.db.TaskSessionEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -40,7 +41,14 @@ class TaskRepository(
     private val taskDao: TaskDao
 ) {
     // ---------------- 観測系 ----------------
-    fun observeTree(): Flow<List<ParentWithChildren>> = taskDao.observeParentsWithChildren()
+    fun observeTree(): Flow<List<ParentWithChildren>> =
+        taskDao.observeParentsWithChildren()
+            .map { groups ->
+                groups.map { g ->
+                    g.copy(children = g.children.sortedWith(compareBy({ it.sortOrder }, { it.id })))
+                }
+            }
+
     fun observeChildren(parentId: Long): Flow<List<TaskEntity>> = taskDao.observeChildren(parentId)
     suspend fun hasChildren(taskId: Long): Boolean = taskDao.countChildren(taskId) > 0
     fun observeActive(): Flow<ActiveWithTask?> = taskDao.observeActiveWithTask()
@@ -139,6 +147,10 @@ class TaskRepository(
     suspend fun deleteTaskById(taskId: Long) = taskDao.deleteTaskById(taskId)
     suspend fun updateSortOrdersForParent(parentId: Long, idsInOrder: List<Long>) =
         taskDao.updateSortOrdersForParent(parentId, idsInOrder)
+
+    // 親（ルート＝プロジェクト）の並び替え
+    suspend fun reorderParents(idsInOrder: List<Long>) =
+        taskDao.updateSortOrdersForRoot(idsInOrder)
 
     // ---------------- 履歴（task_events） ----------------
     suspend fun loadHistoryPage(page: Int, pageSize: Int): List<HistoryRowDb> {

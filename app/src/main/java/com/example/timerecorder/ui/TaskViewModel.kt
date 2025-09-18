@@ -186,6 +186,10 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     fun reorderChildren(parentId: Long, idsInOrder: List<Long>) =
         viewModelScope.launch { repo.updateSortOrdersForParent(parentId, idsInOrder) }
 
+    // 親（プロジェクト＝ルート）の並び替え
+    fun reorderParents(idsInOrder: List<Long>) =
+        viewModelScope.launch { repo.reorderParents(idsInOrder) }
+
     private fun normalizeName(name: String) = name.trim().lowercase()
     fun hasDuplicateChildName(parentId: Long, name: String): Boolean {
         if (name.isBlank()) return false

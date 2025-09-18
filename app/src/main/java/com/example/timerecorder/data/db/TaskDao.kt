@@ -90,10 +90,14 @@ interface TaskDao {
     @Query("UPDATE tasks SET name = :name WHERE id = :id")
     suspend fun updateTaskName(id: Long, name: String)
 
+    // 子（親ID一致）専用 UPDATE
+    @Query("UPDATE tasks SET sortOrder = :order WHERE id = :taskId AND parentId = :parentId")
+    suspend fun updateChildSortOrder(parentId: Long, taskId: Long, order: Int)
+
     @Transaction
     suspend fun updateSortOrdersForParent(parentId: Long, idsInOrder: List<Long>) {
         idsInOrder.forEachIndexed { index, id ->
-            updateSortOrder(id, index)
+            updateChildSortOrder(parentId, id, index)
         }
     }
 
@@ -187,4 +191,23 @@ interface TaskDao {
     /* 名前→ID解決用（存在しなければ作る時に使う） */
     @Query("SELECT id FROM tasks WHERE parentId IS :parentId AND name = :name LIMIT 1")
     suspend fun findTaskIdByNameInParent(parentId: Long?, name: String): Long?
+
+    // ルート（parentId IS NULL）専用 UPDATE
+    @Query("UPDATE tasks SET sortOrder = :order WHERE id = :taskId AND parentId IS NULL")
+    suspend fun updateRootSortOrder(taskId: Long, order: Int)
+
+    // ★ 追加：親（ルート＝parentId IS NULL）用の並び更新
+    /**
+     * ルートの親タスク（プロジェクト）の sortOrder を
+     * 渡された ID の順番に 0,1,2,... と更新する。
+     * 呼び出し側で「親のIDのみ」を渡す前提。
+     */
+    @Transaction
+    suspend fun updateSortOrdersForRoot(idsInOrder: List<Long>) {
+        idsInOrder.forEachIndexed { index, id ->
+            updateRootSortOrder(id, index)
+        }
+    }
+
+
 }

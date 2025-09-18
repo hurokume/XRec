@@ -137,6 +137,9 @@ import kotlin.math.roundToInt
 /** 画面モード（メイン/履歴） */
 private enum class AppScreen { Main, History }
 
+/** 名前ソートモード */
+enum class NameSort { None, Asc, Desc }
+
 /** Navigation のルート定義 */
 private object Routes {
     const val Root = "root"
@@ -165,7 +168,7 @@ class MainActivity : ComponentActivity() {
                     ) {
                         composable(Routes.Root) {
                             AppRoot(
-                                viewModel = taskViewModel,
+                                taskVm = taskViewModel,
                                 onNavigateAddTask = { navController.navigate(Routes.AddTask) },
                                 onNavigateEditTask = { id, s, e ->
                                     navController.navigate("${Routes.AddTask}?initialTaskId=$id&initialStartMs=$s&initialEndMs=$e")
@@ -218,7 +221,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun AppRoot(
-    viewModel: TaskViewModel,
+    taskVm: TaskViewModel,
     onNavigateAddTask: () -> Unit,
     onNavigateEditTask: (Long, Long, Long) -> Unit
 ) {
@@ -248,7 +251,7 @@ fun AppRoot(
 
     // ViewModel のワンショット UI イベントを収集して Snackbar を表示
     LaunchedEffect(Unit) {
-        viewModel.events.collectLatest { ev ->
+        taskVm.events.collectLatest { ev ->
             when (ev) {
                 is UiEvent.ShowMessage -> snackbar.showSnackbar(ev.message)
             }
@@ -275,7 +278,8 @@ fun AppRoot(
     // 並び替えモード（タスクの上下入れ替え）
     var sortMode by rememberSaveable { mutableStateOf(false) }
 
-    var showEdit by rememberSaveable { mutableStateOf(false) }
+    // ★ 追加：名前ソート（None -> Asc -> Desc -> Asc...）
+    var nameSort by rememberSaveable { mutableStateOf(NameSort.None) }
 
     // 右からドロワーを出したいので、RTL/LTR を切り替えて実現
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
@@ -292,13 +296,13 @@ fun AppRoot(
                                 "history" -> {
                                     screen = AppScreen.History
                                     // 履歴はページングされるため、先頭ページを確保
-                                    viewModel.ensureHistoryFirstPage()
+                                    taskVm.ensureHistoryFirstPage()
                                 }
 
                                 "export_tsv" -> {
                                     scope.launch {
                                         try {
-                                            val text = viewModel.exportEventsTsv()
+                                            val text = taskVm.exportEventsTsv()
                                             val send = Intent(Intent.ACTION_SEND).apply {
                                                 type = "text/tab-separated-values"
                                                 putExtra(Intent.EXTRA_TEXT, text)
@@ -331,7 +335,7 @@ fun AppRoot(
                                     // タスク定義を JSON で共有
                                     scope.launch {
                                         try {
-                                            val text = viewModel.exportTasksJson()
+                                            val text = taskVm.exportTasksJson()
                                             val send = Intent(Intent.ACTION_SEND).apply {
                                                 type = "text/plain"
                                                 putExtra(Intent.EXTRA_TEXT, text)
@@ -456,7 +460,7 @@ fun AppRoot(
                                                 if (base <= s || base >= e) {
                                                     scope.launch { snackbar.showSnackbar("分割時刻は選択中の区間内で指定してください") }
                                                 } else {
-                                                    viewModel.splitEventAt(eid, base)
+                                                    taskVm.splitEventAt(eid, base)
                                                     // 選択は一旦クリア
                                                     selectedTimelineEventId = null
                                                     selectedTimelineTaskId = null
@@ -490,9 +494,23 @@ fun AppRoot(
                                         showDeleteEventDialog = true
                                     },
                                     showExtraIcon = sortMode,
-                                    onExtraAction = {                             // ★ 仮の動作（後で差し替え）
-                                        scope.launch { snackbar.showSnackbar("仮アイコンが押されました") }
+                                    onExtraAction = {
+                                        nameSort = when (nameSort) {
+                                            NameSort.None -> NameSort.Asc
+                                            NameSort.Asc -> NameSort.Desc
+                                            NameSort.Desc -> NameSort.Asc
+                                        }
+                                        scope.launch {
+                                            snackbar.showSnackbar(
+                                                when (nameSort) {
+                                                    NameSort.Asc -> "A→Z（昇順）"
+                                                    NameSort.Desc -> "Z→A（降順）"
+                                                    else -> "任意順"
+                                                }
+                                            )
+                                        }
                                     }
+
                                 )
                             }
                         }
@@ -503,7 +521,7 @@ fun AppRoot(
                         AppScreen.Main -> MainPager(
                             modifier = Modifier.padding(innerPadding),
                             pagerState = pagerState,
-                            viewModel = viewModel,
+                            taskVm = taskVm,
                             sortMode = sortMode,
                             onNavigateAddTask = onNavigateAddTask,
                             selectedTimelineTaskId = selectedTimelineTaskId,
@@ -529,14 +547,15 @@ fun AppRoot(
                                 selectedTimelineTaskId = tid
                                 selectedTimelineStartMs = s
                                 selectedTimelineEndMs = e
-                            }
+                            },
+                            nameSort = nameSort
                         )
 
                         AppScreen.History -> HistoryScreen(
                             modifier = Modifier
                                 .padding(innerPadding)
                                 .fillMaxSize(),
-                            viewModel = viewModel
+                            viewModel = taskVm
                         )
                     }
 
@@ -581,7 +600,7 @@ fun AppRoot(
                                     // Import 実行
                                     scope.launch {
                                         try {
-                                            viewModel.importTasksFromJson(
+                                            taskVm.importTasksFromJson(
                                                 importText,
                                                 replaceAll
                                             )
@@ -650,7 +669,7 @@ fun AppRoot(
                                 TextButton(onClick = {
                                     scope.launch {
                                         try {
-                                            val count = viewModel.importEventsTsv(
+                                            val count = taskVm.importEventsTsv(
                                                 tsv = importTsvText,
                                                 clearExisting = clearExistingEvents,
                                                 createMissing = createMissing
@@ -687,7 +706,7 @@ fun AppRoot(
                                 TextButton(onClick = {
                                     pendingDeleteEventId?.let { eid ->
                                         // ViewModel 側の削除 API（名称はプロジェクトに合わせて）
-                                        viewModel.deleteEvent(eid)
+                                        taskVm.deleteEvent(eid)
                                     }
                                     // 選択解除
                                     selectedTimelineEventId = null
@@ -791,19 +810,20 @@ fun DrawerSheet(onItemSelected: (String) -> Unit) {
 fun MainPager(
     modifier: Modifier = Modifier,
     pagerState: PagerState,
-    viewModel: TaskViewModel,
+    taskVm: TaskViewModel,
     sortMode: Boolean,
     onNavigateAddTask: () -> Unit,
     selectedTimelineTaskId: Long?,
     selectedTimelineEventId: Long?,
     onTimelineTaskSelected: (Long?) -> Unit,
     onTimelineEventSelected: (Long?) -> Unit,
-    onTimelineBlockSelected: (Long, Long, Long, Long) -> Unit
+    onTimelineBlockSelected: (Long, Long, Long, Long) -> Unit,
+    nameSort: NameSort
 ) {
     HorizontalPager(state = pagerState, modifier = modifier.fillMaxSize()) { page ->
         when (page) {
             0 -> TimelineScreen(
-                viewModel = viewModel,
+                viewModel = taskVm,
                 onAddRecord = onNavigateAddTask,
                 selectedTaskId = selectedTimelineTaskId,
                 onSelectTask = onTimelineTaskSelected,
@@ -812,8 +832,8 @@ fun MainPager(
                 onSelectBlock = onTimelineBlockSelected
             )
 
-            1 -> DBTaskScreen(viewModel = viewModel, sortMode = sortMode)
-            2 -> StatsScreen(viewModel = viewModel)
+            1 -> DBTaskScreen(taskVm = taskVm, sortMode = sortMode, nameSort = nameSort)
+            2 -> StatsScreen(viewModel = taskVm)
         }
     }
 }
@@ -836,13 +856,13 @@ private sealed interface TaskCenterUiState {
  */
 @Composable
 fun DBTaskScreen(
-    viewModel: TaskViewModel,
+    taskVm: TaskViewModel,
     modifier: Modifier = Modifier,
-    sortMode: Boolean
+    sortMode: Boolean,
+    nameSort: NameSort
 ) {
-    val ctx = LocalContext.current   // Toast などで使う場合に備え。未使用でもビルドは可。
-    val parents by viewModel.parents.collectAsStateWithLifecycle()
-    val activeUi by viewModel.activeUi.collectAsStateWithLifecycle()
+    val parents by taskVm.parents.collectAsStateWithLifecycle()
+    val activeUi by taskVm.activeUi.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
     var ui by remember { mutableStateOf<TaskCenterUiState>(TaskCenterUiState.List) }
@@ -888,6 +908,17 @@ fun DBTaskScreen(
     var showRgbPicker by rememberSaveable { mutableStateOf(false) }
     var hexInput by rememberSaveable { mutableStateOf("") }
 
+    // 追加：表示用の実効ソート（平常時は任意＝NameSort.None）
+    val effectiveNameSort = if (sortMode) nameSort else NameSort.None
+
+    val parentsForView = remember(parents, effectiveNameSort) {
+        when (effectiveNameSort) {
+            NameSort.None -> parents
+            NameSort.Asc -> parents.sortedBy { it.parent.name.lowercase() }
+            NameSort.Desc -> parents.sortedByDescending { it.parent.name.lowercase() }
+        }
+    }
+
     // 実行中タスクに合わせてハイライトを更新（サブ状態はリセット）
     LaunchedEffect(activeUi, parents) {
         selectedTaskId = null
@@ -904,8 +935,8 @@ fun DBTaskScreen(
         var highlightParentChildId: Long? = null
         outer@ for (group in parents) {
             for (child in group.children) {
-                if (viewModel.hasChildren(child.id)) {
-                    val subs = viewModel.children(child.id).first()
+                if (taskVm.hasChildren(child.id)) {
+                    val subs = taskVm.children(child.id).first()
                     if (subs.any { it.id == a.taskId }) {
                         highlightParentChildId = child.id
                         break@outer
@@ -929,7 +960,54 @@ fun DBTaskScreen(
 
     fun commitOrder(parentId: Long) {
         reorderLists[parentId]?.let { ordered ->
-            viewModel.reorderChildren(parentId, ordered)
+            taskVm.reorderChildren(parentId, ordered)
+        }
+    }
+
+
+    LaunchedEffect(sortMode) {
+        if (!sortMode && nameSort != NameSort.None) {
+            val parentIdsSorted = when (nameSort) {
+                NameSort.Asc -> parents.sortedBy { it.parent.name.lowercase() }.map { it.parent.id }
+                NameSort.Desc -> parents.sortedByDescending { it.parent.name.lowercase() }
+                    .map { it.parent.id }
+
+                else -> emptyList()
+            }
+
+            // ★ これを追加（TaskViewModel に用意してある前提）
+            if (parentIdsSorted.isNotEmpty()) {
+                taskVm.reorderParents(parentIdsSorted)
+            }
+
+            // 子・サブタスクのコミットは既にOK（そのまま）
+            parents.forEach { g ->
+                val childIdsSorted = when (nameSort) {
+                    NameSort.Asc -> g.children.sortedBy { it.name.lowercase() }.map { it.id }
+                    NameSort.Desc -> g.children.sortedByDescending { it.name.lowercase() }
+                        .map { it.id }
+
+                    else -> g.children.map { it.id }
+                }
+                taskVm.reorderChildren(g.parent.id, childIdsSorted)
+            }
+
+            // 2) ★ サブタスクも全親子について一括コミット
+            parents.forEach { g ->
+                g.children.forEach { child ->
+                    val subs = taskVm.children(child.id).first()
+                    if (subs.isNotEmpty()) {
+                        val subIdsSorted = when (nameSort) {
+                            NameSort.Asc -> subs.sortedBy { it.name.lowercase() }.map { it.id }
+                            NameSort.Desc -> subs.sortedByDescending { it.name.lowercase() }
+                                .map { it.id }
+
+                            else -> subs.map { it.id }
+                        }
+                        taskVm.reorderChildren(child.id, subIdsSorted)
+                    }
+                }
+            }
         }
     }
 
@@ -953,13 +1031,27 @@ fun DBTaskScreen(
                         modifier = Modifier.weight(1f, fill = true),
                         state = listState
                     ) {
-                        items(parents.size) { idx ->
-                            val p = parents[idx]
+                        items(parentsForView.size) { idx ->
+                            val p = parentsForView[idx]
                             val parentColor = p.parent.colorInt?.let { Color(it) }
                                 ?: MaterialTheme.colorScheme.primary
 
                             val childById =
                                 remember(p.children) { p.children.associateBy { it.id } }
+                            val baseOrder: List<Long> = when (effectiveNameSort) {
+                                NameSort.None -> {
+                                    val o = reorderLists[p.parent.id] ?: p.children.map { it.id }
+                                        .toMutableList()
+                                    reorderLists[p.parent.id] = o
+                                    o
+                                }
+
+                                NameSort.Asc -> p.children.sortedBy { it.name.lowercase() }
+                                    .map { it.id }
+
+                                NameSort.Desc -> p.children.sortedByDescending { it.name.lowercase() }
+                                    .map { it.id }
+                            }
                             val order: MutableList<Long> =
                                 reorderLists[p.parent.id] ?: p.children.map { it.id }
                                     .toMutableList()
@@ -1038,7 +1130,7 @@ fun DBTaskScreen(
                                     Spacer(Modifier.height(8.dp))
 
                                     // 子要素一覧
-                                    order.forEach { childId ->
+                                    baseOrder.forEach { childId ->
                                         val child = childById[childId] ?: return@forEach
 
                                         val isSelected = selectedTaskId == child.id && !sortMode
@@ -1063,14 +1155,14 @@ fun DBTaskScreen(
                                                 }
                                                 .zIndex(z)
                                                 .then(
-                                                    if (sortMode)
+                                                    if (sortMode && effectiveNameSort == NameSort.None)
                                                         Modifier
                                                             .onGloballyPositioned { coords ->
                                                                 val c =
                                                                     coords.boundsInParent().center.y
                                                                 centers[child.id] = c
                                                             }
-                                                            .pointerInput(sortMode, order) {
+                                                            .pointerInput(sortMode, p.parent.id) {
                                                                 detectDragGesturesAfterLongPress(
                                                                     onDragStart = {
                                                                         draggingTaskId = child.id
@@ -1094,7 +1186,9 @@ fun DBTaskScreen(
                                                                                 centers[nextId]
                                                                                     ?: Float.MAX_VALUE
                                                                             if (currCenter + draggingDy > nextCenter) {
-                                                                                order.removeAt(idx)
+                                                                                order.removeAt(
+                                                                                    idx
+                                                                                )
                                                                                 order.add(
                                                                                     idx + 1,
                                                                                     child.id
@@ -1110,7 +1204,9 @@ fun DBTaskScreen(
                                                                                 centers[prevId]
                                                                                     ?: Float.MIN_VALUE
                                                                             if (currCenter + draggingDy < prevCenter) {
-                                                                                order.removeAt(idx)
+                                                                                order.removeAt(
+                                                                                    idx
+                                                                                )
                                                                                 order.add(
                                                                                     idx - 1,
                                                                                     child.id
@@ -1135,10 +1231,9 @@ fun DBTaskScreen(
                                                             selectedTaskId = child.id
                                                             lastInteractionTime =
                                                                 System.currentTimeMillis()
-                                                            val scopeLocal = this
                                                             scope.launch {
                                                                 val has =
-                                                                    viewModel.hasChildren(child.id)
+                                                                    taskVm.hasChildren(child.id)
                                                                 if (has) {
                                                                     ui =
                                                                         TaskCenterUiState.SubtaskSelect(
@@ -1148,7 +1243,7 @@ fun DBTaskScreen(
                                                                         )
                                                                 } else {
                                                                     // ▼ ここは結果判定せず、ViewModel に任せる
-                                                                    viewModel.onTaskPressed(child.id)
+                                                                    taskVm.onTaskPressed(child.id)
                                                                 }
                                                             }
                                                         }
@@ -1289,7 +1384,7 @@ fun DBTaskScreen(
                             lastInteractionTime = System.currentTimeMillis()
                         },
                         onPick = { pickedId ->
-                            viewModel.onTaskPressed(pickedId)
+                            taskVm.onTaskPressed(pickedId)
                             ui = TaskCenterUiState.List
                             lastInteractionTime = System.currentTimeMillis()
                         },
@@ -1304,7 +1399,8 @@ fun DBTaskScreen(
                             confirmDeleteTaskName = name
                             lastInteractionTime = System.currentTimeMillis()
                         },
-                        viewModel = viewModel
+                        taskVm = taskVm,
+                        nameSort = effectiveNameSort
                     )
                 }
 
@@ -1325,7 +1421,7 @@ fun DBTaskScreen(
                                 val name = it.trim()
                                 addParentError = when {
                                     name.isEmpty() -> null
-                                    viewModel.hasDuplicateParentName(name) -> "同名の親タスクが既に存在します"
+                                    taskVm.hasDuplicateParentName(name) -> "同名の親タスクが既に存在します"
                                     else -> null
                                 }
                             }
@@ -1341,11 +1437,11 @@ fun DBTaskScreen(
                         val name = newTaskName.trim().take(128)
                         when {
                             name.isEmpty() -> addParentError = "1文字以上で入力してください"
-                            viewModel.hasDuplicateParentName(name) -> addParentError =
+                            taskVm.hasDuplicateParentName(name) -> addParentError =
                                 "同名の親タスクが既に存在します"
 
                             else -> {
-                                viewModel.addParentTask(name)
+                                taskVm.addParentTask(name)
                                 showAddDialog = false
                                 addParentError = null
                             }
@@ -1372,7 +1468,7 @@ fun DBTaskScreen(
                                 val name = it.trim()
                                 addChildError = when {
                                     name.isEmpty() -> null
-                                    pid != null && viewModel.hasDuplicateChildName(pid, name) ->
+                                    pid != null && taskVm.hasDuplicateChildName(pid, name) ->
                                         "同名のタスクがこのプロジェクトに存在します"
 
                                     else -> null
@@ -1392,11 +1488,11 @@ fun DBTaskScreen(
                         when {
                             pid == null -> {}
                             name.isEmpty() -> addChildError = "1文字以上で入力してください"
-                            viewModel.hasDuplicateChildName(pid, name) ->
+                            taskVm.hasDuplicateChildName(pid, name) ->
                                 addChildError = "同名のタスクがこのプロジェクトに存在します"
 
                             else -> {
-                                viewModel.addChildTask(pid, name)
+                                taskVm.addChildTask(pid, name)
                                 showAddChildDialogFor = null
                                 addChildError = null
                             }
@@ -1452,7 +1548,7 @@ fun DBTaskScreen(
                                         .clickable {
                                             val id = colorPickForParentId
                                             if (id != null) {
-                                                viewModel.changeParentColor(id, c)
+                                                taskVm.changeParentColor(id, c)
                                                 colorPickForParentId = null
                                             }
                                         }
@@ -1495,7 +1591,7 @@ fun DBTaskScreen(
                                 onClick = {
                                     val id = colorPickForParentId ?: return@OutlinedButton
                                     val c = parsedHex ?: return@OutlinedButton
-                                    viewModel.changeParentColor(id, c)
+                                    taskVm.changeParentColor(id, c)
                                     colorPickForParentId = null
                                 },
                                 enabled = parsedHex != null
@@ -1521,7 +1617,7 @@ fun DBTaskScreen(
                     onConfirm = { picked ->
                         val id = colorPickForParentId
                         if (id != null) {
-                            viewModel.changeParentColor(id, picked)
+                            taskVm.changeParentColor(id, picked)
                             colorPickForParentId = null
                         }
                         showRgbPicker = false
@@ -1540,7 +1636,7 @@ fun DBTaskScreen(
                 confirmButton = {
                     TextButton(onClick = {
                         val id = confirmDeleteParentId
-                        if (id != null) viewModel.deleteParent(id)
+                        if (id != null) taskVm.deleteParent(id)
                         confirmDeleteParentId = null
                     }) { Text("削除") }
                 },
@@ -1574,7 +1670,7 @@ fun DBTaskScreen(
                         val id = renameTaskId
                         val name = renameTaskText.trim().take(128)
                         if (id != null && name.isNotEmpty()) {
-                            viewModel.renameTask(id, name)
+                            taskVm.renameTask(id, name)
                         }
                         renameTaskId = null
                     }) { Text("保存") }
@@ -1593,7 +1689,7 @@ fun DBTaskScreen(
                 confirmButton = {
                     TextButton(onClick = {
                         val id = confirmDeleteTaskId
-                        if (id != null) viewModel.deleteTask(id)
+                        if (id != null) taskVm.deleteTask(id)
                         confirmDeleteTaskId = null
                     }) { Text("削除") }
                 },
@@ -1645,17 +1741,27 @@ private fun SubtaskPicker(
     onPick: (Long) -> Unit,
     onRenameRequest: (Long, String) -> Unit,
     onDeleteRequest: (Long, String) -> Unit,
-    viewModel: TaskViewModel
+    taskVm: TaskViewModel,
+    nameSort: NameSort
 ) {
-    val subtasks by viewModel.children(parentId)
+
+    val subtasks by taskVm.children(parentId)
         .collectAsStateWithLifecycle(initialValue = emptyList())
     var selectedSubId by rememberSaveable { mutableStateOf<Long?>(null) }
 
-    val activeUi by viewModel.activeUi.collectAsStateWithLifecycle()
+    val activeUi by taskVm.activeUi.collectAsStateWithLifecycle()
     LaunchedEffect(activeUi, subtasks) {
         val aid = activeUi?.taskId
         if (aid != null && subtasks.any { it.id == aid }) {
             selectedSubId = aid
+        }
+    }
+
+    val subtasksForView = remember(subtasks, nameSort) {
+        when (nameSort) {
+            NameSort.None -> subtasks
+            NameSort.Asc -> subtasks.sortedBy { it.name.lowercase() }
+            NameSort.Desc -> subtasks.sortedByDescending { it.name.lowercase() }
         }
     }
 
@@ -1676,8 +1782,8 @@ private fun SubtaskPicker(
                 .weight(1f)
                 .padding(top = 8.dp)
         ) {
-            items(subtasks.size) { i ->
-                val t = subtasks[i]
+            items(subtasksForView.size) { i ->
+                val t = subtasksForView[i]
                 val isSelected = selectedSubId == t.id
                 val bg = if (isSelected) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surface
                 val border = if (isSelected) Color.Red else MaterialTheme.colorScheme.outline
@@ -1998,6 +2104,7 @@ private fun MultiDayTimeline(
                 val label = dateFmt.format(Date(dayStart))
                 DayColumn(
                     label = label,
+                    dayStartMs = dayStart,
                     hourHeight = HOUR_HEIGHT,
                     blocks = blocksByDay.getOrNull(i).orEmpty(),
                     selectedEventId = selectedEventId,
@@ -2016,6 +2123,7 @@ private fun MultiDayTimeline(
 @Composable
 private fun DayColumn(
     label: String,
+    dayStartMs: Long,
     hourHeight: Dp,
     blocks: List<TimelineBlock>,
     modifier: Modifier = Modifier,
@@ -2064,10 +2172,16 @@ private fun DayColumn(
             Text(label, style = MaterialTheme.typography.labelLarge)
         }
 
+        fun minutesWithinDay(ms: Long): Int {
+            // その日の 00:00 からの経過分を 0..1440 にクランプ
+            val m = ((ms - dayStartMs) / 60_000L).toInt()
+            return m.coerceIn(0, 24 * 60)
+        }
+
         // 各タスクブロック（ここをタップした時は選択）
         blocks.forEach { b ->
-            val startMin = minutesOfDay(b.startMs)
-            val endMin = minutesOfDay(b.endMs)
+            val startMin = minutesWithinDay(b.startMs)
+            val endMin = minutesWithinDay(b.endMs)
             val top = hourHeight * (startMin / 60f)
             val height = hourHeight * ((endMin - startMin).coerceAtLeast(1) / 60f)
 
