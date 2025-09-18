@@ -919,6 +919,9 @@ fun DBTaskScreen(
         }
     }
 
+    var renameIsParent by rememberSaveable { mutableStateOf(false) }
+    var renameError by rememberSaveable { mutableStateOf<String?>(null) }
+
     // 実行中タスクに合わせてハイライトを更新（サブ状態はリセット）
     LaunchedEffect(activeUi, parents) {
         selectedTaskId = null
@@ -1104,6 +1107,18 @@ fun DBTaskScreen(
                                                     newChildName = ""
                                                     addChildError = null
                                                     showAddChildDialogFor = p.parent.id
+                                                    lastInteractionTime = System.currentTimeMillis()
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("名前を変更") },       // ★追加
+                                                onClick = {
+                                                    menuForParentId = null
+                                                    renameIsParent = true           // ★親の改名フラグをON
+                                                    renameTaskId = p.parent.id
+                                                    renameTaskCurrentName = p.parent.name
+                                                    renameTaskText = p.parent.name
+                                                    renameError = null
                                                     lastInteractionTime = System.currentTimeMillis()
                                                 }
                                             )
@@ -1333,9 +1348,11 @@ fun DBTaskScreen(
                                                             text = { Text("名前を変更") },
                                                             onClick = {
                                                                 menuForChildTaskId = null
+                                                                renameIsParent = false
                                                                 renameTaskId = child.id
                                                                 renameTaskCurrentName = child.name
                                                                 renameTaskText = child.name
+                                                                renameError = null
                                                                 lastInteractionTime =
                                                                     System.currentTimeMillis()
                                                             }
@@ -1389,9 +1406,11 @@ fun DBTaskScreen(
                             lastInteractionTime = System.currentTimeMillis()
                         },
                         onRenameRequest = { taskId, currentName ->
+                            renameIsParent = false
                             renameTaskId = taskId
                             renameTaskCurrentName = currentName
                             renameTaskText = currentName
+                            renameError = null
                             lastInteractionTime = System.currentTimeMillis()
                         },
                         onDeleteRequest = { taskId, name ->
@@ -1659,9 +1678,29 @@ fun DBTaskScreen(
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(
                             value = renameTaskText,
-                            onValueChange = { if (it.length <= 128) renameTaskText = it },
+                            onValueChange = {
+                                if (it.length <= 128) {
+                                    renameTaskText = it
+                                    // ★ライブ検証（親名のみ重複チェック）
+                                    val name = it.trim()
+                                    renameError = when {
+                                        name.isEmpty() -> null
+                                        renameIsParent &&
+                                                !name.equals(
+                                                    renameTaskCurrentName.trim(),
+                                                    ignoreCase = true
+                                                ) &&
+                                                taskVm.hasDuplicateParentName(name) ->
+                                            "同名の親タスクが既に存在します"
+
+                                        else -> null
+                                    }
+                                }
+                            },
                             singleLine = true,
-                            label = { Text("新しい名前（1〜128文字）") }
+                            isError = renameError != null,   // ★エラー表示
+                            label = { Text("新しい名前（1〜128文字）") },
+                            supportingText = { if (renameError != null) Text(renameError!!) }
                         )
                     }
                 },
@@ -1669,10 +1708,22 @@ fun DBTaskScreen(
                     TextButton(onClick = {
                         val id = renameTaskId
                         val name = renameTaskText.trim().take(128)
-                        if (id != null && name.isNotEmpty()) {
-                            taskVm.renameTask(id, name)
+                        when {
+                            id == null -> Unit
+                            name.isEmpty() -> renameError = "1文字以上で入力してください"
+                            // ★親名の重複は禁止（ただし大文字小文字差だけの同名はOK）
+                            renameIsParent &&
+                                    !name.equals(renameTaskCurrentName.trim(), ignoreCase = true) &&
+                                    taskVm.hasDuplicateParentName(name) -> {
+                                renameError = "同名の親タスクが既に存在します"
+                            }
+
+                            else -> {
+                                taskVm.renameTask(id, name)
+                                renameTaskId = null
+                                renameError = null
+                            }
                         }
-                        renameTaskId = null
                     }) { Text("保存") }
                 },
                 dismissButton = {
@@ -1680,6 +1731,7 @@ fun DBTaskScreen(
                 }
             )
         }
+
 
         if (confirmDeleteTaskId != null) {
             AlertDialog(
