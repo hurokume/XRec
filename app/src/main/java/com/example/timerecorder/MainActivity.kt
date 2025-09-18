@@ -1875,7 +1875,7 @@ private fun TimelineScreen(
     val parents by viewModel.parents.collectAsStateWithLifecycle()
 
     var dayCount by rememberSaveable { mutableIntStateOf(3) }
-    var anchorOffset by rememberSaveable { mutableIntStateOf(0) }
+    var anchorOffset by rememberSaveable { mutableIntStateOf(-1) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     val startOfToday = remember(nowMs) { midnightOf(nowMs) }
@@ -1898,6 +1898,10 @@ private fun TimelineScreen(
         return group?.parent?.colorInt?.let { Color(it) } ?: defaultColor
     }
 
+    LaunchedEffect(dayCount) {
+        anchorOffset = -(dayCount / 2)   // 3→-1, 5→-2, 7→-3
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -1915,8 +1919,9 @@ private fun TimelineScreen(
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f)
                 )
-                if (anchorOffset != 0) {
-                    TextButton(onClick = { anchorOffset = 0 }) { Text("今日へ") }
+                val centerOffset = -(dayCount / 2)
+                if (anchorOffset != centerOffset) {
+                    TextButton(onClick = { anchorOffset = centerOffset }) { Text("今日へ") }
                 }
                 IconButton(onClick = { anchorOffset += dayCount }) {
                     Icon(Icons.Filled.ChevronRight, contentDescription = "next")
