@@ -14,6 +14,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -86,6 +87,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -2062,9 +2064,11 @@ private fun TimelineScreen(
 ) {
     LaunchedEffect(Unit) { viewModel.ensureHistoryFirstPage() }
 
+    val parents by viewModel.parents.collectAsStateWithLifecycle()
     val history by viewModel.historyItems.collectAsStateWithLifecycle()
     val activeUi by viewModel.activeUi.collectAsStateWithLifecycle()
-    val parents by viewModel.parents.collectAsStateWithLifecycle()
+
+    val defaultProjectColor = MaterialTheme.colorScheme.onSurface
 
     var dayCount by rememberSaveable { mutableIntStateOf(3) }
     var anchorOffset by rememberSaveable { mutableIntStateOf(-1) }
@@ -2085,10 +2089,53 @@ private fun TimelineScreen(
 
     val defaultTaskColor = MaterialTheme.colorScheme.onSurface
 
-    fun colorForTask(taskId: Long, defaultColor: Color): Color {
-        val group = parents.firstOrNull { g -> g.children.any { it.id == taskId } }
-        return group?.parent?.colorInt?.let { Color(it) } ?: defaultColor
+    // 追加：taskId -> プロジェクト色 のキャッシュ
+    val colorByTaskId by produceState<Map<Long, Color>>(
+        initialValue = emptyMap(),
+        parents, defaultProjectColor
+    ) {
+        // 親色を子タスクに反映（ベース）
+        val base = mutableMapOf<Long, Color>()
+        // 子タスクID -> プロジェクト色（サブタスクにも使う）
+        val projColorByChild = mutableMapOf<Long, Color>()
+
+        parents.forEach { g ->
+            val pc = g.parent.colorInt?.let { Color(it) } ?: defaultProjectColor
+            g.children.forEach { ch ->
+                base[ch.id] = pc
+                projColorByChild[ch.id] = pc
+            }
+        }
+        value = base
+
+        // 子ID -> その配下のサブタスクID集合
+        val subIdsByChild = mutableMapOf<Long, Set<Long>>()
+
+        // サブタスクをFlowで監視（追加/削除/改名にも追従）
+        parents.forEach { g ->
+            g.children.forEach { ch ->
+                launch {
+                    viewModel.children(ch.id).collect { subs ->
+                        subIdsByChild[ch.id] = subs.map { it.id }.toSet()
+
+                        // 子(=base) + サブタスク(subMap) の最新マップを合成
+                        val subMap = mutableMapOf<Long, Color>()
+                        subIdsByChild.forEach { (childId, ids) ->
+                            val pc = projColorByChild[childId] ?: defaultProjectColor
+                            ids.forEach { sid -> subMap[sid] = pc }
+                        }
+                        value = buildMap {
+                            putAll(base)
+                            putAll(subMap)
+                        }
+                    }
+                }
+            }
+        }
     }
+
+    fun colorFor(taskId: Long): Color =
+        colorByTaskId[taskId] ?: defaultProjectColor
 
     LaunchedEffect(dayCount) {
         anchorOffset = -(dayCount / 2)   // 3→-1, 5→-2, 7→-3
@@ -2142,7 +2189,16 @@ private fun TimelineScreen(
             Spacer(Modifier.height(8.dp))
 
             val blocksByDay: List<List<TimelineBlock>> =
-                remember(history, activeUi, parents, startMs, endMs, dayCount, nowMs) {
+                remember(
+                    history,
+                    activeUi,
+                    parents,
+                    startMs,
+                    endMs,
+                    dayCount,
+                    nowMs, /* ★追加 */
+                    colorByTaskId
+                ) {
                     val days = List(dayCount) { mutableListOf<TimelineBlock>() }
 
                     fun addClampedBlock(
@@ -2150,7 +2206,6 @@ private fun TimelineScreen(
                         s: Long,
                         e: Long,
                         name: String,
-                        color: Color,
                         taskId: Long
                     ) {
                         if (e <= startMs || s >= endMs) return
@@ -2161,45 +2216,44 @@ private fun TimelineScreen(
                             val ce = minOf(e, dEnd)
                             if (ce > cs) days[i].add(
                                 TimelineBlock(
-                                    eventId,
-                                    cs,
-                                    ce,
-                                    name,
-                                    color,
-                                    taskId
+                                    eventId = eventId,
+                                    startMs = cs,
+                                    endMs = ce,
+                                    name = name,
+                                    color = colorFor(taskId),   // ★ 常に現在のプロジェクト色
+                                    taskId = taskId
                                 )
                             )
                         }
                     }
 
                     history.forEach { h ->
-                        val itemStart = h.pressedAt
-                        val itemEnd = h.pressedAt + max(0L, h.durationMillis)
-                        addClampedBlock(
-                            eventId = h.id,          // ★ ここでeventIdを渡す
-                            s = itemStart,
-                            e = itemEnd,
-                            name = h.taskName,
-                            color = colorForTask(h.taskId, h.color),
-                            taskId = h.taskId
-                        )
+                        val s = h.pressedAt
+                        val e = h.pressedAt + max(0L, h.durationMillis)
+                        addClampedBlock(h.id, s, e, h.taskName, h.taskId)
                     }
 
                     activeUi?.let { a ->
-                        val start = a.startEpochMs
-                        if (start > 0L) {
-                            val color = colorForTask(a.taskId, defaultTaskColor)
-                            val end = nowMs
+                        val s = a.startEpochMs
+                        if (s > 0L) {
                             addClampedBlock(
-                                eventId = -1L, // ★ 分割対象外
-                                s = start, e = end,
-                                name = a.taskName, color = color, taskId = a.taskId
+                                eventId = -1L,
+                                s = s,
+                                e = nowMs,
+                                name = a.taskName,
+                                taskId = a.taskId
                             )
                         }
                     }
 
                     days.map { it.sortedBy { b -> b.startMs } }
                 }
+
+            var hourHeightDp by rememberSaveable { mutableFloatStateOf(48f) }
+            fun onScale(zoom: Float) {
+                if (zoom == 1f) return
+                hourHeightDp = (hourHeightDp * zoom).coerceIn(24f, 160f) // 最小24dp〜最大160dp
+            }
 
             MultiDayTimeline(
                 startMs = startMs,
@@ -2209,7 +2263,9 @@ private fun TimelineScreen(
                 selectedEventId = selectedEventId,
                 onSelectEvent = onSelectEvent,
                 onSelectTask = onSelectTask,
-                onSelectBlock = onSelectBlock
+                onSelectBlock = onSelectBlock,
+                hourHeight = hourHeightDp.dp,
+                onScale = ::onScale
             )
         }
 
@@ -2243,11 +2299,12 @@ private fun MultiDayTimeline(
     selectedEventId: Long? = null,
     onSelectEvent: (Long?) -> Unit = {},
     onSelectTask: (Long?) -> Unit = {},
-    onSelectBlock: (Long, Long, Long, Long) -> Unit = { _: Long, _: Long, _: Long, _: Long -> }
+    onSelectBlock: (Long, Long, Long, Long) -> Unit = { _: Long, _: Long, _: Long, _: Long -> },
+    hourHeight: Dp = 48.dp,
+    onScale: (Float) -> Unit = {}
 ) {
-    val HOUR_HEIGHT = 48.dp
     val GUTTER = 40.dp
-    val totalHeight = HOUR_HEIGHT * 24
+    val totalHeight = hourHeight * 24
     val dateFmt = remember { SimpleDateFormat("M/d (E)", Locale.getDefault()) }
 
     val scroll = rememberScrollState()
@@ -2258,6 +2315,11 @@ private fun MultiDayTimeline(
             .verticalScroll(scroll)
             .height(totalHeight + 0.dp)
             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+            .pointerInput(hourHeight) {
+                detectTransformGestures { _, _, zoom, _ ->
+                    onScale(zoom)
+                }
+            }
     ) {
         // 左側時間ガター：ここをタップしても選択解除
         Column(
@@ -2275,7 +2337,7 @@ private fun MultiDayTimeline(
             repeat(25) { h ->
                 Box(
                     modifier = Modifier
-                        .height(HOUR_HEIGHT)
+                        .height(hourHeight)
                         .width(GUTTER),
                     contentAlignment = Alignment.TopEnd
                 ) {
@@ -2302,7 +2364,7 @@ private fun MultiDayTimeline(
                 DayColumn(
                     label = label,
                     dayStartMs = dayStart,
-                    hourHeight = HOUR_HEIGHT,
+                    hourHeight = hourHeight,
                     blocks = blocksByDay.getOrNull(i).orEmpty(),
                     selectedEventId = selectedEventId,
                     onSelectEvent = onSelectEvent,
