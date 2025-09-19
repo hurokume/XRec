@@ -228,6 +228,8 @@ fun AppRoot(
     // ドロワーの開閉状態
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    // タスク木を参照して “タスク / サブタスク” を解決するために購読
+    val parents by taskVm.parents.collectAsStateWithLifecycle()
 
     // 中央ページ（タスク一覧）を起点に、左右へページング
     val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
@@ -240,6 +242,9 @@ fun AppRoot(
     var selectedTimelineStartMs by rememberSaveable { mutableLongStateOf(-1L) }
     var selectedTimelineEndMs by rememberSaveable { mutableLongStateOf(-1L) }
     var selectedTimelineEventId by rememberSaveable { mutableStateOf<Long?>(null) }
+    // 追加：タイトルの「タスク / サブタスク」文字列
+    var selectedTimelineTitleCore by rememberSaveable { mutableStateOf<String?>(null) }
+    var activeTitlePath by rememberSaveable { mutableStateOf<String?>(null) }
 
     var showDeleteEventDialog by rememberSaveable { mutableStateOf(false) }
     var pendingDeleteEventId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -250,7 +255,6 @@ fun AppRoot(
     var createMissing by rememberSaveable { mutableStateOf(true) }
 
     val activeUi by taskVm.activeUi.collectAsStateWithLifecycle()
-    val parents by taskVm.parents.collectAsStateWithLifecycle()
 
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -262,30 +266,100 @@ fun AppRoot(
 
     var runningPath by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(activeUi, parents) {
-        val a = activeUi ?: run { runningPath = null; return@LaunchedEffect }
+    // 共通ヘルパ
+    fun hhmm(start: Long, end: Long): String {
+        val d = (end - start).coerceAtLeast(0L)
+        val h = (d / 3_600_000L).toInt()
+        val m = ((d / 60_000L) % 60).toInt()
+        return String.format("%02d:%02d", h, m)
+    }
 
-        // ① 直接：子タスクがアクティブ
-        parents.firstOrNull { g -> g.children.any { it.id == a.taskId } }?.let { g ->
-            runningPath = "${g.parent.name} / ${a.taskName}"
+    fun hhmmssFromDuration(ms: Long): String {
+        val s = (ms / 1000).coerceAtLeast(0)
+        val hh = s / 3600
+        val mm = (s % 3600) / 60
+        val ss = s % 60
+        return String.format("%02d:%02d:%02d", hh, mm, ss)
+    }
+
+    fun hhmmClock(ms: Long): String {
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = ms }
+        return String.format(
+            "%02d:%02d",
+            cal.get(java.util.Calendar.HOUR_OF_DAY),
+            cal.get(java.util.Calendar.MINUTE)
+        )
+    }
+
+    val spanText =
+        if (selectedTimelineTaskId != null &&
+            selectedTimelineStartMs >= 0L &&
+            selectedTimelineEndMs > selectedTimelineStartMs
+        ) {
+            "${hhmmClock(selectedTimelineStartMs)} - ${hhmmClock(selectedTimelineEndMs)}"
+        } else null
+
+    LaunchedEffect(selectedTimelineTaskId, parents) {
+        val tid = selectedTimelineTaskId ?: run {
+            selectedTimelineTitleCore = null
             return@LaunchedEffect
         }
-
-        // ② 孫：サブタスクがアクティブ
+        // 1) まず“子タスク”として一致するか
+        val directGroup = parents.firstOrNull { g -> g.children.any { it.id == tid } }
+        if (directGroup != null) {
+            val child = directGroup.children.first { it.id == tid }
+            selectedTimelineTitleCore = child.name
+            return@LaunchedEffect
+        }
+        // 2) 見つからなければ“サブタスク”探索（子配下をロード）
+        var resolved: String? = null
         outer@ for (g in parents) {
             for (child in g.children) {
-                if (taskVm.hasChildren(child.id)) {
-                    val subs = taskVm.children(child.id).first()
-                    if (subs.any { it.id == a.taskId }) {
-                        runningPath = "${g.parent.name} / ${child.name} / ${a.taskName}"
+                val subs = taskVm.children(child.id).first() // suspend OK
+                val sub = subs.firstOrNull { it.id == tid }
+                if (sub != null) {
+                    resolved = "${child.name} / ${sub.name}"
+                    break@outer
+                }
+            }
+        }
+        selectedTimelineTitleCore = resolved
+    }
+
+    LaunchedEffect(activeUi, parents) {
+        val a = activeUi ?: run { activeTitlePath = null; return@LaunchedEffect }
+        val tid = a.taskId
+
+        // 1) 子タスク一致（Project / Task）
+        parents.firstOrNull { g -> g.children.any { it.id == tid } }?.let { g ->
+            val child = g.children.first { it.id == tid }
+            activeTitlePath = "${g.parent.name} / ${child.name}"
+            return@LaunchedEffect
+        }
+        // 2) サブタスク探索（Project / Task / SubTask）
+        outer@ for (g in parents) {
+            for (child in g.children) {
+                val subs = taskVm.children(child.id).first() // suspend OK
+                for (sub in subs) {
+                    if (sub.id == tid) {
+                        activeTitlePath = "${g.parent.name} / ${child.name} / ${sub.name}"
                         break@outer
                     }
                 }
             }
         }
+        if (activeTitlePath == null) activeTitlePath = activeUi?.taskName // フォールバック
+    }
 
-        // ③ 見つからない場合のフォールバック
-        if (runningPath == null) runningPath = a.taskName
+    // 追加：選択していない時にだけ1秒ごとにリフレッシュ（HH:MM:SS用）
+    var tickNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(activeUi, selectedTimelineTaskId) {
+        if (activeUi != null && selectedTimelineTaskId == null) {
+            while (true) {
+                tickNow = System.currentTimeMillis()
+                kotlinx.coroutines.delay(1000)
+            }
+        }
     }
 
     // ViewModel のワンショット UI イベントを収集して Snackbar を表示
@@ -426,17 +500,28 @@ fun AppRoot(
                         TopAppBar(
                             navigationIcon = {},
                             title = {
-                                val a = activeUi
-                                val titleText =
-                                    if (a != null && runningPath != null) {
-                                        val elapsed = (nowMs - a.startEpochMs).coerceAtLeast(0L)
-                                        val hh = (elapsed / 3_600_000L).toInt()
-                                        val mm = ((elapsed / 60_000L) % 60).toInt()
-                                        val ss = ((elapsed / 1_000L) % 60).toInt()
-                                        val hms = String.format("%02d:%02d:%02d", hh, mm, ss)
+                                val showTimelineTitle =
+                                    screen == AppScreen.Main &&
+                                            currentPage == 0 &&
+                                            selectedTimelineTaskId != null &&
+                                            selectedTimelineStartMs >= 0L &&
+                                            selectedTimelineEndMs > selectedTimelineStartMs
 
-                                        "${runningPath} ($hms)"
+                                val titleText =
+                                    if (showTimelineTitle) {
+                                        // ① 選択中ブロックを最優先（タスク / サブタスク + HH:MM）
+                                        val core = selectedTimelineTitleCore ?: "選択中"
+                                        val dur =
+                                            hhmm(selectedTimelineStartMs, selectedTimelineEndMs)
+                                        "$core ($dur)"
+                                    } else if (activeUi != null) {
+                                        // ② 未選択なら “現在実行中” を表示（Project / Task (/ SubTask) + HH:MM:SS）
+                                        val core = activeTitlePath ?: activeUi!!.taskName
+                                        val dur =
+                                            hhmmssFromDuration(tickNow - activeUi!!.startEpochMs)
+                                        "$core ($dur)"
                                     } else {
+                                        // ③ どちらも無ければ既存タイトル
                                         when (screen) {
                                             AppScreen.Main -> if (sortMode) "並び替え" else stringResource(
                                                 R.string.header_title
@@ -564,8 +649,8 @@ fun AppRoot(
                                                 }
                                             )
                                         }
-                                    }
-
+                                    },
+                                    timelineSpanText = spanText
                                 )
                             }
                         }
@@ -2781,6 +2866,7 @@ fun AdaptiveBottomBar(
     onDeleteAction: () -> Unit = {},
     showExtraIcon: Boolean = false,
     onExtraAction: () -> Unit = {},
+    timelineSpanText: String? = null
 ) {
     when (currentPage) {
         0 -> {
@@ -2800,6 +2886,14 @@ fun AdaptiveBottomBar(
                     }
                     IconButton(onClick = onDeleteAction) {
                         Icon(Icons.Filled.Delete, contentDescription = "Delete record")
+                    }
+                    Spacer(Modifier.weight(1f))
+                    if (timelineSpanText != null) {
+                        Text(
+                            timelineSpanText,
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(end = 12.dp)
+                        )
                     }
                 }
             }
