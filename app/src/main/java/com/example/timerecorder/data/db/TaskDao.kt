@@ -209,5 +209,6 @@ interface TaskDao {
         }
     }
 
-
+    @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
+    suspend fun getTaskById(id: Long): TaskEntity?
 }

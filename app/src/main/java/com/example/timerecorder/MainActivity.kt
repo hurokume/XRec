@@ -1,20 +1,25 @@
 package com.example.timerecorder
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -113,6 +118,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -134,6 +140,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.max
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /** 画面モード（メイン/履歴） */
@@ -227,6 +234,9 @@ fun AppRoot(
     onNavigateAddTask: () -> Unit,
     onNavigateEditTask: (Long, Long, Long) -> Unit
 ) {
+
+    val snackbar = remember { SnackbarHostState() }
+
     // ドロワーの開閉状態
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -237,7 +247,35 @@ fun AppRoot(
     val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
 
     val ctx = LocalContext.current
-    val snackbar = remember { SnackbarHostState() }
+    val active by taskVm.active.collectAsStateWithLifecycle()
+
+    // 通知許可のランチャ
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            ActiveTaskService.start(ctx)
+        } // 拒否時は何もしない（必要ならダイアログ or 設定遷移を案内）
+    }
+
+    LaunchedEffect(active) {
+        if (active != null) {
+            if (Build.VERSION.SDK_INT >= 33) {
+                val has = ContextCompat.checkSelfPermission(
+                    ctx, Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+                if (has) {
+                    ActiveTaskService.start(ctx)
+                } else {
+                    notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            } else {
+                ActiveTaskService.start(ctx)
+            }
+        } else {
+            ActiveTaskService.stop(ctx)
+        }
+    }
 
     // タイムラインで選択中の taskId を保持（null で未選択）
     var selectedTimelineTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -1210,7 +1248,7 @@ fun DBTaskScreen(
                                     .border(
                                         1.dp,
                                         MaterialTheme.colorScheme.primary,
-                                        RoundedCornerShape(12.dp)
+                                        RoundedCornerShape(2.dp)
                                     ),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                                 shape = RoundedCornerShape(12.dp)
@@ -1305,7 +1343,7 @@ fun DBTaskScreen(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .padding(vertical = 4.dp)
-                                                .border(1.dp, border, RoundedCornerShape(8.dp))
+                                                .border(1.dp, border, RoundedCornerShape(2.dp))
                                                 .graphicsLayer {
                                                     translationY =
                                                         if (isDragging) draggingDy else 0f
@@ -1408,12 +1446,12 @@ fun DBTaskScreen(
                                             colors = CardDefaults.cardColors(
                                                 containerColor = if (isDragging) MaterialTheme.colorScheme.surfaceVariant else bg
                                             ),
-                                            shape = RoundedCornerShape(8.dp)
+                                            shape = RoundedCornerShape(2.dp)
                                         ) {
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                    .padding(horizontal = 12.dp, vertical = 0.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Text(
@@ -2250,9 +2288,14 @@ private fun TimelineScreen(
                 }
 
             var hourHeightDp by rememberSaveable { mutableFloatStateOf(48f) }
-            fun onScale(zoom: Float) {
-                if (zoom == 1f) return
-                hourHeightDp = (hourHeightDp * zoom).coerceIn(24f, 160f) // 最小24dp〜最大160dp
+            // 好みで調整（大きいほど速く反応）：1.6〜2.2 くらいが使いやすい
+            val zoomSensitivity = 1.9f
+            fun onScale(rawZoom: Float) {
+                // 微小変化は無視してヌルヌルに
+                if (kotlin.math.abs(rawZoom - 1f) < 0.01f) return
+                // 感度増幅（例：pow(1.9)）
+                val adjusted = rawZoom.pow(zoomSensitivity)
+                hourHeightDp = (hourHeightDp * adjusted).coerceIn(24f, 200f)
             }
 
             MultiDayTimeline(
@@ -2299,7 +2342,7 @@ private fun MultiDayTimeline(
     selectedEventId: Long? = null,
     onSelectEvent: (Long?) -> Unit = {},
     onSelectTask: (Long?) -> Unit = {},
-    onSelectBlock: (Long, Long, Long, Long) -> Unit = { _: Long, _: Long, _: Long, _: Long -> },
+    onSelectBlock: (Long, Long, Long, Long) -> Unit = { _, _, _, _ -> },
     hourHeight: Dp = 48.dp,
     onScale: (Float) -> Unit = {}
 ) {
@@ -2313,15 +2356,11 @@ private fun MultiDayTimeline(
         modifier = modifier
             .fillMaxWidth()
             .verticalScroll(scroll)
-            .height(totalHeight + 0.dp)
+            .height(totalHeight)
             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-            .pointerInput(hourHeight) {
-                detectTransformGestures { _, _, zoom, _ ->
-                    onScale(zoom)
-                }
-            }
+        // ★ 外側の pointerInput は削除（単指横スワイプを親へ渡す）
     ) {
-        // 左側時間ガター：ここをタップしても選択解除
+        // 左ガター：タップで選択解除
         Column(
             modifier = Modifier
                 .width(GUTTER)
@@ -2353,10 +2392,50 @@ private fun MultiDayTimeline(
             }
         }
 
+        // 日カラム側（ここにだけピンチ検出を付ける）
         Row(
             Modifier
                 .weight(1f)
                 .fillMaxHeight()
+                .pointerInput(dayCount, hourHeight) {
+                    awaitEachGesture {
+                        // 1) まずは「2本指になるまで」待つ（単指は親のPagerへ）
+                        var scaling = false
+                        while (true) {
+                            val e = awaitPointerEvent()
+                            if (e.changes.size >= 2) {
+                                scaling = true; break
+                            }
+                            // 1本指のまま指が離れたらスケールなしで終了（イベントを消費しない）
+                            if (e.changes.all { !it.pressed }) return@awaitEachGesture
+                        }
+
+                        // 2) 2本指になったので以降はズームだけ処理（ここからは消費してOK）
+                        var lastDist: Float? = null
+                        while (true) {
+                            val e = awaitPointerEvent()
+                            val changes = e.changes
+                            if (changes.size < 2) break  // 2本指でなくなったら終了
+
+                            val p1 = changes[0].position
+                            val p2 = changes[1].position
+                            val prev1 = changes[0].previousPosition
+                            val prev2 = changes[1].previousPosition
+
+                            val dist = (p1 - p2).getDistance()
+                            val prevDist = (prev1 - prev2).getDistance()
+                            if (prevDist > 0f) {
+                                val zoom = dist / prevDist
+                                if (kotlin.math.abs(zoom - 1f) > 0.01f) {
+                                    onScale(zoom) // ← 親で hourHeight を更新する
+                                }
+                                // ピンチ中は消費（Pagerに渡さない）
+                                changes.forEach { it.consume() }
+                            }
+                            if (changes.any { !it.pressed }) break
+                        }
+                    }
+                }
         ) {
             repeat(dayCount) { i ->
                 val dayStart = startMs + i * 24L * 60L * 60L * 1000L
