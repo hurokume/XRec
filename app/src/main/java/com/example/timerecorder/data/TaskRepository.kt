@@ -1,6 +1,7 @@
 package com.example.timerecorder.data
 
 import androidx.room.withTransaction
+import com.example.timerecorder.NextTaskPredictor
 import com.example.timerecorder.data.db.ActiveTaskEntity
 import com.example.timerecorder.data.db.ActiveWithTask
 import com.example.timerecorder.data.db.AppDatabase
@@ -508,5 +509,16 @@ class TaskRepository(
             imported++
         }
         imported
+    }
+
+    // ▼ 便利ラッパ（任意）
+    suspend fun predictNextTaskId(now: Long = System.currentTimeMillis()): Long? {
+        val cur = sessionDao.getActive()?.taskId
+        return NextTaskPredictor.getInstance(taskDao).predictNext(cur, now)
+    }
+
+    suspend fun switchToPredictedNext(now: Long = System.currentTimeMillis()) {
+        val next = predictNextTaskId(now) ?: return
+        startOrSwitch(newTaskId = next, now = now)
     }
 }

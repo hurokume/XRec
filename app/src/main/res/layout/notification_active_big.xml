@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <TextView
+        android:id="@+id/title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Project / Task / SubTask"
+        android:textAppearance="@android:style/TextAppearance.Material.Medium"
+        android:maxLines="2"
+        android:ellipsize="end" />
+
+    <Chronometer
+        android:id="@+id/chrono"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:format="%s"
+        android:paddingTop="4dp" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="8dp" />
+
+    <!-- 予測タスク 1～3（縦） -->
+    <Button
+        android:id="@+id/btn_candidate1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="候補1" />
+
+    <Button
+        android:id="@+id/btn_candidate2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="候補2" />
+
+    <Button
+        android:id="@+id/btn_candidate3"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="候補3" />
+</LinearLayout>
