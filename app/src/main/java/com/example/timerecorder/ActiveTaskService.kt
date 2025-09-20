@@ -9,6 +9,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.SystemClock
+import android.view.View
+import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
@@ -22,7 +25,7 @@ import kotlinx.coroutines.launch
 class ActiveTaskService : LifecycleService() {
 
     companion object {
-        private const val CHANNEL_ID = "active_task_channel"
+        private const val CHANNEL_ID = "active_task_channel_v2"
         private const val NOTIF_ID = 1001
 
         // actions
@@ -30,6 +33,7 @@ class ActiveTaskService : LifecycleService() {
         private const val ACTION_STOP = "com.example.timerecorder.action.STOP"
         private const val ACTION_SWITCH_TO = "com.example.timerecorder.action.SWITCH_TO"
         private const val EXTRA_TASK_ID = "extra_task_id"
+
 
         fun start(ctx: Context) {
             ContextCompat.startForegroundService(ctx, Intent(ctx, ActiveTaskService::class.java))
@@ -198,10 +202,15 @@ class ActiveTaskService : LifecycleService() {
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
-            val ch = NotificationChannel(
-                CHANNEL_ID, "Active task", NotificationManager.IMPORTANCE_LOW
-            ).apply { description = "現在実行中のタスクを表示します" }
-            nm.createNotificationChannel(ch)
+            val existing = nm.getNotificationChannel(CHANNEL_ID)
+            if (existing == null) {
+                val ch = NotificationChannel(
+                    CHANNEL_ID,
+                    "Active task",
+                    NotificationManager.IMPORTANCE_DEFAULT // ← LOWから引き上げ
+                ).apply { description = "現在実行中のタスクと予測候補" }
+                nm.createNotificationChannel(ch)
+            }
         }
     }
 
@@ -237,21 +246,62 @@ class ActiveTaskService : LifecycleService() {
                     (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_IMMUTABLE else 0)
         )
 
+        val big = buildBigRemoteViews(title, startedAtMs, candidates)
+        val small = buildCollapsedRemoteViews(title, startedAtMs)
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(title)       // "Project / Task / SubTask"
+            .setContentTitle(title)
             .setContentText("計測中")
             .setWhen(startedAtMs)
-            .setUsesChronometer(true)
+            .setUsesChronometer(true) // ヘッダ側（端末によって出る）
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setPriority(NotificationCompat.PRIORITY_HIGH) // 初回展開を“促す”
             .setContentIntent(openPI)
-            .apply {
-                // 予測候補を最大3件アクションに
-                candidates.forEachIndexed { i, c ->
-                    addAction(0, c.label, switchPendingIntent(c.taskId, 100 + i))
-                }
-            }
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            .setCustomContentView(small)
+            .setCustomBigContentView(big)
             .build()
+    }
+
+    private fun buildBigRemoteViews(
+        title: String,
+        startedAtMs: Long,
+        candidates: List<CandidateAction>
+    ): RemoteViews {
+        val rv = RemoteViews(packageName, R.layout.notification_active_big)
+
+        rv.setTextViewText(R.id.title, title)
+
+        // Chronometer base = elapsedRealtime基準に変換
+        val base = SystemClock.elapsedRealtime() - (System.currentTimeMillis() - startedAtMs)
+        rv.setChronometer(R.id.chrono, base, null, true)
+
+        // 3本分を埋める（不足分は非表示）
+        val ids = listOf(R.id.btn_candidate1, R.id.btn_candidate2, R.id.btn_candidate3)
+        ids.forEachIndexed { index, viewId ->
+            val c = candidates.getOrNull(index)
+            if (c == null) {
+                rv.setViewVisibility(viewId, View.GONE)
+            } else {
+                rv.setViewVisibility(viewId, View.VISIBLE)
+                rv.setTextViewText(viewId, c.label)
+                rv.setOnClickPendingIntent(viewId, switchPendingIntent(c.taskId, 200 + index))
+            }
+        }
+        return rv
+    }
+
+    private fun buildCollapsedRemoteViews(
+        title: String,
+        startedAtMs: Long
+    ): RemoteViews {
+        val rv = RemoteViews(packageName, R.layout.notification_active_collapsed)
+        rv.setTextViewText(R.id.title_small, title)
+        val base = SystemClock.elapsedRealtime() - (System.currentTimeMillis() - startedAtMs)
+        rv.setChronometer(R.id.chrono_small, base, null, true)
+        return rv
     }
 }
