@@ -77,6 +77,9 @@ class ActiveTaskService : LifecycleService() {
             .setContentText("起動中…")
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setBadgeIconType(NotificationCompat.BADGE_ICON_NONE)
+            .setVibrate(null)
+            .setDefaults(0)
             .addAction(0, "次へ", pendingNext())
             .addAction(0, "停止", pendingStop())
             .build()
@@ -194,7 +197,9 @@ class ActiveTaskService : LifecycleService() {
             .setUsesChronometer(true)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setContentIntent(piOpen)
+            .setBadgeIconType(NotificationCompat.BADGE_ICON_NONE)
+            .setVibrate(null)
+            .setDefaults(0)
             .addAction(android.R.drawable.ic_media_next, "次へ", piNext)
             .addAction(android.R.drawable.ic_media_pause, "停止", piStop)
             .build()
@@ -209,6 +214,14 @@ class ActiveTaskService : LifecycleService() {
                     "Active task",
                     NotificationManager.IMPORTANCE_DEFAULT // ← LOWから引き上げ
                 ).apply { description = "現在実行中のタスクと予測候補" }
+
+                // バッジ非表示・バイブ無効・音なしを強制
+                ch.setShowBadge(false)
+                ch.enableVibration(false)
+                ch.vibrationPattern = null
+                ch.setSound(null, null)
+                ch.enableLights(false)
+
                 nm.createNotificationChannel(ch)
             }
         }
@@ -263,6 +276,9 @@ class ActiveTaskService : LifecycleService() {
             .setStyle(NotificationCompat.DecoratedCustomViewStyle())
             .setCustomContentView(small)
             .setCustomBigContentView(big)
+            .setBadgeIconType(NotificationCompat.BADGE_ICON_NONE)
+            .setVibrate(null)
+            .setDefaults(0)
             .build()
     }
 

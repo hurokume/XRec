@@ -162,6 +162,8 @@ private object Routes {
 class MainActivity : ComponentActivity() {
     private val taskViewModel: TaskViewModel by viewModels()
 
+    private fun getSystemService(name: Any) {}
+
     @OptIn(ExperimentalFoundationApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
