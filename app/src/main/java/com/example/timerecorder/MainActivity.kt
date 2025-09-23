@@ -2467,7 +2467,8 @@ private fun DayColumn(
     modifier: Modifier = Modifier,
     onSelectEvent: (Long?) -> Unit = {},
     selectedEventId: Long? = null,
-    onSelectBlock: (Long, Long, Long, Long) -> Unit = { _: Long, _: Long, _: Long, _: Long -> }
+    onSelectBlock: (Long, Long, Long, Long) -> Unit = { _: Long, _: Long, _: Long, _: Long -> },
+    blockAlpha: Float = 0.6f
 ) {
     val hourHeightPx = with(LocalDensity.current) { hourHeight.toPx() }
 
@@ -2533,7 +2534,7 @@ private fun DayColumn(
                     .offset(y = top)
                     .fillMaxWidth()
                     .height(height)
-                    .background(b.color.copy(alpha = 0.9f), RoundedCornerShape(0.dp))
+                    .background(b.color.copy(alpha = blockAlpha), RoundedCornerShape(0.dp))
                     .border(borderWidth, borderColor, RoundedCornerShape(0.dp))
                     .clickable {
                         onSelectEvent(b.eventId)
