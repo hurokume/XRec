@@ -52,7 +52,6 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
@@ -411,6 +410,8 @@ fun AppRoot(
         }
     }
 
+    var timelineRefreshTick by remember { mutableLongStateOf(0L) }
+
     // Import ダイアログの状態
     var showImportDialog by rememberSaveable { mutableStateOf(false) }
     var importText by rememberSaveable { mutableStateOf("") }
@@ -422,7 +423,22 @@ fun AppRoot(
         // ページが変わったら currentPage を追従
         snapshotFlow { pagerState.currentPage }
             .distinctUntilChanged()
-            .collectLatest { page -> currentPage = page }
+            .collectLatest { page ->
+                currentPage = page
+                when (page) {
+                    0 -> { // タイムライン
+                        taskVm.reloadHistory()                   // ★追加
+                        timelineRefreshTick = System.currentTimeMillis()
+                    }
+
+                    1 -> { /* 何もしない */
+                    }
+
+                    2 -> { // 統計
+                        taskVm.reloadHistory()                   // ★追加
+                    }
+                }
+            }
     }
 
     // 画面モード（メイン / 履歴）
@@ -728,7 +744,8 @@ fun AppRoot(
                                 selectedTimelineStartMs = s
                                 selectedTimelineEndMs = e
                             },
-                            nameSort = nameSort
+                            nameSort = nameSort,
+                            timelineRefreshTick = timelineRefreshTick
                         )
 
                         AppScreen.History -> HistoryScreen(
@@ -998,7 +1015,8 @@ fun MainPager(
     onTimelineTaskSelected: (Long?) -> Unit,
     onTimelineEventSelected: (Long?) -> Unit,
     onTimelineBlockSelected: (Long, Long, Long, Long) -> Unit,
-    nameSort: NameSort
+    nameSort: NameSort,
+    timelineRefreshTick: Long
 ) {
     HorizontalPager(state = pagerState, modifier = modifier.fillMaxSize()) { page ->
         when (page) {
@@ -1009,7 +1027,8 @@ fun MainPager(
                 onSelectTask = onTimelineTaskSelected,
                 selectedEventId = selectedTimelineEventId,
                 onSelectEvent = onTimelineEventSelected,
-                onSelectBlock = onTimelineBlockSelected
+                onSelectBlock = onTimelineBlockSelected,
+                externalRefreshTick = timelineRefreshTick
             )
 
             1 -> DBTaskScreen(taskVm = taskVm, sortMode = sortMode, nameSort = nameSort)
@@ -2098,7 +2117,8 @@ private fun TimelineScreen(
     onSelectTask: (Long?) -> Unit,
     selectedEventId: Long?,
     onSelectEvent: (Long?) -> Unit,
-    onSelectBlock: (Long, Long, Long, Long) -> Unit
+    onSelectBlock: (Long, Long, Long, Long) -> Unit,
+    externalRefreshTick: Long = 0L
 ) {
     LaunchedEffect(Unit) { viewModel.ensureHistoryFirstPage() }
 
@@ -2108,15 +2128,36 @@ private fun TimelineScreen(
 
     val defaultProjectColor = MaterialTheme.colorScheme.onSurface
 
+    // 週間ビュー ON/OFF とオフセット
+    var weekMode by rememberSaveable { mutableStateOf(false) }   // 週間ビューON/OFF
+    var weekOffset by rememberSaveable { mutableIntStateOf(0) }  // 今週=0, 先週=-1, 来週=+1
+
+    val dayMs = 24L * 60L * 60L * 1000L
+    fun startOfWeekSunday(ms: Long): Long {
+        val cal = java.util.Calendar.getInstance().apply {
+            timeInMillis = midnightOf(ms) // その日の0:00
+        }
+        val dow = cal.get(java.util.Calendar.DAY_OF_WEEK) // SUNDAY=1
+        val backDays = (dow - java.util.Calendar.SUNDAY + 7) % 7
+        cal.timeInMillis -= backDays * dayMs
+        return cal.timeInMillis
+    }
+
+    // 「今日を右端」にするためのアンカー（非週間時のみ使用）
     var dayCount by rememberSaveable { mutableIntStateOf(3) }
-    var anchorOffset by rememberSaveable { mutableIntStateOf(-1) }
+    var anchorOffset by rememberSaveable { mutableIntStateOf(-1) } // start = today + offset * 1day
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(externalRefreshTick) { nowMs = System.currentTimeMillis() }
 
     val startOfToday = remember(nowMs) { midnightOf(nowMs) }
-    val startMs = remember(startOfToday, anchorOffset) {
-        startOfToday + anchorOffset * 24L * 60L * 60L * 1000L
+    val startMs = remember(startOfToday, anchorOffset, weekMode, weekOffset, dayCount) {
+        if (weekMode) {
+            startOfWeekSunday(startOfToday) + weekOffset * 7L * dayMs
+        } else {
+            startOfToday + anchorOffset * dayMs
+        }
     }
-    val endMs = remember(startMs, dayCount) { startMs + dayCount * 24L * 60L * 60L * 1000L }
+    val endMs = remember(startMs, dayCount) { startMs + dayCount * dayMs }
 
     val f = remember { SimpleDateFormat("yyyy/MM/dd (EEE)", Locale.getDefault()) }
     val headerLabel = remember(startMs, endMs, dayCount) {
@@ -2125,18 +2166,13 @@ private fun TimelineScreen(
         if (dayCount == 1) first else "$first 〜 $last"
     }
 
-    val defaultTaskColor = MaterialTheme.colorScheme.onSurface
-
-    // 追加：taskId -> プロジェクト色 のキャッシュ
+    // taskId -> 現在のプロジェクト色
     val colorByTaskId by produceState<Map<Long, Color>>(
         initialValue = emptyMap(),
         parents, defaultProjectColor
     ) {
-        // 親色を子タスクに反映（ベース）
         val base = mutableMapOf<Long, Color>()
-        // 子タスクID -> プロジェクト色（サブタスクにも使う）
         val projColorByChild = mutableMapOf<Long, Color>()
-
         parents.forEach { g ->
             val pc = g.parent.colorInt?.let { Color(it) } ?: defaultProjectColor
             g.children.forEach { ch ->
@@ -2145,38 +2181,29 @@ private fun TimelineScreen(
             }
         }
         value = base
-
-        // 子ID -> その配下のサブタスクID集合
         val subIdsByChild = mutableMapOf<Long, Set<Long>>()
-
-        // サブタスクをFlowで監視（追加/削除/改名にも追従）
         parents.forEach { g ->
             g.children.forEach { ch ->
                 launch {
                     viewModel.children(ch.id).collect { subs ->
                         subIdsByChild[ch.id] = subs.map { it.id }.toSet()
-
-                        // 子(=base) + サブタスク(subMap) の最新マップを合成
                         val subMap = mutableMapOf<Long, Color>()
                         subIdsByChild.forEach { (childId, ids) ->
                             val pc = projColorByChild[childId] ?: defaultProjectColor
                             ids.forEach { sid -> subMap[sid] = pc }
                         }
-                        value = buildMap {
-                            putAll(base)
-                            putAll(subMap)
-                        }
+                        value = buildMap { putAll(base); putAll(subMap) }
                     }
                 }
             }
         }
     }
 
-    fun colorFor(taskId: Long): Color =
-        colorByTaskId[taskId] ?: defaultProjectColor
+    fun colorFor(taskId: Long) = colorByTaskId[taskId] ?: defaultProjectColor
 
-    LaunchedEffect(dayCount) {
-        anchorOffset = -(dayCount / 2)   // 3→-1, 5→-2, 7→-3
+    // 非週間モードに入った/日数が変わったら「今日が右端」になるように調整
+    LaunchedEffect(dayCount, weekMode) {
+        if (!weekMode) anchorOffset = -(dayCount - 1) // ← ここがポイント（右端=今日）
     }
 
     Box(
@@ -2184,11 +2211,13 @@ private fun TimelineScreen(
             .fillMaxSize()
             .padding(12.dp)
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
+        Column(Modifier.fillMaxSize()) {
+            // ヘッダー（左右でページ送り＋同期）
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { anchorOffset -= dayCount }) {
+                IconButton(onClick = {
+                    if (weekMode) weekOffset -= 1 else anchorOffset -= dayCount
+                    viewModel.reloadHistory() // スワイプ相当の移動で同期
+                }) {
                     Icon(Icons.Filled.ChevronLeft, contentDescription = "prev")
                 }
                 Text(
@@ -2196,36 +2225,49 @@ private fun TimelineScreen(
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f)
                 )
-                val centerOffset = -(dayCount / 2)
-                if (anchorOffset != centerOffset) {
-                    TextButton(onClick = { anchorOffset = centerOffset }) { Text("今日へ") }
-                }
-                IconButton(onClick = { anchorOffset += dayCount }) {
+                IconButton(onClick = {
+                    if (weekMode) weekOffset += 1 else anchorOffset += dayCount
+                    viewModel.reloadHistory() // スワイプ相当の移動で同期
+                }) {
                     Icon(Icons.Filled.ChevronRight, contentDescription = "next")
                 }
             }
 
             Spacer(Modifier.height(6.dp))
 
+            // セグメント（3/5/7日 + 週間）
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SegButton("3日", active = dayCount == 3) { dayCount = 3 }
-                SegButton("5日", active = dayCount == 5) { dayCount = 5 }
-                SegButton("7日", active = dayCount == 7) { dayCount = 7 }
-                Spacer(Modifier.weight(1f))
-                OutlinedButton(onClick = {
-                    nowMs = System.currentTimeMillis()
+                SegButton("3日", active = !weekMode && dayCount == 3) {
+                    weekMode = false; dayCount = 3
+                    anchorOffset = -(dayCount - 1) // 今日を右端
                     viewModel.reloadHistory()
-                }) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "refresh")
-                    Spacer(Modifier.width(8.dp)); Text("更新")
                 }
+                SegButton("5日", active = !weekMode && dayCount == 5) {
+                    weekMode = false; dayCount = 5
+                    anchorOffset = -(dayCount - 1)
+                    viewModel.reloadHistory()
+                }
+                SegButton("7日", active = !weekMode && dayCount == 7) {
+                    weekMode = false; dayCount = 7
+                    anchorOffset = -(dayCount - 1)
+                    viewModel.reloadHistory()
+                }
+                SegButton("週間", active = weekMode) {
+                    weekMode = true
+                    dayCount = 7            // 週間は7固定
+                    weekOffset = 0          // 今週
+                    viewModel.reloadHistory()
+                }
+                Spacer(Modifier.weight(1f))
+                // ※「更新」ボタンは削除済み
             }
 
             Spacer(Modifier.height(8.dp))
 
+            // 表示するブロックを分割生成
             val blocksByDay: List<List<TimelineBlock>> =
                 remember(
                     history,
@@ -2234,11 +2276,10 @@ private fun TimelineScreen(
                     startMs,
                     endMs,
                     dayCount,
-                    nowMs, /* ★追加 */
+                    nowMs,
                     colorByTaskId
                 ) {
                     val days = List(dayCount) { mutableListOf<TimelineBlock>() }
-
                     fun addClampedBlock(
                         eventId: Long,
                         s: Long,
@@ -2248,8 +2289,8 @@ private fun TimelineScreen(
                     ) {
                         if (e <= startMs || s >= endMs) return
                         repeat(dayCount) { i ->
-                            val dStart = startMs + i * 24L * 60L * 60L * 1000L
-                            val dEnd = dStart + 24L * 60L * 60L * 1000L
+                            val dStart = startMs + i * dayMs
+                            val dEnd = dStart + dayMs
                             val cs = maxOf(s, dStart)
                             val ce = minOf(e, dEnd)
                             if (ce > cs) days[i].add(
@@ -2258,42 +2299,28 @@ private fun TimelineScreen(
                                     startMs = cs,
                                     endMs = ce,
                                     name = name,
-                                    color = colorFor(taskId),   // ★ 常に現在のプロジェクト色
+                                    color = colorFor(taskId),
                                     taskId = taskId
                                 )
                             )
                         }
                     }
-
                     history.forEach { h ->
                         val s = h.pressedAt
                         val e = h.pressedAt + max(0L, h.durationMillis)
                         addClampedBlock(h.id, s, e, h.taskName, h.taskId)
                     }
-
                     activeUi?.let { a ->
                         val s = a.startEpochMs
-                        if (s > 0L) {
-                            addClampedBlock(
-                                eventId = -1L,
-                                s = s,
-                                e = nowMs,
-                                name = a.taskName,
-                                taskId = a.taskId
-                            )
-                        }
+                        if (s > 0L) addClampedBlock(-1L, s, nowMs, a.taskName, a.taskId)
                     }
-
                     days.map { it.sortedBy { b -> b.startMs } }
                 }
 
             var hourHeightDp by rememberSaveable { mutableFloatStateOf(48f) }
-            // 好みで調整（大きいほど速く反応）：1.6〜2.2 くらいが使いやすい
             val zoomSensitivity = 1.9f
             fun onScale(rawZoom: Float) {
-                // 微小変化は無視してヌルヌルに
                 if (kotlin.math.abs(rawZoom - 1f) < 0.01f) return
-                // 感度増幅（例：pow(1.9)）
                 val adjusted = rawZoom.pow(zoomSensitivity)
                 hourHeightDp = (hourHeightDp * adjusted).coerceIn(24f, 200f)
             }
@@ -2322,6 +2349,7 @@ private fun TimelineScreen(
         }
     }
 }
+
 
 private data class TimelineBlock(
     val eventId: Long,
@@ -2681,11 +2709,6 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
     var days by rememberSaveable { mutableIntStateOf(7) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    val onRefresh: () -> Unit = {
-        nowMs = System.currentTimeMillis()
-        viewModel.reloadHistory()
-    }
-
     val cutoff = remember(nowMs, days) { nowMs - days * 24L * 60L * 60L * 1000L }
 
     val defaultTaskColor = MaterialTheme.colorScheme.primary
@@ -2740,11 +2763,6 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
             SegButton("30日", active = days == 30) { days = 30 }
             SegButton("90日", active = days == 90) { days = 90 }
             Spacer(Modifier.weight(1f))
-            OutlinedButton(onClick = onRefresh) {
-                Icon(Icons.Filled.Refresh, contentDescription = "refresh")
-                Spacer(Modifier.width(8.dp))
-                Text("更新")
-            }
         }
 
         Spacer(Modifier.height(8.dp))
@@ -2935,15 +2953,6 @@ fun HistoryScreen(modifier: Modifier = Modifier, viewModel: TaskViewModel) {
                     }
                 }
             }
-        }
-
-        FloatingActionButton(
-            onClick = { viewModel.reloadHistory() },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(16.dp)
-        ) {
-            Icon(Icons.Filled.Refresh, contentDescription = "Reload history")
         }
     }
 }
