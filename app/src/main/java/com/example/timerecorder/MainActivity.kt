@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -89,6 +90,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -296,6 +298,9 @@ fun AppRoot(
     var createMissing by rememberSaveable { mutableStateOf(true) }
 
     val activeUi by taskVm.activeUi.collectAsStateWithLifecycle()
+
+    var showStatsFilterDialog by rememberSaveable { mutableStateOf(false) }
+    var statsIncludedLeafIds by rememberSaveable { mutableStateOf<Set<Long>>(emptySet()) }
 
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -679,7 +684,7 @@ fun AppRoot(
                                     },
                                     onLeftAction = { /* 予備 */ },
                                     onSortAction = { sortMode = true },
-                                    onRightAction = { /* 予備 */ },
+                                    onRightAction = { showStatsFilterDialog = true },
                                     onDeleteAction = {
                                         val eid = selectedTimelineEventId
                                         val s = selectedTimelineStartMs
@@ -747,7 +752,8 @@ fun AppRoot(
                                 selectedTimelineEndMs = e
                             },
                             nameSort = nameSort,
-                            timelineRefreshTick = timelineRefreshTick
+                            timelineRefreshTick = timelineRefreshTick,
+                            statsIncludedLeafIds = statsIncludedLeafIds
                         )
 
                         AppScreen.History -> HistoryScreen(
@@ -924,6 +930,17 @@ fun AppRoot(
                             }
                         )
                     }
+                    if (showStatsFilterDialog) {
+                        StatsFilterDialog(
+                            taskVm = taskVm,
+                            currentIncluded = statsIncludedLeafIds,
+                            onApply = { newIncluded ->
+                                statsIncludedLeafIds = newIncluded
+                                showStatsFilterDialog = false
+                            },
+                            onDismiss = { showStatsFilterDialog = false }
+                        )
+                    }
                 }
             }
         }
@@ -1018,7 +1035,8 @@ fun MainPager(
     onTimelineEventSelected: (Long?) -> Unit,
     onTimelineBlockSelected: (Long, Long, Long, Long) -> Unit,
     nameSort: NameSort,
-    timelineRefreshTick: Long
+    timelineRefreshTick: Long,
+    statsIncludedLeafIds: Set<Long>
 ) {
     HorizontalPager(state = pagerState, modifier = modifier.fillMaxSize()) { page ->
         when (page) {
@@ -1034,7 +1052,7 @@ fun MainPager(
             )
 
             1 -> DBTaskScreen(taskVm = taskVm, sortMode = sortMode, nameSort = nameSort)
-            2 -> StatsScreen(viewModel = taskVm)
+            2 -> StatsScreen(viewModel = taskVm, includedLeafIds = statsIncludedLeafIds)
         }
     }
 }
@@ -1980,6 +1998,148 @@ fun DBTaskScreen(
     }
 }
 
+@Composable
+private fun StatsFilterDialog(
+    taskVm: TaskViewModel,
+    currentIncluded: Set<Long>,
+    onApply: (Set<Long>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val parents by taskVm.parents.collectAsStateWithLifecycle()
+
+    // ✅ leaf（統計対象の粒度）と選択状態を“状態コレクション”で管理
+    val leafIds = remember { mutableStateListOf<Long>() }
+    val selected = remember { mutableStateListOf<Long>() }
+
+    // 親/子の変更に合わせて leaf を初期化（まずは子タスクを leaf 候補に）
+    LaunchedEffect(parents) {
+        leafIds.clear()
+        parents.forEach { g -> g.children.forEach { child -> leafIds.add(child.id) } }
+        // 初回選択：currentIncluded が空なら leaf 全選択、指定があればそれを反映
+        if (selected.isEmpty()) {
+            selected.clear()
+            if (currentIncluded.isEmpty()) selected.addAll(leafIds) else selected.addAll(
+                currentIncluded
+            )
+        }
+    }
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("統計フィルター") },
+        text = {
+            Column {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        selected.clear(); selected.addAll(leafIds)
+                    }) { Text("全選択") }
+                    OutlinedButton(onClick = { selected.clear() }) { Text("全解除") }
+                }
+                Spacer(Modifier.height(8.dp))
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp)
+                ) {
+                    parents.forEach { group ->
+                        item {
+                            Text(
+                                text = group.parent.name,
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                            )
+                        }
+                        items(group.children.size) { idx ->
+                            val child = group.children[idx]
+
+                            // サブタスク監視
+                            val subs by taskVm.children(child.id)
+                                .collectAsStateWithLifecycle(initialValue = emptyList())
+
+                            // subs の有無に応じて leafIds / selected の“既定”を動的更新
+                            LaunchedEffect(subs) {
+                                // child は一度外す（あれば）
+                                leafIds.remove(child.id)
+                                if (subs.isNotEmpty()) {
+                                    // サブタスクを leaf に
+                                    subs.forEach { if (!leafIds.contains(it.id)) leafIds.add(it.id) }
+                                    if (currentIncluded.isEmpty()) {
+                                        // 既定（初回のみ）: child → subs に置き換え
+                                        selected.remove(child.id)
+                                        subs.forEach {
+                                            if (!selected.contains(it.id)) selected.add(
+                                                it.id
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    // サブタスク無し：child を leaf に戻す
+                                    if (!leafIds.contains(child.id)) leafIds.add(child.id)
+                                    if (currentIncluded.isEmpty() && !selected.contains(child.id)) {
+                                        selected.add(child.id)
+                                    }
+                                }
+                            }
+
+                            if (subs.isEmpty()) {
+                                // child を leaf として表示
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                ) {
+                                    Checkbox(
+                                        checked = selected.contains(child.id),
+                                        onCheckedChange = { on ->
+                                            if (on) {
+                                                if (!selected.contains(child.id)) selected.add(child.id)
+                                            } else {
+                                                selected.remove(child.id)
+                                            }
+                                        }
+                                    )
+                                    Text(child.name, modifier = Modifier.padding(start = 4.dp))
+                                }
+                            } else {
+                                // サブタスクを leaf として表示（インデント）
+                                subs.forEach { sub ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = 24.dp, top = 2.dp, bottom = 2.dp)
+                                    ) {
+                                        Checkbox(
+                                            checked = selected.contains(sub.id),
+                                            onCheckedChange = { on ->
+                                                if (on) {
+                                                    if (!selected.contains(sub.id)) selected.add(sub.id)
+                                                } else {
+                                                    selected.remove(sub.id)
+                                                }
+                                            }
+                                        )
+                                        Text(sub.name, modifier = Modifier.padding(start = 4.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    item { Spacer(Modifier.height(4.dp)) }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onApply(selected.toSet()) }) { Text("適用") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("キャンセル") }
+        }
+    )
+}
+
 /**
  * サブタスク選択画面。
  * - 親の配色を右端の色チップで表示
@@ -2714,7 +2874,11 @@ private fun ChannelSlider(label: String, value: Int, onChange: (Int) -> Unit) {
    ========================= */
 
 @Composable
-private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier) {
+private fun StatsScreen(
+    viewModel: TaskViewModel,
+    modifier: Modifier = Modifier,
+    includedLeafIds: Set<Long> = emptySet()
+) {
     LaunchedEffect(Unit) { viewModel.ensureHistoryFirstPage() }
 
     val history by viewModel.historyItems.collectAsStateWithLifecycle()
@@ -2725,21 +2889,14 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     val cutoff = remember(nowMs, days) { nowMs - days * 24L * 60L * 60L * 1000L }
-
     val defaultTaskColor = MaterialTheme.colorScheme.primary
 
-    fun colorForTask(taskId: Long, defaultColor: Color): Color {
-        val group = parents.firstOrNull { g -> g.children.any { it.id == taskId } }
-        return group?.parent?.colorInt?.let { Color(it) } ?: defaultColor
-    }
-
-    // ▼ 追加（子タスクとサブタスクを“親プロジェクト色”に解決）
+    // 親プロジェクト色の解決（子・サブタスクは親プロジェクト色で表示）
     val projectDefault = MaterialTheme.colorScheme.primary
     val colorByTaskId by produceState<Map<Long, Color>>(
         initialValue = emptyMap(),
         parents
     ) {
-        // 子タスク → プロジェクト色
         val base = mutableMapOf<Long, Color>()
         val projColorByChild = mutableMapOf<Long, Color>()
         parents.forEach { g ->
@@ -2750,8 +2907,6 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
             }
         }
         value = base
-
-        // サブタスク →（その親子タスクの）プロジェクト色
         val subIdsByChild = mutableMapOf<Long, Set<Long>>()
         parents.forEach { g ->
             g.children.forEach { ch ->
@@ -2773,14 +2928,18 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
         }
     }
 
-    // ▼ 追加：色取得ヘルパ
-    fun colorFor(taskId: Long, fallback: Color): Color =
-        colorByTaskId[taskId] ?: fallback
+    fun colorFor(taskId: Long, fallback: Color): Color = colorByTaskId[taskId] ?: fallback
 
+    // フィルター（空集合＝全許可）
+    val includeAll = includedLeafIds.isEmpty()
+    fun shouldInclude(taskId: Long) = includeAll || includedLeafIds.contains(taskId)
 
     data class Agg(val taskId: Long, val name: String, val color: Color, val totalMs: Long)
 
-    val aggregated: List<Agg> = remember(history, activeUi, parents, cutoff, nowMs) {
+    // ★ フィルター変更で再計算されるように key に includedLeafIds を追加
+    val aggregated: List<Agg> = remember(
+        history, activeUi, parents, cutoff, nowMs, includedLeafIds
+    ) {
         val map = LinkedHashMap<Long, Agg>()
 
         fun addMs(taskId: Long, name: String, color: Color, ms: Long) {
@@ -2790,28 +2949,31 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
             else map[taskId] = cur.copy(totalMs = cur.totalMs + ms)
         }
 
-        history.filter { it.pressedAt >= cutoff }.forEach { row ->
-            addMs(
-                row.taskId,
-                row.taskName,
-                // ▼ 変更：サブタスクも正しい“親プロジェクト色”に
-                colorFor(row.taskId, row.color),
-                max(0L, row.durationMillis)
-            )
-        }
+        history.filter { it.pressedAt >= cutoff }
+            .forEach { row ->
+                if (shouldInclude(row.taskId)) {
+                    addMs(
+                        row.taskId,
+                        row.taskName,
+                        colorFor(row.taskId, row.color), // ★ 正しい色解決を使用
+                        max(0L, row.durationMillis)
+                    )
+                }
+            }
 
         activeUi?.let { a ->
-            val s = maxOf(a.startEpochMs, cutoff)
-            val e = nowMs
-            addMs(
-                a.taskId,
-                a.taskName,
-                // ▼ 変更：実行中タスクも同様に解決
-                colorFor(a.taskId, defaultTaskColor),
-                max(0L, e - s)
-            )
+            if (shouldInclude(a.taskId)) {
+                val s = maxOf(a.startEpochMs, cutoff)
+                val e = nowMs
+                addMs(
+                    a.taskId,
+                    a.taskName,
+                    colorFor(a.taskId, defaultTaskColor), // ★ 正しい色解決を使用
+                    max(0L, e - s)
+                )
+            }
         }
-        
+
         map.values.sortedByDescending { it.totalMs }.toList()
     }
 
@@ -3140,7 +3302,7 @@ fun AdaptiveBottomBar(
             BottomAppBar {
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onRightAction) {
-                    Icon(Icons.Filled.Settings, contentDescription = "Right action")
+                    Icon(Icons.Filled.Settings, contentDescription = "Filter")
                 }
             }
         }
