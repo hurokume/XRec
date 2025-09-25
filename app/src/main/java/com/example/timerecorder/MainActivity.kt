@@ -2127,6 +2127,8 @@ private fun TimelineScreen(
     val parents by viewModel.parents.collectAsStateWithLifecycle()
     val history by viewModel.historyItems.collectAsStateWithLifecycle()
     val activeUi by viewModel.activeUi.collectAsStateWithLifecycle()
+    val isLoading by viewModel.historyLoading.collectAsStateWithLifecycle()
+    val endReached by viewModel.historyEndReached.collectAsStateWithLifecycle()
 
     val defaultProjectColor = MaterialTheme.colorScheme.onSurface
 
@@ -2160,6 +2162,17 @@ private fun TimelineScreen(
         }
     }
     val endMs = remember(startMs, dayCount) { startMs + dayCount * dayMs }
+
+    LaunchedEffect(startMs, endMs, history, isLoading, endReached) {
+        // いま読み込めている最古の pressedAt（なければ MAX）
+        val earliestLoaded = history.minOfOrNull { it.pressedAt } ?: Long.MAX_VALUE
+
+        // 表示開始よりも「新しい」＝まだ古い履歴が足りない
+        if (earliestLoaded > startMs && !isLoading && !endReached) {
+            // 1ページずつ追加ロード（Flow更新で再度この Effect が走り、必要分だけ繰り返す）
+            viewModel.loadNextHistoryPage()
+        }
+    }
 
     val f = remember { SimpleDateFormat("yyyy/MM/dd (EEE)", Locale.getDefault()) }
     val headerLabel = remember(startMs, endMs, dayCount) {
@@ -2720,6 +2733,51 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
         return group?.parent?.colorInt?.let { Color(it) } ?: defaultColor
     }
 
+    // ▼ 追加（子タスクとサブタスクを“親プロジェクト色”に解決）
+    val projectDefault = MaterialTheme.colorScheme.primary
+    val colorByTaskId by produceState<Map<Long, Color>>(
+        initialValue = emptyMap(),
+        parents
+    ) {
+        // 子タスク → プロジェクト色
+        val base = mutableMapOf<Long, Color>()
+        val projColorByChild = mutableMapOf<Long, Color>()
+        parents.forEach { g ->
+            val pc = g.parent.colorInt?.let { Color(it) } ?: projectDefault
+            g.children.forEach { ch ->
+                base[ch.id] = pc
+                projColorByChild[ch.id] = pc
+            }
+        }
+        value = base
+
+        // サブタスク →（その親子タスクの）プロジェクト色
+        val subIdsByChild = mutableMapOf<Long, Set<Long>>()
+        parents.forEach { g ->
+            g.children.forEach { ch ->
+                launch {
+                    viewModel.children(ch.id).collect { subs ->
+                        subIdsByChild[ch.id] = subs.map { it.id }.toSet()
+                        val subMap = mutableMapOf<Long, Color>()
+                        subIdsByChild.forEach { (childId, ids) ->
+                            val pc = projColorByChild[childId] ?: projectDefault
+                            ids.forEach { sid -> subMap[sid] = pc }
+                        }
+                        value = buildMap {
+                            putAll(base)
+                            putAll(subMap)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ▼ 追加：色取得ヘルパ
+    fun colorFor(taskId: Long, fallback: Color): Color =
+        colorByTaskId[taskId] ?: fallback
+
+
     data class Agg(val taskId: Long, val name: String, val color: Color, val totalMs: Long)
 
     val aggregated: List<Agg> = remember(history, activeUi, parents, cutoff, nowMs) {
@@ -2736,7 +2794,8 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
             addMs(
                 row.taskId,
                 row.taskName,
-                colorForTask(row.taskId, row.color),
+                // ▼ 変更：サブタスクも正しい“親プロジェクト色”に
+                colorFor(row.taskId, row.color),
                 max(0L, row.durationMillis)
             )
         }
@@ -2744,9 +2803,15 @@ private fun StatsScreen(viewModel: TaskViewModel, modifier: Modifier = Modifier)
         activeUi?.let { a ->
             val s = maxOf(a.startEpochMs, cutoff)
             val e = nowMs
-            addMs(a.taskId, a.taskName, colorForTask(a.taskId, defaultTaskColor), max(0L, e - s))
+            addMs(
+                a.taskId,
+                a.taskName,
+                // ▼ 変更：実行中タスクも同様に解決
+                colorFor(a.taskId, defaultTaskColor),
+                max(0L, e - s)
+            )
         }
-
+        
         map.values.sortedByDescending { it.totalMs }.toList()
     }
 

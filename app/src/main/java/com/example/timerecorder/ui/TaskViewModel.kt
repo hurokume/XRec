@@ -37,7 +37,7 @@ data class ActiveUi(
     val startEpochMs: Long
 )
 
-private const val HISTORY_PAGE_SIZE = 100
+private const val HISTORY_PAGE_SIZE = 200
 private const val DEFAULT_MERGE_THRESHOLD_SECONDS: Long = 60
 
 sealed interface UiEvent {
