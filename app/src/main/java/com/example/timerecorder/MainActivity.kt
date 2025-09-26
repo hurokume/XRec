@@ -2,6 +2,7 @@ package com.example.timerecorder
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -51,9 +52,10 @@ import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Card
@@ -150,11 +152,16 @@ private enum class AppScreen { Main, History }
 /** 名前ソートモード */
 enum class NameSort { None, Asc, Desc }
 
+enum class StatsAggMode { Project, Task, Leaf }
+
 /** Navigation のルート定義 */
 private object Routes {
     const val Root = "root"
     const val AddTask = "addTask"
 }
+
+private const val PREFS_NAME = "stats_prefs"
+private const val KEY_STATS_INCLUDED = "stats_included_leaf_ids" // CSVのLong ID群
 
 /**
  * エントリポイント Activity。
@@ -297,10 +304,43 @@ fun AppRoot(
     var clearExistingEvents by rememberSaveable { mutableStateOf(false) }
     var createMissing by rememberSaveable { mutableStateOf(true) }
 
+    var statsGroupByProject by rememberSaveable { mutableStateOf(false) }
+
     val activeUi by taskVm.activeUi.collectAsStateWithLifecycle()
 
-    var showStatsFilterDialog by rememberSaveable { mutableStateOf(false) }
-    var statsIncludedLeafIds by rememberSaveable { mutableStateOf<Set<Long>>(emptySet()) }
+    // フィルターダイアログ表示フラグ
+    var showStatsFilterDialog by remember { mutableStateOf(false) }
+    var statsIncludedLeafIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+
+    var statsAggMode by rememberSaveable { mutableStateOf(StatsAggMode.Leaf) }
+
+    // 3モード巡回
+    fun cycleStatsAgg() {
+        statsAggMode = when (statsAggMode) {
+            StatsAggMode.Project -> StatsAggMode.Task
+            StatsAggMode.Task -> StatsAggMode.Leaf
+            StatsAggMode.Leaf -> StatsAggMode.Project
+        }
+    }
+
+    // 起動時に永続値を読み出し
+    LaunchedEffect(Unit) {
+        val sp = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val csv = sp.getString(KEY_STATS_INCLUDED, null)
+        statsIncludedLeafIds = csv
+            ?.split(',')
+            ?.mapNotNull { it.toLongOrNull() }
+            ?.toSet()
+            ?: emptySet()
+    }
+
+    // 保存ヘルパ
+    fun saveStatsFilter(ids: Set<Long>) {
+        statsIncludedLeafIds = ids
+        val sp = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        sp.edit().putString(KEY_STATS_INCLUDED, ids.joinToString(",")).apply()
+    }
+
 
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -713,7 +753,12 @@ fun AppRoot(
                                             )
                                         }
                                     },
-                                    timelineSpanText = spanText
+                                    timelineSpanText = spanText,
+                                    onFilterAction = {
+                                        if (currentPage == 2) showStatsFilterDialog = true
+                                    },
+                                    onAggCycleAction = { if (currentPage == 2) cycleStatsAgg() },
+                                    aggMode = statsAggMode
                                 )
                             }
                         }
@@ -753,7 +798,8 @@ fun AppRoot(
                             },
                             nameSort = nameSort,
                             timelineRefreshTick = timelineRefreshTick,
-                            statsIncludedLeafIds = statsIncludedLeafIds
+                            statsIncludedLeafIds = statsIncludedLeafIds,
+                            aggMode = statsAggMode
                         )
 
                         AppScreen.History -> HistoryScreen(
@@ -930,12 +976,12 @@ fun AppRoot(
                             }
                         )
                     }
-                    if (showStatsFilterDialog) {
+                    if (showStatsFilterDialog && currentPage == 2) {
                         StatsFilterDialog(
                             taskVm = taskVm,
                             currentIncluded = statsIncludedLeafIds,
-                            onApply = { newIncluded ->
-                                statsIncludedLeafIds = newIncluded
+                            onApply = { ids ->
+                                saveStatsFilter(ids)
                                 showStatsFilterDialog = false
                             },
                             onDismiss = { showStatsFilterDialog = false }
@@ -1036,7 +1082,8 @@ fun MainPager(
     onTimelineBlockSelected: (Long, Long, Long, Long) -> Unit,
     nameSort: NameSort,
     timelineRefreshTick: Long,
-    statsIncludedLeafIds: Set<Long>
+    statsIncludedLeafIds: Set<Long>,
+    aggMode: StatsAggMode
 ) {
     HorizontalPager(state = pagerState, modifier = modifier.fillMaxSize()) { page ->
         when (page) {
@@ -1052,7 +1099,11 @@ fun MainPager(
             )
 
             1 -> DBTaskScreen(taskVm = taskVm, sortMode = sortMode, nameSort = nameSort)
-            2 -> StatsScreen(viewModel = taskVm, includedLeafIds = statsIncludedLeafIds)
+            2 -> StatsScreen(
+                viewModel = taskVm,
+                includedLeafIds = statsIncludedLeafIds,
+                aggMode = aggMode
+            )
         }
     }
 }
@@ -2873,11 +2924,13 @@ private fun ChannelSlider(label: String, value: Int, onChange: (Int) -> Unit) {
    右ページ：期間集計グラフ
    ========================= */
 
+@SuppressLint("DefaultLocale")
 @Composable
 private fun StatsScreen(
     viewModel: TaskViewModel,
     modifier: Modifier = Modifier,
-    includedLeafIds: Set<Long> = emptySet()
+    includedLeafIds: Set<Long> = emptySet(),
+    aggMode: StatsAggMode = StatsAggMode.Leaf
 ) {
     LaunchedEffect(Unit) { viewModel.ensureHistoryFirstPage() }
 
@@ -2928,6 +2981,48 @@ private fun StatsScreen(
         }
     }
 
+    // leaf(子/サブ) → プロジェクト情報
+    data class ProjInfo(val id: Long, val name: String, val color: Color)
+
+    val projByTaskId by produceState<Map<Long, ProjInfo>>(initialValue = emptyMap(), parents) {
+        val base = mutableMapOf<Long, ProjInfo>()
+        parents.forEach { g ->
+            val pc = g.parent.colorInt?.let { Color(it) } ?: projectDefault
+            val pInfo = ProjInfo(g.parent.id, g.parent.name, pc)
+            g.children.forEach { ch ->
+                base[ch.id] = pInfo
+                launch {
+                    viewModel.children(ch.id).collect { subs ->
+                        subs.forEach { sub -> base[sub.id] = pInfo }
+                        value = base.toMap()
+                    }
+                }
+            }
+        }
+        value = base.toMap()
+    }
+
+    // leaf(子/サブ) → 子タスク情報（タスク集計用）
+    data class ChildInfo(val id: Long, val name: String, val projColor: Color)
+
+    val childByLeafId by produceState<Map<Long, ChildInfo>>(initialValue = emptyMap(), parents) {
+        val base = mutableMapOf<Long, ChildInfo>()
+        parents.forEach { g ->
+            val pc = g.parent.colorInt?.let { Color(it) } ?: projectDefault
+            g.children.forEach { ch ->
+                val cInfo = ChildInfo(ch.id, ch.name, pc)
+                base[ch.id] = cInfo
+                launch {
+                    viewModel.children(ch.id).collect { subs ->
+                        subs.forEach { sub -> base[sub.id] = cInfo }
+                        value = base.toMap()
+                    }
+                }
+            }
+        }
+        value = base.toMap()
+    }
+
     fun colorFor(taskId: Long, fallback: Color): Color = colorByTaskId[taskId] ?: fallback
 
     // フィルター（空集合＝全許可）
@@ -2938,39 +3033,48 @@ private fun StatsScreen(
 
     // ★ フィルター変更で再計算されるように key に includedLeafIds を追加
     val aggregated: List<Agg> = remember(
-        history, activeUi, parents, cutoff, nowMs, includedLeafIds
+        history, activeUi, parents, cutoff, nowMs, includedLeafIds, aggMode
     ) {
         val map = LinkedHashMap<Long, Agg>()
 
-        fun addMs(taskId: Long, name: String, color: Color, ms: Long) {
+        fun addMs(keyId: Long, name: String, color: Color, ms: Long) {
             if (ms <= 0L) return
-            val cur = map[taskId]
-            if (cur == null) map[taskId] = Agg(taskId, name, color, ms)
-            else map[taskId] = cur.copy(totalMs = cur.totalMs + ms)
+            val cur = map[keyId]
+            if (cur == null) map[keyId] = Agg(keyId, name, color, ms)
+            else map[keyId] = cur.copy(totalMs = cur.totalMs + ms)
         }
 
-        history.filter { it.pressedAt >= cutoff }
-            .forEach { row ->
-                if (shouldInclude(row.taskId)) {
-                    addMs(
-                        row.taskId,
-                        row.taskName,
-                        colorFor(row.taskId, row.color), // ★ 正しい色解決を使用
-                        max(0L, row.durationMillis)
-                    )
+        fun keyFor(taskId: Long, taskName: String, taskColor: Color): Triple<Long, String, Color> {
+            return when (aggMode) {
+                StatsAggMode.Project -> {
+                    val p = projByTaskId[taskId]
+                    if (p != null) Triple(p.id, p.name, p.color)
+                    else Triple(taskId, taskName, colorFor(taskId, taskColor))
                 }
+
+                StatsAggMode.Task -> {
+                    val c = childByLeafId[taskId]
+                    if (c != null) Triple(c.id, c.name, c.projColor)
+                    else Triple(taskId, taskName, colorFor(taskId, taskColor))
+                }
+
+                StatsAggMode.Leaf -> Triple(taskId, taskName, colorFor(taskId, taskColor))
             }
+        }
+
+        history.filter { it.pressedAt >= cutoff }.forEach { row ->
+            if (shouldInclude(row.taskId)) {
+                val (id, name, color) = keyFor(row.taskId, row.taskName, row.color)
+                addMs(id, name, color, max(0L, row.durationMillis))
+            }
+        }
 
         activeUi?.let { a ->
             if (shouldInclude(a.taskId)) {
                 val s = maxOf(a.startEpochMs, cutoff)
                 val e = nowMs
-                addMs(
-                    a.taskId,
-                    a.taskName,
-                    colorFor(a.taskId, defaultTaskColor), // ★ 正しい色解決を使用
-                    max(0L, e - s)
-                )
+                val (id, name, color) = keyFor(a.taskId, a.taskName, defaultTaskColor)
+                addMs(id, name, color, max(0L, e - s))
             }
         }
 
@@ -2978,11 +3082,13 @@ private fun StatsScreen(
     }
 
     val totalAll = aggregated.sumOf { it.totalMs }.coerceAtLeast(1L)
+    val scroll = rememberScrollState()
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .padding(16.dp)
+            .verticalScroll(scroll)
     ) {
         Text("集計", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(12.dp))
@@ -3021,19 +3127,17 @@ private fun StatsScreen(
                 }
             }
         } else {
-            val top = aggregated.take(8)
             BarChart(
-                entries = top.map { it.name to it.totalMs.toFloat() },
-                colors = top.map { it.color },
+                entries = aggregated.map { it.name to it.totalMs.toFloat() },
+                colors = aggregated.map { it.color },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1.4f)
+                    .fillMaxWidth() // ← aspectRatio は外す（内容ぶんだけ縦に伸びる）
             )
 
             Spacer(Modifier.height(12.dp))
 
             Column {
-                top.forEach { a ->
+                aggregated.forEach { a ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -3057,10 +3161,13 @@ private fun StatsScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        val minutes = (a.totalMs / 1000 / 60).toInt()
-                        val ratio = (a.totalMs.toDouble() / totalAll.toDouble() * 100.0)
+                        val totalSec = (a.totalMs / 1000).toInt()
+                        val hh = totalSec / 3600
+                        val mm = (totalSec % 3600) / 60
+                        val pct =
+                            ((a.totalMs.toDouble() / totalAll.toDouble()) * 100.0).roundToInt()
                         Text(
-                            "${minutes}分  (${ratio.roundToInt()}%)",
+                            String.format("%d:%02d (%d%%)", hh, mm, pct),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -3246,7 +3353,10 @@ fun AdaptiveBottomBar(
     onDeleteAction: () -> Unit = {},
     showExtraIcon: Boolean = false,
     onExtraAction: () -> Unit = {},
-    timelineSpanText: String? = null
+    timelineSpanText: String? = null,
+    onFilterAction: () -> Unit = {},
+    onAggCycleAction: () -> Unit = {},
+    aggMode: StatsAggMode = StatsAggMode.Leaf
 ) {
     when (currentPage) {
         0 -> {
@@ -3300,9 +3410,18 @@ fun AdaptiveBottomBar(
 
         2 -> {
             BottomAppBar {
+                IconButton(onClick = onFilterAction) {
+                    Icon(Icons.Filled.FilterList, contentDescription = "Filter")
+                }
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = onRightAction) {
-                    Icon(Icons.Filled.Settings, contentDescription = "Filter")
+                // 3モード巡回（アイコンは共通、CD に現在モード名）
+                IconButton(onClick = onAggCycleAction) {
+                    val cd = when (aggMode) {
+                        StatsAggMode.Project -> "Aggregate: Project"
+                        StatsAggMode.Task -> "Aggregate: Task"
+                        StatsAggMode.Leaf -> "Aggregate: All (leaf)"
+                    }
+                    Icon(Icons.Filled.Dashboard, contentDescription = cd)
                 }
             }
         }
