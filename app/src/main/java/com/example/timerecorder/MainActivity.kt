@@ -2941,7 +2941,13 @@ private fun StatsScreen(
     var days by rememberSaveable { mutableIntStateOf(7) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    val cutoff = remember(nowMs, days) { nowMs - days * 24L * 60L * 60L * 1000L }
+    val dayMs = 24L * 60L * 60L * 1000L
+    val startOfToday = remember(nowMs) { midnightOf(nowMs) }
+    val windowEnd = startOfToday                       // 集計の上端（当日0:00）＝当日は除外
+    val windowStart = remember(startOfToday, days) {   // 下端（昨日から n 日前まで）
+        startOfToday - days * dayMs
+    }
+
     val defaultTaskColor = MaterialTheme.colorScheme.primary
 
     // 親プロジェクト色の解決（子・サブタスクは親プロジェクト色で表示）
@@ -3033,7 +3039,7 @@ private fun StatsScreen(
 
     // ★ フィルター変更で再計算されるように key に includedLeafIds を追加
     val aggregated: List<Agg> = remember(
-        history, activeUi, parents, cutoff, nowMs, includedLeafIds, aggMode
+        history, activeUi, parents, windowStart, windowEnd, includedLeafIds, aggMode
     ) {
         val map = LinkedHashMap<Long, Agg>()
 
@@ -3062,19 +3068,37 @@ private fun StatsScreen(
             }
         }
 
-        history.filter { it.pressedAt >= cutoff }.forEach { row ->
-            if (shouldInclude(row.taskId)) {
-                val (id, name, color) = keyFor(row.taskId, row.taskName, row.color)
-                addMs(id, name, color, max(0L, row.durationMillis))
+        fun overlapMs(s: Long, e: Long, ws: Long, we: Long): Long {
+            val cs = maxOf(s, ws)
+            val ce = minOf(e, we)
+            return (ce - cs).coerceAtLeast(0L)
+        }
+
+        history.forEach { row ->
+            val s = row.pressedAt
+            val e = row.pressedAt + max(0L, row.durationMillis)
+            val ms = overlapMs(s, e, windowStart, windowEnd) // 期間 [windowStart, windowEnd) にクランプ
+            if (ms > 0 && shouldInclude(row.taskId)) {
+                addMs(
+                    row.taskId,
+                    row.taskName,
+                    colorFor(row.taskId, row.color),
+                    ms
+                )
             }
         }
 
         activeUi?.let { a ->
-            if (shouldInclude(a.taskId)) {
-                val s = maxOf(a.startEpochMs, cutoff)
-                val e = nowMs
-                val (id, name, color) = keyFor(a.taskId, a.taskName, defaultTaskColor)
-                addMs(id, name, color, max(0L, e - s))
+            val s = a.startEpochMs
+            val e = windowEnd // “当日”は集計しないため上端は startOfToday
+            val ms = overlapMs(s, e, windowStart, windowEnd)
+            if (ms > 0 && shouldInclude(a.taskId)) {
+                addMs(
+                    a.taskId,
+                    a.taskName,
+                    colorFor(a.taskId, defaultTaskColor),
+                    ms
+                )
             }
         }
 
@@ -3083,6 +3107,13 @@ private fun StatsScreen(
 
     val totalAll = aggregated.sumOf { it.totalMs }.coerceAtLeast(1L)
     val scroll = rememberScrollState()
+
+    fun formatHhMm(ms: Long): String {
+        val totalMin = (ms / 60_000L).toInt()
+        val hh = totalMin / 60
+        val mm = totalMin % 60
+        return String.format("%02d:%02d", hh, mm)
+    }
 
     Column(
         modifier = modifier
@@ -3127,52 +3158,15 @@ private fun StatsScreen(
                 }
             }
         } else {
+            val items = aggregated
+
             BarChart(
-                entries = aggregated.map { it.name to it.totalMs.toFloat() },
-                colors = aggregated.map { it.color },
+                entries = items.map { it.name to it.totalMs.toFloat() },
+                colors = items.map { it.color },
                 modifier = Modifier
-                    .fillMaxWidth() // ← aspectRatio は外す（内容ぶんだけ縦に伸びる）
+                    .fillMaxWidth()
+                    .weight(1f)   // 余白いっぱいに確保（中でスクロール）
             )
-
-            Spacer(Modifier.height(12.dp))
-
-            Column {
-                aggregated.forEach { a ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(14.dp)
-                                .background(a.color, RoundedCornerShape(3.dp))
-                                .border(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.outline,
-                                    RoundedCornerShape(3.dp)
-                                )
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            a.name,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        val totalSec = (a.totalMs / 1000).toInt()
-                        val hh = totalSec / 3600
-                        val mm = (totalSec % 3600) / 60
-                        val pct =
-                            ((a.totalMs.toDouble() / totalAll.toDouble()) * 100.0).roundToInt()
-                        Text(
-                            String.format("%d:%02d (%d%%)", hh, mm, pct),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
         }
     }
 }
@@ -3198,16 +3192,26 @@ private fun BarChart(
     barCornerRadius: Float = 16f
 ) {
     val maxVal = (entries.maxOfOrNull { it.second } ?: 1f).coerceAtLeast(1f)
-    LocalDensity.current
+    val totalVal = entries.sumOf { it.second.toDouble() }.coerceAtLeast(1.0)
+    val scroll = rememberScrollState()
 
-    Column(modifier = modifier) {
+    fun hhmm(ms: Float): String {
+        val totalSec = (ms / 1000f).toLong().coerceAtLeast(0)
+        val h = totalSec / 3600
+        val m = (totalSec % 3600) / 60
+        return String.format("%02d:%02d", h, m)
+    }
+
+    Column(modifier = modifier.verticalScroll(scroll)) {
         entries.forEachIndexed { index, (label, value) ->
-            val ratio = value / maxVal
+            val ratio = (value / maxVal).coerceIn(0f, 1f)
             val barColor = colors.getOrNull(index) ?: MaterialTheme.colorScheme.primary
+            val pct = ((value / totalVal) * 100.0).roundToInt()
+            val displayLabel = "$label (${hhmm(value)}, $pct %)"
 
             Column(Modifier.padding(vertical = 6.dp)) {
                 Text(
-                    text = label,
+                    text = displayLabel,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
