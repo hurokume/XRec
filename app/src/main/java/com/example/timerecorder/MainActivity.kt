@@ -56,6 +56,7 @@ import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Card
@@ -122,6 +123,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -131,6 +133,9 @@ import androidx.navigation.navArgument
 import com.example.timerecorder.ui.HistoryItemUi
 import com.example.timerecorder.ui.TaskViewModel
 import com.example.timerecorder.ui.UiEvent
+import com.example.timerecorder.data.StatsAggregator
+import com.example.timerecorder.data.StatsRecord
+import com.example.timerecorder.data.StatsTarget
 import com.example.timerecorder.ui.theme.TimeRecorderTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -303,6 +308,8 @@ fun AppRoot(
     var importTsvText by rememberSaveable { mutableStateOf("") }
     var clearExistingEvents by rememberSaveable { mutableStateOf(false) }
     var createMissing by rememberSaveable { mutableStateOf(true) }
+
+    var showExportTsvDialog by rememberSaveable { mutableStateOf(false) }
 
     var statsGroupByProject by rememberSaveable { mutableStateOf(false) }
 
@@ -516,31 +523,7 @@ fun AppRoot(
                                 }
 
                                 "export_tsv" -> {
-                                    scope.launch {
-                                        try {
-                                            val text = taskVm.exportEventsTsv()
-                                            val send = Intent(Intent.ACTION_SEND).apply {
-                                                type = "text/tab-separated-values"
-                                                putExtra(Intent.EXTRA_TEXT, text)
-                                                putExtra(
-                                                    Intent.EXTRA_SUBJECT,
-                                                    "TimeRecorder Events Export (TSV)"
-                                                )
-                                            }
-                                            ctx.startActivity(
-                                                Intent.createChooser(
-                                                    send,
-                                                    "Export records as TSV"
-                                                )
-                                            )
-                                        } catch (e: Exception) {
-                                            Toast.makeText(
-                                                ctx,
-                                                "Export TSV 失敗: ${e.message}",
-                                                Toast.LENGTH_LONG
-                                            ).show()
-                                        }
-                                    }
+                                    showExportTsvDialog = true
                                 }
 
                                 "import_tsv" -> {
@@ -642,6 +625,14 @@ fun AppRoot(
                                 )
                             },
                             actions = {
+                                if (activeUi != null) {
+                                    IconButton(onClick = { taskVm.onStopPressed() }) {
+                                        Icon(
+                                            Icons.Filled.StopCircle,
+                                            contentDescription = "Stop active task"
+                                        )
+                                    }
+                                }
                                 if (screen == AppScreen.Main && sortMode) {
                                     IconButton(onClick = { sortMode = false }) {
                                         Icon(
@@ -941,6 +932,49 @@ fun AppRoot(
                             dismissButton = {
                                 TextButton(onClick = { showImportTsvDialog = false }) {
                                     Text("キャンセル")
+                                }
+                            }
+                        )
+                    }
+                    if (showExportTsvDialog) {
+                        ExportTsvRangeDialog(
+                            taskVm = taskVm,
+                            onDismiss = { showExportTsvDialog = false },
+                            onExport = { startMs, endExclusiveMs ->
+                                scope.launch {
+                                    try {
+                                        val text = taskVm.exportEventsTsv(startMs, endExclusiveMs)
+                                        val uri = writeTsvToCacheAndGetUri(
+                                            context = ctx,
+                                            content = text,
+                                            startMs = startMs,
+                                            endExclusiveMs = endExclusiveMs
+                                        )
+                                        val send = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/tab-separated-values"
+                                            putExtra(Intent.EXTRA_STREAM, uri)
+                                            putExtra(
+                                                Intent.EXTRA_SUBJECT,
+                                                "TimeRecorder Events Export (TSV)"
+                                            )
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            clipData = android.content.ClipData.newUri(
+                                                ctx.contentResolver,
+                                                "TimeRecorder TSV",
+                                                uri
+                                            )
+                                        }
+                                        ctx.startActivity(
+                                            Intent.createChooser(send, "Export records as TSV")
+                                        )
+                                        showExportTsvDialog = false
+                                    } catch (e: Exception) {
+                                        Toast.makeText(
+                                            ctx,
+                                            "Export TSV 失敗: ${e.message}",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
                                 }
                             }
                         )
@@ -2932,9 +2966,7 @@ private fun StatsScreen(
     includedLeafIds: Set<Long> = emptySet(),
     aggMode: StatsAggMode = StatsAggMode.Leaf
 ) {
-    LaunchedEffect(Unit) { viewModel.ensureHistoryFirstPage() }
-
-    val history by viewModel.historyItems.collectAsStateWithLifecycle()
+    val statsItems by viewModel.statsItems.collectAsStateWithLifecycle()
     val activeUi by viewModel.activeUi.collectAsStateWithLifecycle()
     val parents by viewModel.parents.collectAsStateWithLifecycle()
 
@@ -2946,6 +2978,10 @@ private fun StatsScreen(
     val windowEnd = startOfToday                       // 集計の上端（当日0:00）＝当日は除外
     val windowStart = remember(startOfToday, days) {   // 下端（昨日から n 日前まで）
         startOfToday - days * dayMs
+    }
+
+    LaunchedEffect(windowStart, windowEnd) {
+        viewModel.loadStatsRange(windowStart, windowEnd)
     }
 
     val defaultTaskColor = MaterialTheme.colorScheme.primary
@@ -3031,78 +3067,76 @@ private fun StatsScreen(
 
     fun colorFor(taskId: Long, fallback: Color): Color = colorByTaskId[taskId] ?: fallback
 
-    // フィルター（空集合＝全許可）
-    val includeAll = includedLeafIds.isEmpty()
-    fun shouldInclude(taskId: Long) = includeAll || includedLeafIds.contains(taskId)
-
     data class Agg(val taskId: Long, val name: String, val color: Color, val totalMs: Long)
 
-    // ★ フィルター変更で再計算されるように key に includedLeafIds を追加
     val aggregated: List<Agg> = remember(
-        history, activeUi, parents, windowStart, windowEnd, includedLeafIds, aggMode
+        statsItems,
+        activeUi,
+        parents,
+        windowStart,
+        windowEnd,
+        includedLeafIds,
+        aggMode,
+        projByTaskId,
+        childByLeafId,
+        colorByTaskId
     ) {
-        val map = LinkedHashMap<Long, Agg>()
-
-        fun addMs(keyId: Long, name: String, color: Color, ms: Long) {
-            if (ms <= 0L) return
-            val cur = map[keyId]
-            if (cur == null) map[keyId] = Agg(keyId, name, color, ms)
-            else map[keyId] = cur.copy(totalMs = cur.totalMs + ms)
-        }
-
-        fun keyFor(taskId: Long, taskName: String, taskColor: Color): Triple<Long, String, Color> {
-            return when (aggMode) {
-                StatsAggMode.Project -> {
-                    val p = projByTaskId[taskId]
-                    if (p != null) Triple(p.id, p.name, p.color)
-                    else Triple(taskId, taskName, colorFor(taskId, taskColor))
-                }
-
-                StatsAggMode.Task -> {
-                    val c = childByLeafId[taskId]
-                    if (c != null) Triple(c.id, c.name, c.projColor)
-                    else Triple(taskId, taskName, colorFor(taskId, taskColor))
-                }
-
-                StatsAggMode.Leaf -> Triple(taskId, taskName, colorFor(taskId, taskColor))
+        val records = buildList {
+            statsItems.forEach { row ->
+                add(
+                    StatsRecord(
+                        taskId = row.taskId,
+                        taskName = row.taskName,
+                        startMs = row.pressedAt,
+                        endMs = row.pressedAt + max(0L, row.durationMillis)
+                    )
+                )
             }
-        }
-
-        fun overlapMs(s: Long, e: Long, ws: Long, we: Long): Long {
-            val cs = maxOf(s, ws)
-            val ce = minOf(e, we)
-            return (ce - cs).coerceAtLeast(0L)
-        }
-
-        history.forEach { row ->
-            val s = row.pressedAt
-            val e = row.pressedAt + max(0L, row.durationMillis)
-            val ms = overlapMs(s, e, windowStart, windowEnd) // 期間 [windowStart, windowEnd) にクランプ
-            if (ms > 0 && shouldInclude(row.taskId)) {
-                addMs(
-                    row.taskId,
-                    row.taskName,
-                    colorFor(row.taskId, row.color),
-                    ms
+            activeUi?.let { active ->
+                add(
+                    StatsRecord(
+                        taskId = active.taskId,
+                        taskName = active.taskName,
+                        startMs = active.startEpochMs,
+                        endMs = windowEnd
+                    )
                 )
             }
         }
 
-        activeUi?.let { a ->
-            val s = a.startEpochMs
-            val e = windowEnd // “当日”は集計しないため上端は startOfToday
-            val ms = overlapMs(s, e, windowStart, windowEnd)
-            if (ms > 0 && shouldInclude(a.taskId)) {
-                addMs(
-                    a.taskId,
-                    a.taskName,
-                    colorFor(a.taskId, defaultTaskColor),
-                    ms
-                )
-            }
-        }
+        StatsAggregator.aggregate(
+            records = records,
+            windowStartMs = windowStart,
+            windowEndMs = windowEnd,
+            includedLeafIds = includedLeafIds
+        ) { record ->
+            when (aggMode) {
+                StatsAggMode.Project -> projByTaskId[record.taskId]
+                    ?.let { StatsTarget(it.id, it.name) }
+                    ?: StatsTarget(record.taskId, record.taskName)
 
-        map.values.sortedByDescending { it.totalMs }.toList()
+                StatsAggMode.Task -> childByLeafId[record.taskId]
+                    ?.let { StatsTarget(it.id, it.name) }
+                    ?: StatsTarget(record.taskId, record.taskName)
+
+                StatsAggMode.Leaf -> StatsTarget(record.taskId, record.taskName)
+            }
+        }.map { total ->
+            val color = when (aggMode) {
+                StatsAggMode.Project -> parents
+                    .firstOrNull { it.parent.id == total.id }
+                    ?.parent?.colorInt?.let { Color(it) }
+                    ?: colorFor(total.id, defaultTaskColor)
+
+                StatsAggMode.Task -> parents
+                    .firstOrNull { group -> group.children.any { it.id == total.id } }
+                    ?.parent?.colorInt?.let { Color(it) }
+                    ?: colorFor(total.id, defaultTaskColor)
+
+                StatsAggMode.Leaf -> colorFor(total.id, defaultTaskColor)
+            }
+            Agg(total.id, total.name, color, total.totalMs)
+        }
     }
 
     val totalAll = aggregated.sumOf { it.totalMs }.coerceAtLeast(1L)
@@ -3252,15 +3286,19 @@ fun HistoryScreen(modifier: Modifier = Modifier, viewModel: TaskViewModel) {
     val endReached by viewModel.historyEndReached.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
 
-    LaunchedEffect(items.size) {
-        if (items.isEmpty()) return@LaunchedEffect
-        val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-        val total = listState.layoutInfo.totalItemsCount
-        if (!isLoading && !endReached && last >= total - 5) {
-            scope.launch { viewModel.loadNextHistoryPage() }
+    LaunchedEffect(listState, isLoading, endReached) {
+        snapshotFlow {
+            val layout = listState.layoutInfo
+            val lastVisible = layout.visibleItemsInfo.lastOrNull()?.index ?: -1
+            layout.totalItemsCount > 0 && lastVisible >= layout.totalItemsCount - 5
         }
+            .distinctUntilChanged()
+            .collectLatest { nearEnd ->
+                if (nearEnd && !isLoading && !endReached) {
+                    viewModel.loadNextHistoryPage()
+                }
+            }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -3964,6 +4002,244 @@ private fun Preview_TasksMain() {
                     }
                 }
                 Spacer(Modifier.height(12.dp))
+            }
+        }
+    }
+}
+
+private fun writeTsvToCacheAndGetUri(
+    context: Context,
+    content: String,
+    startMs: Long,
+    endExclusiveMs: Long
+): android.net.Uri {
+    val dir = java.io.File(context.cacheDir, "exports").apply { mkdirs() }
+    val fmt = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.getDefault())
+    val endForName = (endExclusiveMs - 1L).coerceAtLeast(startMs)
+    val file = java.io.File(
+        dir,
+        "timerecorder_${fmt.format(java.util.Date(startMs))}_${fmt.format(java.util.Date(endForName))}.tsv"
+    )
+    file.writeText(content, Charsets.UTF_8)
+    return FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        file
+    )
+}
+
+private fun monthStartMillis(offsetMonths: Int): Long {
+    return java.util.Calendar.getInstance().apply {
+        set(java.util.Calendar.DAY_OF_MONTH, 1)
+        set(java.util.Calendar.HOUR_OF_DAY, 0)
+        set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+        add(java.util.Calendar.MONTH, offsetMonths)
+    }.timeInMillis
+}
+
+private fun monthLabel(monthStartMs: Long): String {
+    return java.text.SimpleDateFormat("yyyy/MM", java.util.Locale.getDefault())
+        .format(java.util.Date(monthStartMs))
+}
+
+private fun dayStartMillis(ms: Long): Long {
+    return java.util.Calendar.getInstance().apply {
+        timeInMillis = ms
+        set(java.util.Calendar.HOUR_OF_DAY, 0)
+        set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+    }.timeInMillis
+}
+
+@Composable
+private fun ExportTsvRangeDialog(
+    taskVm: TaskViewModel,
+    onDismiss: () -> Unit,
+    onExport: (Long, Long) -> Unit
+) {
+    var monthOffset by rememberSaveable { mutableIntStateOf(0) }
+    var selectedStart by rememberSaveable { mutableStateOf<Long?>(null) }
+    var selectedEnd by rememberSaveable { mutableStateOf<Long?>(null) }
+
+    val monthStart = remember(monthOffset) { monthStartMillis(monthOffset) }
+    val monthEndExclusive = remember(monthStart) {
+        java.util.Calendar.getInstance().apply {
+            timeInMillis = monthStart
+            add(java.util.Calendar.MONTH, 1)
+        }.timeInMillis
+    }
+
+    val markedDays by produceState<Set<Long>>(initialValue = emptySet(), monthStart) {
+        value = taskVm.getDaysWithData(monthStart, monthEndExclusive)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Export (TSV)") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("期間をカレンダーから選択してください。点が付いた日には記録があります。")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { monthOffset -= 1 }) {
+                        Icon(Icons.Filled.ChevronLeft, contentDescription = "Prev month")
+                    }
+                    Text(monthLabel(monthStart), style = MaterialTheme.typography.titleMedium)
+                    IconButton(onClick = { monthOffset += 1 }) {
+                        Icon(Icons.Filled.ChevronRight, contentDescription = "Next month")
+                    }
+                }
+                ExportCalendarMonth(
+                    monthStartMs = monthStart,
+                    markedDays = markedDays,
+                    selectedStart = selectedStart,
+                    selectedEnd = selectedEnd,
+                    onDayClick = { clicked ->
+                        when {
+                            selectedStart == null || (selectedStart != null && selectedEnd != null) -> {
+                                selectedStart = clicked
+                                selectedEnd = null
+                            }
+
+                            clicked < selectedStart!! -> {
+                                selectedStart = clicked
+                            }
+
+                            else -> {
+                                selectedEnd = clicked
+                            }
+                        }
+                    }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = selectedStart != null && selectedEnd != null,
+                onClick = {
+                    val start = dayStartMillis(selectedStart!!)
+                    val endExclusive = java.util.Calendar.getInstance().apply {
+                        timeInMillis = dayStartMillis(selectedEnd!!)
+                        add(java.util.Calendar.DAY_OF_MONTH, 1)
+                    }.timeInMillis
+                    onExport(start, endExclusive)
+                }
+            ) { Text("エクスポート") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("キャンセル") }
+        }
+    )
+}
+
+@Composable
+private fun ExportCalendarMonth(
+    monthStartMs: Long,
+    markedDays: Set<Long>,
+    selectedStart: Long?,
+    selectedEnd: Long?,
+    onDayClick: (Long) -> Unit
+) {
+    val monthCal = remember(monthStartMs) {
+        java.util.Calendar.getInstance().apply { timeInMillis = monthStartMs }
+    }
+    val firstDayOfWeek = monthCal.get(java.util.Calendar.DAY_OF_WEEK)
+    val offset = (firstDayOfWeek + 5) % 7
+    val daysInMonth = monthCal.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+    val weekLabels = listOf("月", "火", "水", "木", "金", "土", "日")
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth()) {
+            weekLabels.forEach { label ->
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(label, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
+
+        val totalCells = ((offset + daysInMonth + 6) / 7) * 7
+        for (row in 0 until totalCells / 7) {
+            Row(Modifier.fillMaxWidth()) {
+                for (col in 0 until 7) {
+                    val index = row * 7 + col
+                    val day = index - offset + 1
+                    if (day !in 1..daysInMonth) {
+                        Spacer(
+                            modifier = Modifier
+                                .weight(1f)
+                                .aspectRatio(1f)
+                                .padding(2.dp)
+                        )
+                    } else {
+                        val cal = java.util.Calendar.getInstance().apply {
+                            timeInMillis = monthStartMs
+                            set(java.util.Calendar.DAY_OF_MONTH, day)
+                        }
+                        val dayMs = dayStartMillis(cal.timeInMillis)
+                        val start = selectedStart?.let { dayStartMillis(it) }
+                        val end = selectedEnd?.let { dayStartMillis(it) }
+                        val isBoundary = dayMs == start || dayMs == end
+                        val inRange = start != null && end != null && dayMs in start..end
+                        val hasData = markedDays.contains(dayMs)
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .aspectRatio(1f)
+                                .padding(2.dp)
+                                .background(
+                                    color = when {
+                                        isBoundary -> MaterialTheme.colorScheme.primary
+                                        inRange -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                                        else -> Color.Transparent
+                                    },
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .border(
+                                    width = if (hasData) 1.dp else 0.dp,
+                                    color = if (hasData) MaterialTheme.colorScheme.tertiary else Color.Transparent,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .clickable { onDayClick(dayMs) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = day.toString(),
+                                    color = if (isBoundary) {
+                                        MaterialTheme.colorScheme.onPrimary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    }
+                                )
+                                if (hasData) {
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(top = 2.dp)
+                                            .size(6.dp)
+                                            .background(
+                                                color = if (isBoundary) {
+                                                    MaterialTheme.colorScheme.onPrimary
+                                                } else {
+                                                    MaterialTheme.colorScheme.tertiary
+                                                },
+                                                shape = RoundedCornerShape(50)
+                                            )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

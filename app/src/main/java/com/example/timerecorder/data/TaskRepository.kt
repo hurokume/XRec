@@ -61,60 +61,74 @@ class TaskRepository(
         mergeThresholdSec: Long = 60
     ): SwitchResult = db.withTransaction {
         val active = sessionDao.getActive()
-
-        if (active?.taskId == newTaskId) return@withTransaction SwitchResult.NoChange
-
-        if (active == null) {
-            val start = now
-            sessionDao.insert(
-                TaskSessionEntity(
-                    taskId = newTaskId,
-                    startedAt = start,
-                    endedAt = null
-                )
-            )
-            taskDao.upsertActive(ActiveTaskEntity(taskId = newTaskId, startedAtEpochMs = start))
-            return@withTransaction SwitchResult.StartedFresh(startedAt = start)
-        }
-
-        val durationMs = now - active.startedAt
         val thresholdMs = mergeThresholdSec * 1000L
+        val decision = TaskSwitchPolicy.decide(
+            currentTaskId = active?.taskId,
+            currentStartedAt = active?.startedAt,
+            newTaskId = newTaskId,
+            nowMs = now,
+            mergeThresholdMs = thresholdMs
+        )
 
-        if (durationMs <= thresholdMs) {
-            val mergedStart = active.startedAt
-            sessionDao.deleteById(active.id)
-            sessionDao.insert(
-                TaskSessionEntity(
-                    taskId = newTaskId,
-                    startedAt = mergedStart,
-                    endedAt = null
+        when (decision.action) {
+            TaskSwitchAction.NoChange -> SwitchResult.NoChange
+
+            TaskSwitchAction.StartFresh -> {
+                sessionDao.insert(
+                    TaskSessionEntity(
+                        taskId = newTaskId,
+                        startedAt = now,
+                        endedAt = null
+                    )
                 )
-            )
-            taskDao.upsertActive(
-                ActiveTaskEntity(
-                    taskId = newTaskId,
-                    startedAtEpochMs = mergedStart
+                taskDao.upsertActive(
+                    ActiveTaskEntity(taskId = newTaskId, startedAtEpochMs = now)
                 )
-            )
-            SwitchResult.MergedShort(prevDurationMs = durationMs, thresholdMs = thresholdMs)
-        } else {
-            sessionDao.updateEnd(active.id, now)
-            taskDao.insertEvent(
-                TaskEventEntity(
-                    taskId = active.taskId,
-                    pressedAtEpochMs = active.startedAt,
-                    durationMillis = (now - active.startedAt).coerceAtLeast(0L)
+                SwitchResult.StartedFresh(startedAt = now)
+            }
+
+            TaskSwitchAction.MergeShort -> {
+                val current = checkNotNull(active)
+                val mergedStart = current.startedAt
+                sessionDao.deleteById(current.id)
+                sessionDao.insert(
+                    TaskSessionEntity(
+                        taskId = newTaskId,
+                        startedAt = mergedStart,
+                        endedAt = null
+                    )
                 )
-            )
-            sessionDao.insert(
-                TaskSessionEntity(
-                    taskId = newTaskId,
-                    startedAt = now,
-                    endedAt = null
+                taskDao.upsertActive(
+                    ActiveTaskEntity(taskId = newTaskId, startedAtEpochMs = mergedStart)
                 )
-            )
-            taskDao.upsertActive(ActiveTaskEntity(taskId = newTaskId, startedAtEpochMs = now))
-            SwitchResult.SwitchedNormal(prevDurationMs = durationMs)
+                SwitchResult.MergedShort(
+                    prevDurationMs = decision.previousDurationMs,
+                    thresholdMs = thresholdMs
+                )
+            }
+
+            TaskSwitchAction.SwitchNormal -> {
+                val current = checkNotNull(active)
+                sessionDao.updateEnd(current.id, now)
+                taskDao.insertEvent(
+                    TaskEventEntity(
+                        taskId = current.taskId,
+                        pressedAtEpochMs = current.startedAt,
+                        durationMillis = decision.previousDurationMs
+                    )
+                )
+                sessionDao.insert(
+                    TaskSessionEntity(
+                        taskId = newTaskId,
+                        startedAt = now,
+                        endedAt = null
+                    )
+                )
+                taskDao.upsertActive(
+                    ActiveTaskEntity(taskId = newTaskId, startedAtEpochMs = now)
+                )
+                SwitchResult.SwitchedNormal(prevDurationMs = decision.previousDurationMs)
+            }
         }
     }
 
@@ -138,14 +152,11 @@ class TaskRepository(
         return taskDao.insertTask(TaskEntity(name = name, parentId = parentId, sortOrder = next))
     }
 
-    suspend fun deleteProject(parentId: Long) {
-        taskDao.deleteChildren(parentId)
-        taskDao.deleteTaskById(parentId)
-    }
+    suspend fun deleteProject(parentId: Long) = deleteTaskTree(parentId)
 
     suspend fun changeColor(id: Long, colorInt: Int) = taskDao.updateTaskColor(id, colorInt)
     suspend fun renameTask(taskId: Long, newName: String) = taskDao.updateTaskName(taskId, newName)
-    suspend fun deleteTaskById(taskId: Long) = taskDao.deleteTaskById(taskId)
+    suspend fun deleteTaskById(taskId: Long) = deleteTaskTree(taskId)
     suspend fun updateSortOrdersForParent(parentId: Long, idsInOrder: List<Long>) =
         taskDao.updateSortOrdersForParent(parentId, idsInOrder)
 
@@ -163,20 +174,57 @@ class TaskRepository(
         taskDao.getEventsInRange(startMs, endMs)
 
     // ---------------- Export / Import ----------------
-    suspend fun exportTasksJson(): String {
-        val groups = observeTree().first()
-        val arr = JSONArray()
-        groups.forEach { g ->
-            val obj = JSONObject().apply {
-                put("name", g.parent.name)
-                g.parent.colorInt?.let { put("color", it) }
-                val kids = JSONArray()
-                g.children.forEach { c -> kids.put(JSONObject().put("name", c.name)) }
-                put("children", kids)
-            }
-            arr.put(obj)
+    private suspend fun collectTaskTreeIds(rootId: Long): List<Long> {
+        val result = mutableListOf<Long>()
+        val visited = mutableSetOf<Long>()
+
+        suspend fun visit(taskId: Long) {
+            if (!visited.add(taskId)) return
+            result += taskId
+            taskDao.getChildren(taskId).forEach { child -> visit(child.id) }
         }
-        return arr.toString(2)
+
+        visit(rootId)
+        return result
+    }
+
+    private suspend fun deleteTaskTreeInCurrentTransaction(rootId: Long) {
+        val ids = collectTaskTreeIds(rootId)
+        if (ids.isEmpty()) return
+
+        val activeTaskId = taskDao.getActiveOrNull()?.taskId
+        if (activeTaskId != null && activeTaskId in ids) {
+            taskDao.clearActive()
+        }
+
+        // 子孫から削除することで、自己参照の外部キーを追加した場合にも安全に動作する。
+        ids.asReversed().forEach { taskDao.deleteTaskById(it) }
+    }
+
+    private suspend fun deleteTaskTree(rootId: Long) = db.withTransaction {
+        deleteTaskTreeInCurrentTransaction(rootId)
+    }
+
+    suspend fun exportTasksJson(): String = db.withTransaction {
+        val groups = observeTree().first()
+
+        suspend fun encodeTask(task: TaskEntity): JSONObject {
+            val children = taskDao.getChildren(task.id)
+            return JSONObject().apply {
+                put("name", task.name)
+                task.colorInt?.let { put("color", it) }
+                put(
+                    "children",
+                    JSONArray().also { array ->
+                        children.forEach { child -> array.put(encodeTask(child)) }
+                    }
+                )
+            }
+        }
+
+        JSONArray().also { array ->
+            groups.forEach { group -> array.put(encodeTask(group.parent)) }
+        }.toString(2)
     }
 
     suspend fun importTasksJson(json: String, replaceAll: Boolean) = db.withTransaction {
@@ -184,35 +232,35 @@ class TaskRepository(
 
         if (replaceAll) {
             current.forEach { p ->
-                taskDao.deleteChildren(p.parent.id)
-                taskDao.deleteTaskById(p.parent.id)
+                deleteTaskTreeInCurrentTransaction(p.parent.id)
             }
         }
 
-        fun findParentIdByName(name: String): Long? =
-            current.firstOrNull { it.parent.name == name }?.parent?.id
-
         val root = JSONArray(json)
-        for (i in 0 until root.length()) {
-            val p = root.optJSONObject(i) ?: continue
-            val parentName = p.optString("name", "").trim().take(128)
-            if (parentName.isEmpty()) continue
 
-            val colorInt = if (p.has("color")) p.optInt("color") else null
+        suspend fun importNode(node: JSONObject, parentId: Long?, depth: Int) {
+            require(depth <= 32) { "task hierarchy is too deep" }
 
-            val parentId: Long = findParentIdByName(parentName)
-                ?: addTask(parentName, null)
+            val name = node.optString("name", "").trim().take(128)
+            if (name.isEmpty()) return
 
-            if (colorInt != null) changeColor(parentId, colorInt)
+            val taskId = taskDao.findTaskIdByNameInParent(parentId, name)
+                ?: addTask(name, parentId)
 
-            val children = p.optJSONArray("children") ?: JSONArray()
-            for (j in 0 until children.length()) {
-                val c = children.optJSONObject(j) ?: continue
-                val childName = c.optString("name", "").trim().take(128)
-                if (childName.isEmpty()) continue
-                val dup = taskDao.countByNameInParent(parentId, childName) > 0
-                if (!dup) addTask(childName, parentId)
+            if (node.has("color") && !node.isNull("color")) {
+                changeColor(taskId, node.getInt("color"))
             }
+
+            val children = node.optJSONArray("children") ?: JSONArray()
+            for (index in 0 until children.length()) {
+                val child = children.optJSONObject(index) ?: continue
+                importNode(child, taskId, depth + 1)
+            }
+        }
+
+        for (index in 0 until root.length()) {
+            val node = root.optJSONObject(index) ?: continue
+            importNode(node, parentId = null, depth = 0)
         }
     }
 
@@ -400,8 +448,8 @@ class TaskRepository(
     }
 
     // ▼ TaskRepository.kt に追加（import等は適宜）
-    suspend fun exportEventsTsv(): String {
-        val rows = taskDao.getAllEventsForTsv()
+    suspend fun exportEventsTsv(startMs: Long, endMs: Long): String {
+        val rows = taskDao.getEventsForTsvInRange(startMs, endMs)
         val fmt =
             java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", java.util.Locale.getDefault())
 
@@ -412,9 +460,13 @@ class TaskRepository(
         sb.append("event_name\ttask_name\tsubtask_name\tstart_epoch_ms\tend_epoch_ms\tduration_ms\tstart_iso\tend_iso\n")
 
         rows.forEach { r ->
-            val start = r.pressedAtEpochMs
-            val dur = kotlin.math.max(0L, r.durationMillis)
-            val end = start + dur
+            val rawStart = r.pressedAtEpochMs
+            val rawDur = kotlin.math.max(0L, r.durationMillis)
+            val rawEnd = rawStart + rawDur
+            val start = maxOf(startMs, rawStart)
+            val end = minOf(endMs, rawEnd)
+            val dur = (end - start).coerceAtLeast(0L)
+            if (dur <= 0L) return@forEach
 
             val startIso = fmt.format(java.util.Date(start))
             val endIso = fmt.format(java.util.Date(end))
@@ -521,4 +573,35 @@ class TaskRepository(
         val next = predictNextTaskId(now) ?: return
         startOrSwitch(newTaskId = next, now = now)
     }
+
+
+    suspend fun getDaysWithData(startMs: Long, endMs: Long): Set<Long> {
+        val rows = taskDao.getEventsInRange(startMs, endMs)
+        val cal = java.util.Calendar.getInstance()
+
+        fun startOfDay(ms: Long): Long {
+            cal.timeInMillis = ms
+            cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+            cal.set(java.util.Calendar.MINUTE, 0)
+            cal.set(java.util.Calendar.SECOND, 0)
+            cal.set(java.util.Calendar.MILLISECOND, 0)
+            return cal.timeInMillis
+        }
+
+        val out = linkedSetOf<Long>()
+        rows.forEach { row ->
+            val start = row.pressedAtEpochMs
+            val endExclusive = row.pressedAtEpochMs + kotlin.math.max(0L, row.durationMillis)
+            var day = startOfDay(start)
+            val last = startOfDay((endExclusive - 1L).coerceAtLeast(start))
+            while (day <= last) {
+                out += day
+                cal.timeInMillis = day
+                cal.add(java.util.Calendar.DAY_OF_MONTH, 1)
+                day = cal.timeInMillis
+            }
+        }
+        return out
+    }
+
 }

@@ -94,11 +94,11 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         reloadHistory()
-        ensureHistoryFirstPage()
     }
 
     fun onStopPressed() = viewModelScope.launch {
         repo.stopActive(nowMs = System.currentTimeMillis())
+        reloadHistory()
     }
 
     fun children(parentId: Long) = repo.observeChildren(parentId)
@@ -133,15 +133,20 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         )
 
     fun loadNextHistoryPage(pageSize: Int = HISTORY_PAGE_SIZE) = viewModelScope.launch {
-        if (_historyEndReached.value) return@launch
-        val rows = repo.loadHistoryPage(historyPage, pageSize)
-        if (rows.isEmpty()) {
-            _historyEndReached.value = true
-            return@launch
+        if (_historyLoading.value || _historyEndReached.value) return@launch
+        _historyLoading.value = true
+        try {
+            val rows = repo.loadHistoryPage(historyPage, pageSize)
+            if (rows.isEmpty()) {
+                _historyEndReached.value = true
+                return@launch
+            }
+            _historyItems.value = _historyItems.value + rows.map { it.toUi() }
+            historyPage++
+            _historyEndReached.value = rows.size < pageSize
+        } finally {
+            _historyLoading.value = false
         }
-        _historyItems.value = _historyItems.value + rows.map { it.toUi() }
-        historyPage++
-        _historyEndReached.value = rows.size < pageSize
     }
 
     private fun loadHistoryPageInternal(reset: Boolean) {
@@ -160,13 +165,18 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun reloadHistory(pageSize: Int = HISTORY_PAGE_SIZE) = viewModelScope.launch {
+        _historyLoading.value = true
         historyPage = 0
         _historyEndReached.value = false
-
-        val first = repo.loadHistoryPage(0, pageSize)
-        _historyItems.value = first.map { it.toUi() }
-        _historyEndReached.value = first.size < pageSize
-        historyInitialized = true
+        try {
+            val first = repo.loadHistoryPage(0, pageSize)
+            _historyItems.value = first.map { it.toUi() }
+            _historyEndReached.value = first.size < pageSize
+            historyPage = if (_historyEndReached.value) 0 else 1
+            historyInitialized = true
+        } finally {
+            _historyLoading.value = false
+        }
     }
 
     fun addParentTask(name: String) = viewModelScope.launch { repo.addTask(name, null) }
@@ -207,6 +217,9 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     private val _timelineItems = MutableStateFlow<List<HistoryItemUi>>(emptyList())
     val timelineItems: StateFlow<List<HistoryItemUi>> = _timelineItems
 
+    private val _statsItems = MutableStateFlow<List<HistoryItemUi>>(emptyList())
+    val statsItems: StateFlow<List<HistoryItemUi>> = _statsItems
+
     fun loadTimelineRange(startMs: Long, endMs: Long) {
         viewModelScope.launch {
             val rows = repo.loadHistoryRange(startMs, endMs)
@@ -221,6 +234,13 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
                         durationMillis = it.durationMillis.coerceAtLeast(0L)
                     )
                 }
+        }
+    }
+
+    fun loadStatsRange(startMs: Long, endMs: Long) {
+        viewModelScope.launch {
+            val rows = repo.loadHistoryRange(startMs, endMs)
+            _statsItems.value = rows.map { it.toUi() }
         }
     }
 
@@ -436,8 +456,11 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ▼ TaskViewModel に追加
-    suspend fun exportEventsTsv(): String = repo.exportEventsTsv()
+    suspend fun exportEventsTsv(startMs: Long, endMs: Long): String =
+        repo.exportEventsTsv(startMs, endMs)
+
+    suspend fun getDaysWithData(startMs: Long, endMs: Long): Set<Long> =
+        repo.getDaysWithData(startMs, endMs)
 
     suspend fun importEventsTsv(tsv: String, clearExisting: Boolean, createMissing: Boolean): Int =
         repo.importEventsTsv(tsv, clearExisting, createMissing)

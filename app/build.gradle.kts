@@ -42,9 +42,10 @@ android {
     }
 }
 
-// Room のスキーマを出力（任意だが推奨）
+// Room のスキーマを出力
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
+    // Room 2.7.0+ and Kotlin 2.x work better with room.generateKotlin = true
     arg("room.generateKotlin", "true")
 }
 
@@ -69,14 +70,16 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation("androidx.compose.material:material-icons-extended")
 
-    // Navigation（追加：AddTask画面への遷移で使用）
+    // Navigation
     implementation("androidx.navigation:navigation-compose:2.8.3")
 
     // Room（KSP）
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
+    // Update to 2.7.0-alpha11 to fix "unexpected jvm signature V" with Kotlin 2.x
+    val roomVersion = "2.7.0-alpha11"
+    implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
     implementation(libs.androidx.foundation.layout)
-    ksp("androidx.room:room-compiler:2.6.1")
+    ksp("androidx.room:room-compiler:$roomVersion")
 
     // JSON
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
@@ -98,5 +101,4 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
     implementation("androidx.lifecycle:lifecycle-service:2.8.4")
-    // <-- needed for LifecycleService
 }

@@ -42,4 +42,11 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
         android:text="候補3" />
+
+    <Button
+        android:id="@+id/btn_stop"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="停止" />
 </LinearLayout>

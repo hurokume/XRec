@@ -71,3 +71,11 @@ data class ActiveWithTask(
     )
     val task: TaskEntity
 )
+
+data class TsvExportRow(
+    val eventName: String,
+    val taskName: String?,
+    val subtaskName: String?,
+    val pressedAtEpochMs: Long,
+    val durationMillis: Long
+)

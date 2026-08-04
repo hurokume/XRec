@@ -50,7 +50,6 @@ abstract class AppDatabase : RoomDatabase() {
             INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(context, AppDatabase::class.java, "timerecorder.db")
                     .addMigrations(MIGRATION_1_2)         // ★ 追加
-                    .fallbackToDestructiveMigration()      // 他バージョンの時は破壊的でもOKにしたい場合は残す
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

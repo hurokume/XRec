@@ -128,6 +128,18 @@ class ActiveTaskService : LifecycleService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
         when (intent?.action) {
+            ACTION_NEXT -> {
+                lifecycleScope.launch {
+                    repo.switchToPredictedNext(now = System.currentTimeMillis())
+                }
+            }
+
+            ACTION_STOP -> {
+                lifecycleScope.launch {
+                    repo.stopActive(nowMs = System.currentTimeMillis())
+                }
+            }
+
             ACTION_SWITCH_TO -> {
                 val targetId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
                 if (targetId > 0) {
@@ -279,6 +291,8 @@ class ActiveTaskService : LifecycleService() {
             .setBadgeIconType(NotificationCompat.BADGE_ICON_NONE)
             .setVibrate(null)
             .setDefaults(0)
+            .addAction(android.R.drawable.ic_media_next, "次へ", pendingNext())
+            .addAction(android.R.drawable.ic_media_pause, "停止", pendingStop())
             .build()
     }
 
@@ -307,6 +321,7 @@ class ActiveTaskService : LifecycleService() {
                 rv.setOnClickPendingIntent(viewId, switchPendingIntent(c.taskId, 200 + index))
             }
         }
+        rv.setOnClickPendingIntent(R.id.btn_stop, pendingStop())
         return rv
     }
 
