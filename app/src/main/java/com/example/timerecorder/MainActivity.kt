@@ -131,6 +131,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.timerecorder.ui.HistoryItemUi
+import com.example.timerecorder.ui.AdvancedAnalysisScreen
+import com.example.timerecorder.ui.SettingsScreen
 import com.example.timerecorder.ui.TaskViewModel
 import com.example.timerecorder.ui.UiEvent
 import com.example.timerecorder.data.StatsAggregator
@@ -152,7 +154,7 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /** 画面モード（メイン/履歴） */
-private enum class AppScreen { Main, History }
+private enum class AppScreen { Main, History, Analysis, Settings }
 
 /** 名前ソートモード */
 enum class NameSort { None, Asc, Desc }
@@ -167,6 +169,8 @@ private object Routes {
 
 private const val PREFS_NAME = "stats_prefs"
 private const val KEY_STATS_INCLUDED = "stats_included_leaf_ids" // CSVのLong ID群
+private const val SETTINGS_PREFS_NAME = "app_settings"
+private const val KEY_SHOW_STOP_BUTTON = "show_stop_button"
 
 /**
  * エントリポイント Activity。
@@ -263,6 +267,20 @@ fun AppRoot(
 
     val ctx = LocalContext.current
     val active by taskVm.active.collectAsStateWithLifecycle()
+    var showStopButton by rememberSaveable {
+        mutableStateOf(
+            ctx.getSharedPreferences(SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_SHOW_STOP_BUTTON, true)
+        )
+    }
+
+    fun updateShowStopButton(show: Boolean) {
+        showStopButton = show
+        ctx.getSharedPreferences(SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_SHOW_STOP_BUTTON, show)
+            .apply()
+    }
 
     // 通知許可のランチャ
     val notifPermissionLauncher = rememberLauncherForActivityResult(
@@ -522,6 +540,8 @@ fun AppRoot(
                                     taskVm.ensureHistoryFirstPage()
                                 }
 
+                                "analysis" -> screen = AppScreen.Analysis
+
                                 "export_tsv" -> {
                                     showExportTsvDialog = true
                                 }
@@ -564,8 +584,7 @@ fun AppRoot(
                                     showImportDialog = true
                                 }
 
-                                "settings" -> { /* 設定画面（今後実装） */
-                                }
+                                "settings" -> screen = AppScreen.Settings
 
                                 "help" -> { /* ヘルプ（今後実装） */
                                 }
@@ -614,6 +633,8 @@ fun AppRoot(
                                             )
 
                                             AppScreen.History -> "History"
+                                            AppScreen.Analysis -> "高度分析"
+                                            AppScreen.Settings -> "Settings"
                                         }
                                     }
 
@@ -625,7 +646,7 @@ fun AppRoot(
                                 )
                             },
                             actions = {
-                                if (activeUi != null) {
+                                if (activeUi != null && showStopButton) {
                                     IconButton(onClick = { taskVm.onStopPressed() }) {
                                         Icon(
                                             Icons.Filled.StopCircle,
@@ -798,6 +819,21 @@ fun AppRoot(
                                 .padding(innerPadding)
                                 .fillMaxSize(),
                             viewModel = taskVm
+                        )
+
+                        AppScreen.Analysis -> AdvancedAnalysisScreen(
+                            modifier = Modifier
+                                .padding(innerPadding)
+                                .fillMaxSize(),
+                            viewModel = taskVm
+                        )
+
+                        AppScreen.Settings -> SettingsScreen(
+                            modifier = Modifier
+                                .padding(innerPadding)
+                                .fillMaxSize(),
+                            showStopButton = showStopButton,
+                            onShowStopButtonChange = ::updateShowStopButton
                         )
                     }
 
@@ -1056,6 +1092,12 @@ fun DrawerSheet(onItemSelected: (String) -> Unit) {
             label = { Text("History") },
             selected = false,
             onClick = { onItemSelected("history") },
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+        )
+        NavigationDrawerItem(
+            label = { Text("高度分析") },
+            selected = false,
+            onClick = { onItemSelected("analysis") },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
         Spacer(Modifier.height(8.dp))

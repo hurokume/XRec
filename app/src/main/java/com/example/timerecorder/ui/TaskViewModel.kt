@@ -5,6 +5,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.timerecorder.data.AdvancedAnalysisEngine
+import com.example.timerecorder.data.AdvancedAnalysisResult
+import com.example.timerecorder.data.AnalysisRequest
 import com.example.timerecorder.data.SwitchResult
 import com.example.timerecorder.data.TaskRepository
 import com.example.timerecorder.data.db.ActiveWithTask
@@ -19,7 +22,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class HistoryItemUi(
     val id: Long,
@@ -43,6 +50,12 @@ private const val DEFAULT_MERGE_THRESHOLD_SECONDS: Long = 60
 sealed interface UiEvent {
     data class ShowMessage(val message: String) : UiEvent
 }
+
+data class AdvancedAnalysisUiState(
+    val isLoading: Boolean = false,
+    val result: AdvancedAnalysisResult? = null,
+    val errorMessage: String? = null
+)
 
 class TaskViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -220,6 +233,10 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     private val _statsItems = MutableStateFlow<List<HistoryItemUi>>(emptyList())
     val statsItems: StateFlow<List<HistoryItemUi>> = _statsItems
 
+    private val _advancedAnalysis = MutableStateFlow(AdvancedAnalysisUiState())
+    val advancedAnalysis: StateFlow<AdvancedAnalysisUiState> = _advancedAnalysis
+    private var advancedAnalysisJob: Job? = null
+
     fun loadTimelineRange(startMs: Long, endMs: Long) {
         viewModelScope.launch {
             val rows = repo.loadHistoryRange(startMs, endMs)
@@ -241,6 +258,34 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val rows = repo.loadHistoryRange(startMs, endMs)
             _statsItems.value = rows.map { it.toUi() }
+        }
+    }
+
+    fun runAdvancedAnalysis(request: AnalysisRequest) {
+        advancedAnalysisJob?.cancel()
+        advancedAnalysisJob = viewModelScope.launch {
+            _advancedAnalysis.value = _advancedAnalysis.value.copy(
+                isLoading = true,
+                errorMessage = null
+            )
+            try {
+                val range = AdvancedAnalysisEngine.rangeFor(request)
+                val records = repo.loadAnalysisEvents(
+                    startMs = range.startMs,
+                    endMs = range.endMs,
+                    nowMs = request.nowMs
+                )
+                val result = withContext(Dispatchers.Default) {
+                    AdvancedAnalysisEngine.analyze(records, request)
+                }
+                _advancedAnalysis.value = AdvancedAnalysisUiState(result = result)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                _advancedAnalysis.value = AdvancedAnalysisUiState(
+                    errorMessage = error.message ?: "分析に失敗しました"
+                )
+            }
         }
     }
 

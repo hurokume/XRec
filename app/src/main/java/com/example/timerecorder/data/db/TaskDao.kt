@@ -19,6 +19,9 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY sortOrder, id")
     suspend fun getChildren(parentId: Long): List<TaskEntity>
 
+    @Query("SELECT * FROM tasks ORDER BY sortOrder, id")
+    suspend fun getAllTasksOnce(): List<TaskEntity>
+
     @Query(
         """
         SELECT * FROM tasks

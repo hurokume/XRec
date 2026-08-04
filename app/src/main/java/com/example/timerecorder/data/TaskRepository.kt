@@ -173,6 +173,52 @@ class TaskRepository(
     suspend fun loadHistoryRange(startMs: Long, endMs: Long): List<HistoryRowDb> =
         taskDao.getEventsInRange(startMs, endMs)
 
+    suspend fun loadAnalysisEvents(
+        startMs: Long,
+        endMs: Long,
+        nowMs: Long
+    ): List<AnalysisEvent> {
+        val tasks = taskDao.getAllTasksOnce().associateBy { it.id }
+
+        fun pathFor(taskId: Long): List<AnalysisCategoryNode> {
+            val reversed = mutableListOf<AnalysisCategoryNode>()
+            val visited = mutableSetOf<Long>()
+            var current = tasks[taskId]
+            while (current != null && visited.add(current.id)) {
+                reversed += AnalysisCategoryNode(current.id, current.name)
+                current = current.parentId?.let(tasks::get)
+            }
+            return reversed.asReversed()
+        }
+
+        val result = taskDao.getEventsInRange(startMs, endMs).mapNotNull { row ->
+            val path = pathFor(row.taskId)
+            if (path.isEmpty()) return@mapNotNull null
+            AnalysisEvent(
+                eventId = row.eventId,
+                taskId = row.taskId,
+                path = path,
+                startMs = row.pressedAtEpochMs,
+                endMs = row.pressedAtEpochMs + row.durationMillis.coerceAtLeast(0L)
+            )
+        }.toMutableList()
+
+        taskDao.getActiveOrNull()?.let { active ->
+            val activeEnd = minOf(nowMs, endMs)
+            val path = pathFor(active.taskId)
+            if (path.isNotEmpty() && activeEnd > active.startedAtEpochMs && activeEnd > startMs) {
+                result += AnalysisEvent(
+                    eventId = Long.MIN_VALUE,
+                    taskId = active.taskId,
+                    path = path,
+                    startMs = active.startedAtEpochMs,
+                    endMs = activeEnd
+                )
+            }
+        }
+        return result
+    }
+
     // ---------------- Export / Import ----------------
     private suspend fun collectTaskTreeIds(rootId: Long): List<Long> {
         val result = mutableListOf<Long>()
