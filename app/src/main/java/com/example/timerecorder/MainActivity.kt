@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -135,6 +136,7 @@ import com.example.timerecorder.ui.AdvancedAnalysisScreen
 import com.example.timerecorder.ui.SettingsScreen
 import com.example.timerecorder.ui.TaskViewModel
 import com.example.timerecorder.ui.UiEvent
+import com.example.timerecorder.ui.WeeklyReportScreen
 import com.example.timerecorder.data.StatsAggregator
 import com.example.timerecorder.data.StatsRecord
 import com.example.timerecorder.data.StatsTarget
@@ -154,7 +156,7 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /** 画面モード（メイン/履歴） */
-private enum class AppScreen { Main, History, Analysis, Settings }
+private enum class AppScreen { Main, History, Analysis, WeeklyReport, Settings }
 
 /** 名前ソートモード */
 enum class NameSort { None, Asc, Desc }
@@ -516,6 +518,11 @@ fun AppRoot(
     // 画面モード（メイン / 履歴）
     var screen by remember { mutableStateOf(AppScreen.Main) }
 
+    // Home 以外では、システムの戻る操作で Activity を終了せず Home に戻す
+    BackHandler(enabled = screen != AppScreen.Main) {
+        screen = AppScreen.Main
+    }
+
     // 並び替えモード（タスクの上下入れ替え）
     var sortMode by rememberSaveable { mutableStateOf(false) }
 
@@ -541,6 +548,8 @@ fun AppRoot(
                                 }
 
                                 "analysis" -> screen = AppScreen.Analysis
+
+                                "weekly_report" -> screen = AppScreen.WeeklyReport
 
                                 "export_tsv" -> {
                                     showExportTsvDialog = true
@@ -634,6 +643,7 @@ fun AppRoot(
 
                                             AppScreen.History -> "History"
                                             AppScreen.Analysis -> "高度分析"
+                                            AppScreen.WeeklyReport -> "Weekly report"
                                             AppScreen.Settings -> "Settings"
                                         }
                                     }
@@ -822,6 +832,13 @@ fun AppRoot(
                         )
 
                         AppScreen.Analysis -> AdvancedAnalysisScreen(
+                            modifier = Modifier
+                                .padding(innerPadding)
+                                .fillMaxSize(),
+                            viewModel = taskVm
+                        )
+
+                        AppScreen.WeeklyReport -> WeeklyReportScreen(
                             modifier = Modifier
                                 .padding(innerPadding)
                                 .fillMaxSize(),
@@ -1098,6 +1115,12 @@ fun DrawerSheet(onItemSelected: (String) -> Unit) {
             label = { Text("高度分析") },
             selected = false,
             onClick = { onItemSelected("analysis") },
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+        )
+        NavigationDrawerItem(
+            label = { Text("Weekly report (PDF)") },
+            selected = false,
+            onClick = { onItemSelected("weekly_report") },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
         Spacer(Modifier.height(8.dp))

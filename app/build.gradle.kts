@@ -1,8 +1,50 @@
+import java.nio.file.Files
+import java.nio.file.LinkOption
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("com.google.devtools.ksp")
+}
+
+// Windowsでは同期・展開されたbuild生成ディレクトリにReadOnly属性が付く場合がある。
+// Android Gradle Pluginが前回出力を削除する前に属性を解除し、増分ビルドを安定させる。
+val clearReadOnlyBuildOutputs = tasks.register("clearReadOnlyBuildOutputs") {
+    group = "build setup"
+    description = "Clears Windows read-only attributes from generated build outputs."
+
+    doLast {
+        if (!System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
+            return@doLast
+        }
+
+        val outputRoot = layout.buildDirectory.get().asFile
+        if (!outputRoot.exists()) return@doLast
+
+        var failures = 0
+        outputRoot.walkTopDown().forEach { output ->
+            try {
+                Files.setAttribute(
+                    output.toPath(),
+                    "dos:readonly",
+                    false,
+                    LinkOption.NOFOLLOW_LINKS
+                )
+            } catch (_: Exception) {
+                failures += 1
+            }
+        }
+        if (failures > 0) {
+            logger.warn("Could not clear ReadOnly from $failures generated build entries.")
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name != clearReadOnlyBuildOutputs.name) {
+        dependsOn(clearReadOnlyBuildOutputs)
+    }
 }
 
 android {

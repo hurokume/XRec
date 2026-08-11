@@ -185,7 +185,7 @@ class TaskRepository(
             val visited = mutableSetOf<Long>()
             var current = tasks[taskId]
             while (current != null && visited.add(current.id)) {
-                reversed += AnalysisCategoryNode(current.id, current.name)
+                reversed += AnalysisCategoryNode(current.id, current.name, current.colorInt)
                 current = current.parentId?.let(tasks::get)
             }
             return reversed.asReversed()

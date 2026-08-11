@@ -1,7 +1,10 @@
 package com.example.timerecorder.ui
 
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,11 +22,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +44,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -44,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,6 +67,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun AdvancedAnalysisScreen(
@@ -69,7 +81,12 @@ fun AdvancedAnalysisScreen(
     var level by rememberSaveable { mutableStateOf(AnalysisLevel.Large) }
     var dayType by rememberSaveable { mutableStateOf(AnalysisDayType.All) }
     var refreshAt by rememberSaveable { mutableLongStateOf(System.currentTimeMillis()) }
+    var probabilityItemLimit by rememberSaveable { mutableIntStateOf(20) }
+    var paletteMask by rememberSaveable { mutableIntStateOf(AnalysisPalette.defaultMask) }
+    var isExportingPdf by remember { mutableStateOf(false) }
     val state by viewModel.advancedAnalysis.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(days, boundaryMinutes, level, dayType, refreshAt) {
         viewModel.runAdvancedAnalysis(
@@ -83,6 +100,38 @@ fun AdvancedAnalysisScreen(
                 timeZoneId = TimeZone.getDefault().id
             )
         )
+    }
+
+    fun exportPdf() {
+        val result = state.result ?: return
+        scope.launch {
+            isExportingPdf = true
+            try {
+                val uri = withContext(Dispatchers.IO) {
+                    createAdvancedAnalysisReportPdf(
+                        context = context,
+                        result = result,
+                        probabilityItemLimit = probabilityItemLimit,
+                        paletteMask = paletteMask
+                    )
+                }
+                val share = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/pdf"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    putExtra(Intent.EXTRA_SUBJECT, "TimeRecorder 高度分析レポート")
+                }
+                context.startActivity(Intent.createChooser(share, "A4 PDFレポートを共有"))
+            } catch (error: Throwable) {
+                Toast.makeText(
+                    context,
+                    "PDF作成に失敗しました: ${error.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            } finally {
+                isExportingPdf = false
+            }
+        }
     }
 
     Column(
@@ -117,6 +166,20 @@ fun AdvancedAnalysisScreen(
             onBoundaryChange = { boundaryMinutes = it }
         )
 
+        FilledTonalButton(
+            modifier = Modifier.fillMaxWidth(),
+            enabled = state.result != null && !state.isLoading && !isExportingPdf,
+            onClick = ::exportPdf
+        ) {
+            if (isExportingPdf) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(Icons.Filled.PictureAsPdf, contentDescription = null)
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(if (isExportingPdf) "PDFを作成中…" else "A4 PDFレポートを作成")
+        }
+
         if (state.isLoading) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -134,7 +197,13 @@ fun AdvancedAnalysisScreen(
             }
         }
         state.result?.let { result ->
-            AnalysisResultContent(result)
+            AnalysisResultContent(
+                result = result,
+                probabilityItemLimit = probabilityItemLimit,
+                onProbabilityItemLimitChange = { probabilityItemLimit = it },
+                paletteMask = paletteMask,
+                onPaletteMaskChange = { paletteMask = it }
+            )
         }
         Spacer(Modifier.height(24.dp))
     }
@@ -215,7 +284,13 @@ private fun AnalysisChoice(label: String, selected: Boolean, onClick: () -> Unit
 }
 
 @Composable
-private fun AnalysisResultContent(result: AdvancedAnalysisResult) {
+private fun AnalysisResultContent(
+    result: AdvancedAnalysisResult,
+    probabilityItemLimit: Int,
+    onProbabilityItemLimitChange: (Int) -> Unit,
+    paletteMask: Int,
+    onPaletteMaskChange: (Int) -> Unit
+) {
     AnalysisSection("1. データ品質") {
         val q = result.quality
         KeyValue("対象日", "${q.analyzedDays}日（暦期間 ${q.calendarDays}日）")
@@ -245,7 +320,31 @@ private fun AnalysisResultContent(result: AdvancedAnalysisResult) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(8.dp))
-        ProbabilityHeatmap(result.timeProfile)
+        ChoiceRow("表示") {
+            AnalysisChoice("10件", probabilityItemLimit == 10) {
+                onProbabilityItemLimitChange(10)
+            }
+            AnalysisChoice("20件", probabilityItemLimit == 20) {
+                onProbabilityItemLimitChange(20)
+            }
+            AnalysisChoice("全件", probabilityItemLimit == Int.MAX_VALUE) {
+                onProbabilityItemLimitChange(Int.MAX_VALUE)
+            }
+        }
+        Text(
+            "カラーパレット（複数選択可）",
+            style = MaterialTheme.typography.labelLarge
+        )
+        ProbabilityPaletteSelector(
+            selectedMask = paletteMask,
+            onSelectedMaskChange = onPaletteMaskChange
+        )
+        Spacer(Modifier.height(4.dp))
+        ProbabilityHeatmap(
+            profile = result.timeProfile,
+            itemLimit = probabilityItemLimit,
+            paletteMask = paletteMask
+        )
         Spacer(Modifier.height(8.dp))
         KeyValue("規則性", percent(result.timeProfile.regularity))
         KeyValue("平均エントロピー", formatDecimal(result.timeProfile.averageEntropy))
@@ -296,14 +395,32 @@ private fun AnalysisResultContent(result: AdvancedAnalysisResult) {
 
 @Composable
 private fun AnalysisSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+    var expanded by rememberSaveable(title) { mutableStateOf(true) }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(4.dp))
-            content()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Icon(
+                    imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (expanded) "折り畳む" else "展開する"
+                )
+            }
+            if (expanded) {
+                Spacer(Modifier.height(4.dp))
+                content()
+            }
         }
     }
 }
@@ -364,12 +481,65 @@ private fun CategoryMetricCard(metric: AnalysisCategoryMetric) {
 }
 
 @Composable
-private fun ProbabilityHeatmap(profile: AnalysisTimeProfile) {
-    val categories = profile.categories.take(10)
+private fun ProbabilityPaletteSelector(
+    selectedMask: Int,
+    onSelectedMaskChange: (Int) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        AnalysisPalette.entries.forEach { palette ->
+            val selected = selectedMask and palette.bit != 0
+            FilterChip(
+                modifier = Modifier.weight(1f),
+                selected = selected,
+                onClick = {
+                    val updated = if (selected) {
+                        selectedMask and palette.bit.inv()
+                    } else {
+                        selectedMask or palette.bit
+                    }
+                    if (updated != 0) onSelectedMaskChange(updated)
+                },
+                label = {
+                    Text(
+                        palette.label,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
+                leadingIcon = {
+                    Box(
+                        Modifier
+                            .size(12.dp)
+                            .background(
+                                Color(probabilityColorArgb(palette, 0.75)),
+                                RoundedCornerShape(99.dp)
+                            )
+                    )
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProbabilityHeatmap(
+    profile: AnalysisTimeProfile,
+    itemLimit: Int,
+    paletteMask: Int
+) {
+    val categories = if (itemLimit == Int.MAX_VALUE) {
+        profile.categories
+    } else {
+        profile.categories.take(itemLimit)
+    }
     if (categories.isEmpty()) {
         Text("時刻別確率を計算できる記録がありません。")
         return
     }
+    val palettes = selectedAnalysisPalettes(paletteMask)
 
     Row(Modifier.fillMaxWidth()) {
         Spacer(Modifier.width(112.dp))
@@ -380,7 +550,7 @@ private fun ProbabilityHeatmap(profile: AnalysisTimeProfile) {
             }
         }
     }
-    categories.forEach { category ->
+    categories.forEachIndexed { categoryIndex, category ->
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 category.pathLabel,
@@ -389,7 +559,7 @@ private fun ProbabilityHeatmap(profile: AnalysisTimeProfile) {
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.labelSmall
             )
-            val baseColor = colorForId(category.id)
+            val palette = palettes[categoryIndex % palettes.size]
             Canvas(
                 modifier = Modifier
                     .weight(1f)
@@ -398,7 +568,7 @@ private fun ProbabilityHeatmap(profile: AnalysisTimeProfile) {
                 val cellWidth = size.width / category.probabilities.size.coerceAtLeast(1)
                 category.probabilities.forEachIndexed { index, probability ->
                     drawRect(
-                        color = baseColor.copy(alpha = (0.08 + probability * 0.92).toFloat()),
+                        color = Color(probabilityColorArgb(palette, probability)),
                         topLeft = Offset(index * cellWidth, 1f),
                         size = Size((cellWidth - 1f).coerceAtLeast(0.5f), size.height - 2f)
                     )

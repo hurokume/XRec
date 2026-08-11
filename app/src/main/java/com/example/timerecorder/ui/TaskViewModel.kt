@@ -10,6 +10,8 @@ import com.example.timerecorder.data.AdvancedAnalysisResult
 import com.example.timerecorder.data.AnalysisRequest
 import com.example.timerecorder.data.SwitchResult
 import com.example.timerecorder.data.TaskRepository
+import com.example.timerecorder.data.WeeklyReportData
+import com.example.timerecorder.data.WeeklyReportEngine
 import com.example.timerecorder.data.db.ActiveWithTask
 import com.example.timerecorder.data.db.AppDatabase
 import com.example.timerecorder.data.db.ParentWithChildren
@@ -286,6 +288,33 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
                     errorMessage = error.message ?: "分析に失敗しました"
                 )
             }
+        }
+    }
+
+    suspend fun buildWeeklyReport(
+        request: AnalysisRequest,
+        timelineStartMinute: Int,
+        timelineEndMinute: Int
+    ): WeeklyReportData {
+        val range = AdvancedAnalysisEngine.rangeFor(request)
+        val events = withContext(Dispatchers.IO) {
+            repo.loadAnalysisEvents(
+                startMs = range.startMs,
+                endMs = range.endMs,
+                nowMs = minOf(System.currentTimeMillis(), range.endMs)
+            )
+        }
+        return withContext(Dispatchers.Default) {
+            WeeklyReportData(
+                timeline = WeeklyReportEngine.buildTimeline(
+                    events = events,
+                    range = range,
+                    displayStartMinute = timelineStartMinute,
+                    displayEndMinute = timelineEndMinute,
+                    timeZoneId = request.timeZoneId
+                ),
+                analysis = AdvancedAnalysisEngine.analyze(events, request)
+            )
         }
     }
 

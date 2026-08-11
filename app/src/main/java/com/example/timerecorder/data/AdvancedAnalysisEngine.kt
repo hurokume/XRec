@@ -20,7 +20,11 @@ data class AnalysisRequest(
 
 data class AnalysisRange(val startMs: Long, val endMs: Long)
 
-data class AnalysisCategoryNode(val id: Long, val name: String)
+data class AnalysisCategoryNode(
+    val id: Long,
+    val name: String,
+    val colorInt: Int? = null
+)
 
 data class AnalysisEvent(
     val eventId: Long,
