@@ -63,6 +63,8 @@ import com.example.timerecorder.data.AnalysisDayType
 import com.example.timerecorder.data.AnalysisLevel
 import com.example.timerecorder.data.AnalysisRequest
 import com.example.timerecorder.data.AnalysisTimeProfile
+import com.example.timerecorder.data.DailyPlans
+import com.example.timerecorder.data.DailyPlanType
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -74,6 +76,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun AdvancedAnalysisScreen(
     viewModel: TaskViewModel,
+    dailyPlans: DailyPlans,
     modifier: Modifier = Modifier
 ) {
     var days by rememberSaveable { mutableIntStateOf(30) }
@@ -88,7 +91,7 @@ fun AdvancedAnalysisScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(days, boundaryMinutes, level, dayType, refreshAt) {
+    LaunchedEffect(days, boundaryMinutes, level, dayType, refreshAt, dailyPlans) {
         viewModel.runAdvancedAnalysis(
             AnalysisRequest(
                 nowMs = refreshAt,
@@ -98,7 +101,8 @@ fun AdvancedAnalysisScreen(
                 level = level,
                 dayType = dayType,
                 timeZoneId = TimeZone.getDefault().id
-            )
+            ),
+            dailyPlans = dailyPlans
         )
     }
 
@@ -119,7 +123,7 @@ fun AdvancedAnalysisScreen(
                     type = "application/pdf"
                     putExtra(Intent.EXTRA_STREAM, uri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    putExtra(Intent.EXTRA_SUBJECT, "TimeRecorder 高度分析レポート")
+                    putExtra(Intent.EXTRA_SUBJECT, "TimeRecorder Analysis レポート")
                 }
                 context.startActivity(Intent.createChooser(share, "A4 PDFレポートを共有"))
             } catch (error: Throwable) {
@@ -143,7 +147,7 @@ fun AdvancedAnalysisScreen(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("高度分析", style = MaterialTheme.typography.titleLarge)
+                Text("Analysis", style = MaterialTheme.typography.titleLarge)
                 Text(
                     "完了した解析日を対象に、時間配分・生活パターン・遷移を分析します。",
                     style = MaterialTheme.typography.bodySmall,
@@ -291,7 +295,32 @@ private fun AnalysisResultContent(
     paletteMask: Int,
     onPaletteMaskChange: (Int) -> Unit
 ) {
-    AnalysisSection("1. データ品質") {
+    AnalysisSection("1. Daily plan 達成度") {
+        val achievements = result.dailyAchievements
+        if (achievements.isEmpty()) {
+            Text("対象日に利用できるDaily planがありません。Settingsで平日・休日の予定を設定してください。")
+        } else {
+            val totalPlanned = achievements.sumOf { it.plannedMs }
+            val totalAchieved = achievements.sumOf { it.achievedMs }
+            val overall = if (totalPlanned > 0L) totalAchieved.toDouble() / totalPlanned else 0.0
+            KeyValue("期間全体", percent(overall))
+            val formatter = remember { SimpleDateFormat("yyyy/MM/dd (EEE)", Locale.getDefault()) }
+            achievements.forEach { achievement ->
+                val type = when (achievement.planType) {
+                    DailyPlanType.Weekday -> "平日"
+                    DailyPlanType.Holiday -> "休日"
+                }
+                Text(
+                    "${formatter.format(Date(achievement.dayStartMs))} [$type]  " +
+                            "${percent(achievement.achievementRate)}  " +
+                            "${formatDuration(achievement.achievedMs)} / ${formatDuration(achievement.plannedMs)}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+
+    AnalysisSection("2. データ品質") {
         val q = result.quality
         KeyValue("対象日", "${q.analyzedDays}日（暦期間 ${q.calendarDays}日）")
         KeyValue("記録率", percent(q.coverageRate))
@@ -303,7 +332,7 @@ private fun AnalysisResultContent(
         KeyValue("95%以上記録された日", "${q.daysAtLeast95Percent}日")
     }
 
-    AnalysisSection("2. 階層別時間配分・Pareto") {
+    AnalysisSection("3. 階層別時間配分・Pareto") {
         if (result.categoryMetrics.isEmpty()) {
             Text("対象期間に記録がありません。")
         } else {
@@ -313,7 +342,7 @@ private fun AnalysisResultContent(
         }
     }
 
-    AnalysisSection("3. 24時間行動確率") {
+    AnalysisSection("4. 24時間行動確率") {
         Text(
             "色が濃いほど、その時刻に行っていた日の割合が高いことを示します。",
             style = MaterialTheme.typography.bodySmall,
@@ -355,7 +384,7 @@ private fun AnalysisResultContent(
         }
     }
 
-    AnalysisSection("4. 代表日・典型日") {
+    AnalysisSection("5. 代表日・典型日") {
         val formatter = remember { SimpleDateFormat("yyyy/MM/dd (EEE)", Locale.getDefault()) }
         result.representativeDay?.let { representative ->
             Text("実在する代表日", fontWeight = FontWeight.SemiBold)
@@ -378,7 +407,7 @@ private fun AnalysisResultContent(
         }
     }
 
-    AnalysisSection("5. 行動遷移") {
+    AnalysisSection("6. 行動遷移") {
         if (result.transitions.isEmpty()) {
             Text("連続する行動遷移がありません。")
         } else {
@@ -395,7 +424,7 @@ private fun AnalysisResultContent(
 
 @Composable
 private fun AnalysisSection(title: String, content: @Composable ColumnScope.() -> Unit) {
-    var expanded by rememberSaveable(title) { mutableStateOf(true) }
+    var expanded by rememberSaveable(title) { mutableStateOf(false) }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(14.dp),

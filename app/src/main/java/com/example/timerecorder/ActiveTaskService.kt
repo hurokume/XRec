@@ -25,12 +25,12 @@ import kotlinx.coroutines.launch
 class ActiveTaskService : LifecycleService() {
 
     companion object {
-        private const val CHANNEL_ID = "active_task_channel_v2"
+        // 新しいIDを使い、既存端末でもサイレント設定を確実に適用する。
+        private const val CHANNEL_ID = "active_task_channel_v3_silent"
         private const val NOTIF_ID = 1001
 
         // actions
         private const val ACTION_NEXT = "com.example.timerecorder.action.NEXT"
-        private const val ACTION_STOP = "com.example.timerecorder.action.STOP"
         private const val ACTION_SWITCH_TO = "com.example.timerecorder.action.SWITCH_TO"
         private const val EXTRA_TASK_ID = "extra_task_id"
 
@@ -50,12 +50,6 @@ class ActiveTaskService : LifecycleService() {
             )
         }
 
-        fun stopFromAction(ctx: Context) {
-            ContextCompat.startForegroundService(
-                ctx,
-                Intent(ctx, ActiveTaskService::class.java).setAction(ACTION_STOP)
-            )
-        }
     }
 
     private lateinit var repo: TaskRepository
@@ -77,11 +71,12 @@ class ActiveTaskService : LifecycleService() {
             .setContentText("起動中…")
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setBadgeIconType(NotificationCompat.BADGE_ICON_NONE)
             .setVibrate(null)
             .setDefaults(0)
             .addAction(0, "次へ", pendingNext())
-            .addAction(0, "停止", pendingStop())
             .build()
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(NOTIF_ID, boot, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
@@ -134,12 +129,6 @@ class ActiveTaskService : LifecycleService() {
                 }
             }
 
-            ACTION_STOP -> {
-                lifecycleScope.launch {
-                    repo.stopActive(nowMs = System.currentTimeMillis())
-                }
-            }
-
             ACTION_SWITCH_TO -> {
                 val targetId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
                 if (targetId > 0) {
@@ -159,13 +148,6 @@ class ActiveTaskService : LifecycleService() {
         return PendingIntent.getService(this, 1, i, flags)
     }
 
-    private fun pendingStop(): PendingIntent {
-        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_IMMUTABLE else 0)
-        val i = Intent(this, ActiveTaskService::class.java).setAction(ACTION_STOP)
-        return PendingIntent.getService(this, 2, i, flags)
-    }
-
     private suspend fun buildTitleFor(taskId: Long): String {
         val t = taskDao.getTaskById(taskId) ?: return "Time Recorder"
         val p = t.parentId?.let { taskDao.getTaskById(it) }
@@ -178,45 +160,6 @@ class ActiveTaskService : LifecycleService() {
         return parts.joinToString(" / ")
     }
 
-    private fun buildNotification(title: String, startedAtMs: Long): Notification {
-        val openIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val piOpen = PendingIntent.getActivity(
-            this, 0, openIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_IMMUTABLE else 0
-        )
-
-        // 次へ
-        val nextIntent = Intent(this, ActiveTaskService::class.java).apply { action = ACTION_NEXT }
-        val piNext = PendingIntent.getService(
-            this, 1, nextIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_IMMUTABLE else 0
-        )
-
-        // 停止
-        val stopIntent = Intent(this, ActiveTaskService::class.java).apply { action = ACTION_STOP }
-        val piStop = PendingIntent.getService(
-            this, 2, stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_IMMUTABLE else 0
-        )
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(title)
-            .setContentText("計測中")
-            .setWhen(startedAtMs)
-            .setUsesChronometer(true)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setBadgeIconType(NotificationCompat.BADGE_ICON_NONE)
-            .setVibrate(null)
-            .setDefaults(0)
-            .addAction(android.R.drawable.ic_media_next, "次へ", piNext)
-            .addAction(android.R.drawable.ic_media_pause, "停止", piStop)
-            .build()
-    }
-
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             val existing = nm.getNotificationChannel(CHANNEL_ID)
@@ -224,7 +167,7 @@ class ActiveTaskService : LifecycleService() {
                 val ch = NotificationChannel(
                     CHANNEL_ID,
                     "Active task",
-                    NotificationManager.IMPORTANCE_DEFAULT // ← LOWから引き上げ
+                    NotificationManager.IMPORTANCE_LOW
                 ).apply { description = "現在実行中のタスクと予測候補" }
 
                 // バッジ非表示・バイブ無効・音なしを強制
@@ -282,8 +225,9 @@ class ActiveTaskService : LifecycleService() {
             .setUsesChronometer(true) // ヘッダ側（端末によって出る）
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setSilent(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setPriority(NotificationCompat.PRIORITY_HIGH) // 初回展開を“促す”
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(openPI)
             .setStyle(NotificationCompat.DecoratedCustomViewStyle())
             .setCustomContentView(small)
@@ -292,7 +236,6 @@ class ActiveTaskService : LifecycleService() {
             .setVibrate(null)
             .setDefaults(0)
             .addAction(android.R.drawable.ic_media_next, "次へ", pendingNext())
-            .addAction(android.R.drawable.ic_media_pause, "停止", pendingStop())
             .build()
     }
 
@@ -321,7 +264,6 @@ class ActiveTaskService : LifecycleService() {
                 rv.setOnClickPendingIntent(viewId, switchPendingIntent(c.taskId, 200 + index))
             }
         }
-        rv.setOnClickPendingIntent(R.id.btn_stop, pendingStop())
         return rv
     }
 

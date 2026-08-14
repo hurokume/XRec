@@ -16,7 +16,7 @@ import kotlinx.coroutines.launch
         TaskEventEntity::class,
         TaskSessionEntity::class, // ← 追加済み
     ],
-    version = 2,                 // ★ 1 → 2 に上げる
+    version = 3,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -43,13 +43,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // 2→3: 履歴を保持したままタスク一覧から非表示にできるようにする。
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE tasks ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
         fun get(context: Context, scope: CoroutineScope): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(context, AppDatabase::class.java, "timerecorder.db")
-                    .addMigrations(MIGRATION_1_2)         // ★ 追加
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

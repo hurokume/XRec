@@ -10,6 +10,7 @@ import android.net.Uri
 import androidx.core.content.FileProvider
 import com.example.timerecorder.data.AdvancedAnalysisResult
 import com.example.timerecorder.data.AnalysisCategoryMetric
+import com.example.timerecorder.data.DailyPlanType
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -27,7 +28,7 @@ fun createAdvancedAnalysisReportPdf(
 ): Uri {
     val outputDirectory = File(context.cacheDir, "exports").apply { mkdirs() }
     val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-    val outputFile = File(outputDirectory, "advanced_analysis_$timestamp.pdf")
+    val outputFile = File(outputDirectory, "analysis_$timestamp.pdf")
     val document = PdfDocument()
 
     try {
@@ -51,8 +52,8 @@ fun createAdvancedAnalysisReportPdf(
 internal class AdvancedAnalysisPdfWriter(
     private val document: PdfDocument,
     firstPageNumber: Int = 1,
-    private val reportTitle: String = "TimeRecorder 高度分析レポート",
-    private val reportSubtitle: String = "A4 Advanced Analysis Report",
+    private val reportTitle: String = "TimeRecorder Analysis レポート",
+    private val reportSubtitle: String = "A4 Analysis Report",
     private val pageBreakBeforeProbability: Boolean = false
 ) {
     private val pageWidth = A4_WIDTH_POINTS.toFloat()
@@ -79,6 +80,7 @@ internal class AdvancedAnalysisPdfWriter(
     ) {
         startPage()
         drawReportSummary(result)
+        drawAchievementSection(result)
         drawQualitySection(result)
         drawCategorySection(result)
         if (pageBreakBeforeProbability) startNewPage()
@@ -174,7 +176,7 @@ internal class AdvancedAnalysisPdfWriter(
     }
 
     private fun drawQualitySection(result: AdvancedAnalysisResult) {
-        sectionTitle("1. データ品質")
+        sectionTitle("2. データ品質")
         val quality = result.quality
         keyValue("記録率", formatPercent(quality.coverageRate))
         keyValue("記録時間", formatDuration(quality.recordedMs))
@@ -187,7 +189,7 @@ internal class AdvancedAnalysisPdfWriter(
     }
 
     private fun drawCategorySection(result: AdvancedAnalysisResult) {
-        sectionTitle("2. 階層別時間配分・Pareto")
+        sectionTitle("3. 階層別時間配分・Pareto")
         if (result.categoryMetrics.isEmpty()) {
             paragraph("対象期間に記録がありません。")
             return
@@ -236,7 +238,7 @@ internal class AdvancedAnalysisPdfWriter(
         probabilityItemLimit: Int,
         paletteMask: Int
     ) {
-        sectionTitle("3. 24時間行動確率")
+        sectionTitle("4. 24時間行動確率")
         paragraph("色が濃いほど、その時刻に行っていた日の割合が高いことを示します。")
         val palettes = selectedAnalysisPalettes(paletteMask)
         paragraph(
@@ -312,7 +314,7 @@ internal class AdvancedAnalysisPdfWriter(
     }
 
     private fun drawRepresentativeSection(result: AdvancedAnalysisResult) {
-        sectionTitle("4. 代表日・典型日")
+        sectionTitle("5. 代表日・典型日")
         val formatter = SimpleDateFormat("yyyy/MM/dd (EEE)", Locale.getDefault())
         result.representativeDay?.let { representative ->
             paragraph("実在する代表日", medium = true)
@@ -336,8 +338,35 @@ internal class AdvancedAnalysisPdfWriter(
         y += 8f
     }
 
+    private fun drawAchievementSection(result: AdvancedAnalysisResult) {
+        sectionTitle("1. Daily plan 達成度")
+        val achievements = result.dailyAchievements
+        if (achievements.isEmpty()) {
+            paragraph("対象日に利用できるDaily planがありません。Settingsで予定を設定してください。")
+            return
+        }
+        val totalPlanned = achievements.sumOf { it.plannedMs }
+        val totalAchieved = achievements.sumOf { it.achievedMs }
+        val overall = if (totalPlanned > 0L) totalAchieved.toDouble() / totalPlanned else 0.0
+        keyValue("期間全体", formatPercent(overall))
+        val formatter = SimpleDateFormat("yyyy/MM/dd (EEE)", Locale.getDefault())
+        achievements.forEach { achievement ->
+            val type = when (achievement.planType) {
+                DailyPlanType.Weekday -> "平日"
+                DailyPlanType.Holiday -> "休日"
+            }
+            paragraph(
+                "${formatter.format(Date(achievement.dayStartMs))} [$type]  " +
+                        "${formatPercent(achievement.achievementRate)}  " +
+                        "${formatDuration(achievement.achievedMs)} / ${formatDuration(achievement.plannedMs)}",
+                size = 8.5f
+            )
+        }
+        y += 8f
+    }
+
     private fun drawTransitionSection(result: AdvancedAnalysisResult) {
-        sectionTitle("5. 行動遷移")
+        sectionTitle("6. 行動遷移")
         if (result.transitions.isEmpty()) {
             paragraph("連続する行動遷移がありません。")
             return

@@ -33,6 +33,9 @@ interface SessionDao {
     @Query("DELETE FROM task_sessions WHERE id = :sessionId")
     suspend fun deleteById(sessionId: Long): Int
 
+    @Query("UPDATE task_sessions SET taskId = :newTaskId WHERE taskId = :oldTaskId")
+    suspend fun replaceTask(oldTaskId: Long, newTaskId: Long): Int
+
     @Insert
     suspend fun insert(entity: TaskSessionEntity): Long
 }

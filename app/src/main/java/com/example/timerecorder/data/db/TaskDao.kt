@@ -13,19 +13,26 @@ import kotlinx.coroutines.flow.Flow
 interface TaskDao {
 
     @Transaction
-    @Query("SELECT * FROM tasks WHERE parentId IS NULL ORDER BY sortOrder, id")
+    @Query("SELECT * FROM tasks WHERE parentId IS NULL AND isArchived = 0 ORDER BY sortOrder, id")
     fun observeParentsWithChildren(): Flow<List<ParentWithChildren>>
 
-    @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY sortOrder, id")
+    @Query("SELECT * FROM tasks WHERE parentId = :parentId AND isArchived = 0 ORDER BY sortOrder, id")
     suspend fun getChildren(parentId: Long): List<TaskEntity>
+
+    @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY sortOrder, id")
+    suspend fun getChildrenIncludingArchived(parentId: Long): List<TaskEntity>
 
     @Query("SELECT * FROM tasks ORDER BY sortOrder, id")
     suspend fun getAllTasksOnce(): List<TaskEntity>
 
+    @Query("SELECT id FROM tasks WHERE isArchived = 0")
+    suspend fun getVisibleTaskIds(): List<Long>
+
     @Query(
         """
         SELECT * FROM tasks
-        WHERE (:parentId IS NULL AND parentId IS NULL) OR parentId = :parentId
+        WHERE isArchived = 0
+          AND ((:parentId IS NULL AND parentId IS NULL) OR parentId = :parentId)
         ORDER BY sortOrder, id
         """
     )
@@ -65,10 +72,10 @@ interface TaskDao {
     @Insert
     suspend fun insertEvent(event: TaskEventEntity): Long
 
-    @Query("SELECT COUNT(*) FROM tasks WHERE parentId = :parentId")
+    @Query("SELECT COUNT(*) FROM tasks WHERE parentId = :parentId AND isArchived = 0")
     suspend fun countChildren(parentId: Long): Int
 
-    @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY sortOrder, id")
+    @Query("SELECT * FROM tasks WHERE parentId = :parentId AND isArchived = 0 ORDER BY sortOrder, id")
     fun observeChildren(parentId: Long): Flow<List<TaskEntity>>
 
     @Query(
@@ -90,7 +97,7 @@ interface TaskDao {
     @Query("DELETE FROM task_events")
     suspend fun clearAllEvents(): Int
 
-    @Query("SELECT COALESCE(MAX(sortOrder), 0) FROM tasks WHERE parentId IS :parentId")
+    @Query("SELECT COALESCE(MAX(sortOrder), 0) FROM tasks WHERE parentId IS :parentId AND isArchived = 0")
     suspend fun getMaxSortOrder(parentId: Long?): Int
 
     @Query("UPDATE tasks SET name = :name WHERE id = :id")
@@ -109,7 +116,7 @@ interface TaskDao {
     @Query("UPDATE tasks SET sortOrder = :sortOrder WHERE id = :taskId")
     suspend fun updateSortOrder(taskId: Long, sortOrder: Int): Int
 
-    @Query("SELECT COUNT(*) FROM tasks WHERE parentId IS :parentId AND name = :name")
+    @Query("SELECT COUNT(*) FROM tasks WHERE parentId IS :parentId AND name = :name AND isArchived = 0")
     suspend fun countByNameInParent(parentId: Long?, name: String): Int
 
     @Query(
@@ -180,7 +187,7 @@ interface TaskDao {
     )
     suspend fun getAllEventsForTsv(): List<TsvExportRow>
 
-    @Query("SELECT id FROM tasks WHERE parentId IS :parentId AND name = :name LIMIT 1")
+    @Query("SELECT id FROM tasks WHERE parentId IS :parentId AND name = :name AND isArchived = 0 LIMIT 1")
     suspend fun findTaskIdByNameInParent(parentId: Long?, name: String): Long?
 
     @Query("UPDATE tasks SET sortOrder = :order WHERE id = :taskId AND parentId IS NULL")
@@ -195,6 +202,15 @@ interface TaskDao {
 
     @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
     suspend fun getTaskById(id: Long): TaskEntity?
+
+    @Query("UPDATE task_events SET taskId = :newTaskId WHERE taskId = :oldTaskId")
+    suspend fun replaceEventTask(oldTaskId: Long, newTaskId: Long): Int
+
+    @Query("UPDATE active_task_singleton SET taskId = :newTaskId WHERE taskId = :oldTaskId")
+    suspend fun replaceActiveTask(oldTaskId: Long, newTaskId: Long): Int
+
+    @Query("UPDATE tasks SET isArchived = 1 WHERE id = :taskId")
+    suspend fun archiveTask(taskId: Long): Int
 
     @Query(
         """

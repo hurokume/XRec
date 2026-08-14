@@ -79,6 +79,7 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -133,6 +134,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.timerecorder.ui.HistoryItemUi
 import com.example.timerecorder.ui.AdvancedAnalysisScreen
+import com.example.timerecorder.ui.DailyPlanTaskOption
 import com.example.timerecorder.ui.SettingsScreen
 import com.example.timerecorder.ui.TaskViewModel
 import com.example.timerecorder.ui.UiEvent
@@ -140,6 +142,10 @@ import com.example.timerecorder.ui.WeeklyReportScreen
 import com.example.timerecorder.data.StatsAggregator
 import com.example.timerecorder.data.StatsRecord
 import com.example.timerecorder.data.StatsTarget
+import com.example.timerecorder.data.DailyPlans
+import com.example.timerecorder.data.DailyPlansCodec
+import com.example.timerecorder.data.TaskDeletionMode
+import com.example.timerecorder.data.db.ParentWithChildren
 import com.example.timerecorder.ui.theme.TimeRecorderTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -173,6 +179,7 @@ private const val PREFS_NAME = "stats_prefs"
 private const val KEY_STATS_INCLUDED = "stats_included_leaf_ids" // CSVのLong ID群
 private const val SETTINGS_PREFS_NAME = "app_settings"
 private const val KEY_SHOW_STOP_BUTTON = "show_stop_button"
+private const val KEY_DAILY_PLANS = "daily_plans"
 
 /**
  * エントリポイント Activity。
@@ -269,18 +276,47 @@ fun AppRoot(
 
     val ctx = LocalContext.current
     val active by taskVm.active.collectAsStateWithLifecycle()
+    val settingsPreferences = remember(ctx) {
+        ctx.getSharedPreferences(SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
+    }
     var showStopButton by rememberSaveable {
         mutableStateOf(
-            ctx.getSharedPreferences(SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
-                .getBoolean(KEY_SHOW_STOP_BUTTON, true)
+            settingsPreferences.getBoolean(KEY_SHOW_STOP_BUTTON, true)
         )
+    }
+    var dailyPlans by remember {
+        mutableStateOf(DailyPlansCodec.decode(settingsPreferences.getString(KEY_DAILY_PLANS, null)))
+    }
+    val dailyPlanTaskOptions = remember(parents) {
+        parents.flatMap { group ->
+            listOf(
+                DailyPlanTaskOption(
+                    id = group.parent.id,
+                    label = group.parent.name,
+                    colorInt = group.parent.colorInt
+                )
+            ) +
+                    group.children.map { child ->
+                        DailyPlanTaskOption(
+                            id = child.id,
+                            label = "${group.parent.name} / ${child.name}",
+                            colorInt = child.colorInt ?: group.parent.colorInt
+                        )
+                    }
+        }
     }
 
     fun updateShowStopButton(show: Boolean) {
         showStopButton = show
-        ctx.getSharedPreferences(SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
+        settingsPreferences.edit()
             .putBoolean(KEY_SHOW_STOP_BUTTON, show)
+            .apply()
+    }
+
+    fun updateDailyPlans(updated: DailyPlans) {
+        dailyPlans = updated
+        settingsPreferences.edit()
+            .putString(KEY_DAILY_PLANS, DailyPlansCodec.encode(updated))
             .apply()
     }
 
@@ -642,7 +678,7 @@ fun AppRoot(
                                             )
 
                                             AppScreen.History -> "History"
-                                            AppScreen.Analysis -> "高度分析"
+                                            AppScreen.Analysis -> "Analysis"
                                             AppScreen.WeeklyReport -> "Weekly report"
                                             AppScreen.Settings -> "Settings"
                                         }
@@ -835,14 +871,16 @@ fun AppRoot(
                             modifier = Modifier
                                 .padding(innerPadding)
                                 .fillMaxSize(),
-                            viewModel = taskVm
+                            viewModel = taskVm,
+                            dailyPlans = dailyPlans
                         )
 
                         AppScreen.WeeklyReport -> WeeklyReportScreen(
                             modifier = Modifier
                                 .padding(innerPadding)
                                 .fillMaxSize(),
-                            viewModel = taskVm
+                            viewModel = taskVm,
+                            dailyPlans = dailyPlans
                         )
 
                         AppScreen.Settings -> SettingsScreen(
@@ -850,7 +888,10 @@ fun AppRoot(
                                 .padding(innerPadding)
                                 .fillMaxSize(),
                             showStopButton = showStopButton,
-                            onShowStopButtonChange = ::updateShowStopButton
+                            onShowStopButtonChange = ::updateShowStopButton,
+                            dailyPlans = dailyPlans,
+                            taskOptions = dailyPlanTaskOptions,
+                            onDailyPlansChange = ::updateDailyPlans
                         )
                     }
 
@@ -1112,7 +1153,7 @@ fun DrawerSheet(onItemSelected: (String) -> Unit) {
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
         NavigationDrawerItem(
-            label = { Text("高度分析") },
+            label = { Text("Analysis") },
             selected = false,
             onClick = { onItemSelected("analysis") },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
@@ -1252,10 +1293,35 @@ fun DBTaskScreen(
     var renameTaskText by rememberSaveable { mutableStateOf("") }
     var confirmDeleteTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var confirmDeleteTaskName by rememberSaveable { mutableStateOf("") }
+    var confirmDeleteTaskIsRoot by rememberSaveable { mutableStateOf(false) }
+    var deleteModeName by rememberSaveable { mutableStateOf(TaskDeletionMode.KeepHistory.name) }
+    var replacementTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var replacementTaskLabel by rememberSaveable { mutableStateOf<String?>(null) }
+    var showReplacementPicker by rememberSaveable { mutableStateOf(false) }
+    var deleteExcludedTaskIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
 
     var colorPickForParentId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var confirmDeleteParentId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var confirmDeleteParentName by rememberSaveable { mutableStateOf("") }
+
+    fun requestTaskDeletion(id: Long, name: String, isRoot: Boolean) {
+        confirmDeleteTaskId = id
+        confirmDeleteTaskName = name
+        confirmDeleteTaskIsRoot = isRoot
+        deleteModeName = if (isRoot) {
+            TaskDeletionMode.KeepHistory.name
+        } else {
+            TaskDeletionMode.PromoteToParent.name
+        }
+        replacementTaskId = null
+        replacementTaskLabel = null
+        showReplacementPicker = false
+        deleteExcludedTaskIds = emptySet()
+    }
+
+    LaunchedEffect(confirmDeleteTaskId) {
+        deleteExcludedTaskIds = confirmDeleteTaskId
+            ?.let { taskVm.taskTreeIds(it) }
+            .orEmpty()
+    }
 
     val presetColors =
         listOf(0xFFEF9A9A, 0xFFA5D6A7, 0xFF90CAF9, 0xFFFFF59D, 0xFFCE93D8).map { Color(it) }
@@ -1495,8 +1561,11 @@ fun DBTaskScreen(
                                                 text = { Text("親タスク（プロジェクト）を削除") },
                                                 onClick = {
                                                     menuForParentId = null
-                                                    confirmDeleteParentId = p.parent.id
-                                                    confirmDeleteParentName = p.parent.name
+                                                    requestTaskDeletion(
+                                                        p.parent.id,
+                                                        p.parent.name,
+                                                        isRoot = true
+                                                    )
                                                     lastInteractionTime = System.currentTimeMillis()
                                                 }
                                             )
@@ -1730,8 +1799,11 @@ fun DBTaskScreen(
                                                             text = { Text("タスクを削除") },
                                                             onClick = {
                                                                 menuForChildTaskId = null
-                                                                confirmDeleteTaskId = child.id
-                                                                confirmDeleteTaskName = child.name
+                                                                requestTaskDeletion(
+                                                                    child.id,
+                                                                    child.name,
+                                                                    isRoot = false
+                                                                )
                                                                 lastInteractionTime =
                                                                     System.currentTimeMillis()
                                                             }
@@ -1783,8 +1855,7 @@ fun DBTaskScreen(
                             lastInteractionTime = System.currentTimeMillis()
                         },
                         onDeleteRequest = { taskId, name ->
-                            confirmDeleteTaskId = taskId
-                            confirmDeleteTaskName = name
+                            requestTaskDeletion(taskId, name, isRoot = false)
                             lastInteractionTime = System.currentTimeMillis()
                         },
                         taskVm = taskVm,
@@ -1792,6 +1863,28 @@ fun DBTaskScreen(
                     )
                 }
 
+            }
+        }
+
+        if (showReplacementPicker) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(10f),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                ReplacementTaskSelectionScreen(
+                    viewModel = taskVm,
+                    parents = parents,
+                    excludedTaskIds = deleteExcludedTaskIds,
+                    nameSort = effectiveNameSort,
+                    onBack = { showReplacementPicker = false },
+                    onPick = { taskId, label ->
+                        replacementTaskId = taskId
+                        replacementTaskLabel = label
+                        showReplacementPicker = false
+                    }
+                )
             }
         }
 
@@ -2014,26 +2107,6 @@ fun DBTaskScreen(
             }
         }
 
-        if (confirmDeleteParentId != null) {
-            AlertDialog(
-                onDismissRequest = { confirmDeleteParentId = null },
-                title = { Text("削除の確認") },
-                text = {
-                    Text("親タスク（プロジェクト）「$confirmDeleteParentName」を削除します。子タスクも削除されます。よろしいですか？")
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val id = confirmDeleteParentId
-                        if (id != null) taskVm.deleteParent(id)
-                        confirmDeleteParentId = null
-                    }) { Text("削除") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { confirmDeleteParentId = null }) { Text("キャンセル") }
-                }
-            )
-        }
-
         if (renameTaskId != null) {
             AlertDialog(
                 onDismissRequest = { renameTaskId = null },
@@ -2102,17 +2175,75 @@ fun DBTaskScreen(
         }
 
 
-        if (confirmDeleteTaskId != null) {
+        if (confirmDeleteTaskId != null && !showReplacementPicker) {
+            val deleteMode = TaskDeletionMode.valueOf(deleteModeName)
             AlertDialog(
                 onDismissRequest = { confirmDeleteTaskId = null },
-                title = { Text("削除の確認") },
-                text = { Text("タスク「$confirmDeleteTaskName」を削除します。よろしいですか？") },
+                title = { Text("タスクの削除") },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("「$confirmDeleteTaskName」と配下のタスクを削除します。既存の記録をどう扱うか選択してください。")
+                        Spacer(Modifier.height(8.dp))
+
+                        if (!confirmDeleteTaskIsRoot) {
+                            TaskDeletionModeRow(
+                                selected = deleteMode == TaskDeletionMode.PromoteToParent,
+                                title = "1階層上のタスクとして記録",
+                                description = "過去の全記録を1階層上のタスクへ移します。",
+                                onClick = {
+                                    deleteModeName = TaskDeletionMode.PromoteToParent.name
+                                    replacementTaskId = null
+                                    replacementTaskLabel = null
+                                }
+                            )
+                        }
+                        TaskDeletionModeRow(
+                            selected = deleteMode == TaskDeletionMode.Replace,
+                            title = "別のタスクに置換",
+                            description = "過去の全記録を選択したタスクへ移します。",
+                            onClick = {
+                                deleteModeName = TaskDeletionMode.Replace.name
+                                replacementTaskId = null
+                                replacementTaskLabel = null
+                                showReplacementPicker = true
+                            }
+                        )
+                        if (deleteMode == TaskDeletionMode.Replace) {
+                            OutlinedButton(
+                                onClick = { showReplacementPicker = true },
+                                modifier = Modifier.padding(start = 48.dp, bottom = 8.dp)
+                            ) {
+                                Text(replacementTaskLabel ?: "置換先タスクを選択")
+                            }
+                        }
+                        TaskDeletionModeRow(
+                            selected = deleteMode == TaskDeletionMode.KeepHistory,
+                            title = "過去の記録は変更しない",
+                            description = "記録はそのまま残し、タスクを選択画面からのみ隠します。",
+                            onClick = {
+                                deleteModeName = TaskDeletionMode.KeepHistory.name
+                                replacementTaskId = null
+                                replacementTaskLabel = null
+                            }
+                        )
+                    }
+                },
                 confirmButton = {
-                    TextButton(onClick = {
-                        val id = confirmDeleteTaskId
-                        if (id != null) taskVm.deleteTask(id)
-                        confirmDeleteTaskId = null
-                    }) { Text("削除") }
+                    TextButton(
+                        enabled = deleteMode != TaskDeletionMode.Replace || replacementTaskId != null,
+                        onClick = {
+                            val id = confirmDeleteTaskId
+                            if (id != null) {
+                                taskVm.deleteTask(id, deleteMode, replacementTaskId)
+                            }
+                            confirmDeleteTaskId = null
+                        }
+                    ) { Text("削除") }
                 },
                 dismissButton = {
                     TextButton(onClick = { confirmDeleteTaskId = null }) { Text("キャンセル") }
@@ -2120,7 +2251,7 @@ fun DBTaskScreen(
             )
         }
 
-        if (fabVisible) {
+        if (fabVisible && !showReplacementPicker) {
             FloatingActionButton(
                 onClick = {
                     when (val s = ui) {
@@ -2143,6 +2274,291 @@ fun DBTaskScreen(
                     .padding(16.dp)
             ) {
                 Icon(Icons.Filled.AddCircle, contentDescription = "Add task")
+            }
+        }
+    }
+}
+
+@Composable
+private fun TaskDeletionModeRow(
+    selected: Boolean,
+    title: String,
+    description: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Column(Modifier.padding(top = 4.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+private sealed interface ReplacementSelectionUiState {
+    data object TaskList : ReplacementSelectionUiState
+    data class SubtaskList(
+        val projectName: String,
+        val taskName: String,
+        val taskId: Long,
+        val color: Color
+    ) : ReplacementSelectionUiState
+}
+
+/** main UI の Select a task と同じカード一覧・サブタスク遷移で置換先を選ぶ。 */
+@Composable
+private fun ReplacementTaskSelectionScreen(
+    viewModel: TaskViewModel,
+    parents: List<ParentWithChildren>,
+    excludedTaskIds: Set<Long>,
+    nameSort: NameSort,
+    onBack: () -> Unit,
+    onPick: (Long, String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var pickerUi by remember { mutableStateOf<ReplacementSelectionUiState>(ReplacementSelectionUiState.TaskList) }
+
+    BackHandler {
+        if (pickerUi is ReplacementSelectionUiState.SubtaskList) {
+            pickerUi = ReplacementSelectionUiState.TaskList
+        } else {
+            onBack()
+        }
+    }
+
+    val availableParents = remember(parents, excludedTaskIds, nameSort) {
+        val filtered = parents
+            .filterNot { it.parent.id in excludedTaskIds }
+            .map { group ->
+                group.copy(children = group.children.filterNot { it.id in excludedTaskIds })
+            }
+            .filter { it.children.isNotEmpty() }
+        when (nameSort) {
+            NameSort.None -> filtered
+            NameSort.Asc -> filtered.sortedBy { it.parent.name.lowercase() }
+            NameSort.Desc -> filtered.sortedByDescending { it.parent.name.lowercase() }
+        }
+    }
+
+    when (val state = pickerUi) {
+        ReplacementSelectionUiState.TaskList -> Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onBack) { Text("＜ 戻る") }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.label_select_task),
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
+
+            if (excludedTaskIds.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            } else if (availableParents.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("置換先として選択できるタスクがありません")
+                }
+            } else {
+                LazyColumn(modifier = Modifier.weight(1f, fill = true)) {
+                    items(availableParents.size) { index ->
+                        val group = availableParents[index]
+                        val projectColor = group.parent.colorInt?.let { Color(it) }
+                            ?: MaterialTheme.colorScheme.primary
+                        val children = when (nameSort) {
+                            NameSort.None -> group.children
+                            NameSort.Asc -> group.children.sortedBy { it.name.lowercase() }
+                            NameSort.Desc -> group.children.sortedByDescending { it.name.lowercase() }
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.primary,
+                                    RoundedCornerShape(2.dp)
+                                ),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text(
+                                    group.parent.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+
+                                children.forEach { child ->
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp)
+                                            .border(
+                                                1.dp,
+                                                MaterialTheme.colorScheme.outline,
+                                                RoundedCornerShape(2.dp)
+                                            ),
+                                        onClick = {
+                                            scope.launch {
+                                                if (viewModel.hasChildren(child.id)) {
+                                                    pickerUi = ReplacementSelectionUiState.SubtaskList(
+                                                        projectName = group.parent.name,
+                                                        taskName = child.name,
+                                                        taskId = child.id,
+                                                        color = projectColor
+                                                    )
+                                                } else {
+                                                    onPick(
+                                                        child.id,
+                                                        "${group.parent.name} / ${child.name}"
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                        shape = RoundedCornerShape(2.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                child.name,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                modifier = Modifier.weight(1f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(16.dp)
+                                                    .background(projectColor, RoundedCornerShape(3.dp))
+                                                    .border(
+                                                        1.dp,
+                                                        MaterialTheme.colorScheme.outline,
+                                                        RoundedCornerShape(3.dp)
+                                                    )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                    }
+                }
+            }
+        }
+
+        is ReplacementSelectionUiState.SubtaskList -> {
+            val subtasks by viewModel.children(state.taskId)
+                .collectAsStateWithLifecycle(initialValue = emptyList())
+            val availableSubtasks = remember(subtasks, excludedTaskIds, nameSort) {
+                val filtered = subtasks.filterNot { it.id in excludedTaskIds }
+                when (nameSort) {
+                    NameSort.None -> filtered
+                    NameSort.Asc -> filtered.sortedBy { it.name.lowercase() }
+                    NameSort.Desc -> filtered.sortedByDescending { it.name.lowercase() }
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = {
+                        pickerUi = ReplacementSelectionUiState.TaskList
+                    }) { Text("＜ 戻る") }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "${state.taskName} のサブタスク",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
+
+                if (availableSubtasks.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("置換先として選択できるサブタスクがありません")
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        items(availableSubtasks.size) { index ->
+                            val subtask = availableSubtasks[index]
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .border(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.outline,
+                                        RoundedCornerShape(8.dp)
+                                    ),
+                                onClick = {
+                                    onPick(
+                                        subtask.id,
+                                        "${state.projectName} / ${state.taskName} / ${subtask.name}"
+                                    )
+                                        },
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        subtask.name,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .background(state.color, RoundedCornerShape(3.dp))
+                                            .border(
+                                                1.dp,
+                                                MaterialTheme.colorScheme.outline,
+                                                RoundedCornerShape(3.dp)
+                                            )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -2459,7 +2875,7 @@ private fun TimelineScreen(
 
     // 「今日を右端」にするためのアンカー（非週間時のみ使用）
     var dayCount by rememberSaveable { mutableIntStateOf(3) }
-    var anchorOffset by rememberSaveable { mutableIntStateOf(-1) } // start = today + offset * 1day
+    var anchorOffset by rememberSaveable { mutableIntStateOf(-2) } // start = today + offset * 1day
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(externalRefreshTick) { nowMs = System.currentTimeMillis() }
 
@@ -2525,11 +2941,6 @@ private fun TimelineScreen(
     }
 
     fun colorFor(taskId: Long) = colorByTaskId[taskId] ?: defaultProjectColor
-
-    // 非週間モードに入った/日数が変わったら「今日が右端」になるように調整
-    LaunchedEffect(dayCount, weekMode) {
-        if (!weekMode) anchorOffset = -(dayCount - 1) // ← ここがポイント（右端=今日）
-    }
 
     Box(
         modifier = modifier

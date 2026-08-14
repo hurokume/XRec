@@ -115,7 +115,8 @@ data class AdvancedAnalysisResult(
     val timeProfile: AnalysisTimeProfile,
     val representativeDay: AnalysisRepresentativeDay?,
     val typicalPatterns: List<AnalysisTypicalPattern>,
-    val transitions: List<AnalysisTransition>
+    val transitions: List<AnalysisTransition>,
+    val dailyAchievements: List<DailyAchievement>
 )
 
 object AdvancedAnalysisEngine {
@@ -169,7 +170,9 @@ object AdvancedAnalysisEngine {
 
     fun analyze(
         events: List<AnalysisEvent>,
-        request: AnalysisRequest
+        request: AnalysisRequest,
+        dailyPlans: DailyPlans = DailyPlans(),
+        completedThroughMs: Long = Long.MAX_VALUE
     ): AdvancedAnalysisResult {
         val range = rangeFor(request)
         val timeZone = TimeZone.getTimeZone(request.timeZoneId)
@@ -252,6 +255,14 @@ object AdvancedAnalysisEngine {
         }
         val patterns = buildTypicalPatterns(distanceMatrix, validProfileWindows, representativeIndex)
         val transitions = calculateTransitions(validEvents, windows, ::targetFor)
+        val dailyAchievements = DailyAchievementEngine.calculate(
+            events = validEvents,
+            range = range,
+            plans = dailyPlans,
+            timeZoneId = request.timeZoneId,
+            completedThroughMs = minOf(completedThroughMs, range.endMs),
+            dayType = request.dayType
+        )
 
         // Referencing the map here also guarantees that only selected analysis days contribute.
         check(slices.all { it.dayStartMs in windowByStart })
@@ -263,7 +274,8 @@ object AdvancedAnalysisEngine {
             timeProfile = timeProfile,
             representativeDay = representativeDay,
             typicalPatterns = patterns,
-            transitions = transitions
+            transitions = transitions,
+            dailyAchievements = dailyAchievements
         )
     }
 

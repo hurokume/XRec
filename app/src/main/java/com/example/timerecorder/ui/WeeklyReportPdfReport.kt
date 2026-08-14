@@ -9,7 +9,6 @@ import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import androidx.core.content.FileProvider
 import com.example.timerecorder.data.WeeklyReportData
-import com.example.timerecorder.data.WeeklyTimeline
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -38,7 +37,7 @@ fun createWeeklyReportPdf(
             document = document,
             firstPageNumber = 2,
             reportTitle = "TimeRecorder Weekly Report",
-            reportSubtitle = "Advanced Analysis",
+            reportSubtitle = "Analysis",
             pageBreakBeforeProbability = true
         ).write(
             result = data.analysis,
@@ -77,7 +76,7 @@ private class WeeklyTimelinePdfWriter(
         )
         val canvas = page.canvas.apply { drawColor(Color.WHITE) }
         drawHeader(canvas, data)
-        drawTimeline(canvas, data.timeline)
+        drawTimeline(canvas, data)
         drawFooter(canvas)
         document.finishPage(page)
     }
@@ -97,7 +96,7 @@ private class WeeklyTimelinePdfWriter(
         )
         drawText(
             canvas,
-            "7-day Timeline and Advanced Analysis",
+            "7-day Timeline, Daily Plan Achievement and Analysis",
             margin,
             46f,
             8.5f,
@@ -116,12 +115,14 @@ private class WeeklyTimelinePdfWriter(
         drawText(canvas, detail, margin, 91f, 8f, Color.rgb(82, 95, 109))
     }
 
-    private fun drawTimeline(canvas: Canvas, timeline: WeeklyTimeline) {
+    private fun drawTimeline(canvas: Canvas, data: WeeklyReportData) {
+        val timeline = data.timeline
+        val achievementsByDay = data.analysis.dailyAchievements.associateBy { it.dayStartMs }
         val labelWidth = 38f
         val left = margin + labelWidth
         val right = pageWidth - margin
         val headerTop = 99f
-        val gridTop = 122f
+        val gridTop = 132f
         val gridBottom = pageHeight - 47f
         val gridHeight = gridBottom - gridTop
         val visibleMinutes = timeline.displayEndMinute - timeline.displayStartMinute
@@ -144,6 +145,16 @@ private class WeeklyTimelinePdfWriter(
                 label,
                 columnLeft + (columnWidth - paint.measureText(label)) / 2f,
                 headerTop + 15f,
+                paint
+            )
+            val achievementLabel = achievementsByDay[day.startMs]?.let { achievement ->
+                "達成 ${formatPercentForWeekly(achievement.achievementRate)}"
+            } ?: "達成 --"
+            configurePaint(6.5f, Color.rgb(82, 95, 109), false)
+            canvas.drawText(
+                achievementLabel,
+                columnLeft + (columnWidth - paint.measureText(achievementLabel)) / 2f,
+                headerTop + 26f,
                 paint
             )
         }

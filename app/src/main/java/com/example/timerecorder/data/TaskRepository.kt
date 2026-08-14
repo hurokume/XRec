@@ -36,6 +36,18 @@ sealed class SwitchResult {
     ) : SwitchResult()
 }
 
+/** タスクを一覧から削除するとき、既存の記録をどう扱うか。 */
+enum class TaskDeletionMode {
+    /** 削除対象の記録を1階層上のタスクへ付け替える。 */
+    PromoteToParent,
+
+    /** 削除対象の記録をユーザーが選んだ別タスクへ付け替える。 */
+    Replace,
+
+    /** 記録とタスクを保持し、タスクだけを選択 UI から隠す。 */
+    KeepHistory
+}
+
 class TaskRepository(
     private val db: AppDatabase,
     private val sessionDao: SessionDao,
@@ -46,7 +58,11 @@ class TaskRepository(
         taskDao.observeParentsWithChildren()
             .map { groups ->
                 groups.map { g ->
-                    g.copy(children = g.children.sortedWith(compareBy({ it.sortOrder }, { it.id })))
+                    g.copy(
+                        children = g.children
+                            .filterNot { it.isArchived }
+                            .sortedWith(compareBy({ it.sortOrder }, { it.id }))
+                    )
                 }
             }
 
@@ -60,6 +76,10 @@ class TaskRepository(
         now: Long,
         mergeThresholdSec: Long = 60
     ): SwitchResult = db.withTransaction {
+        val newTask = requireNotNull(taskDao.getTaskById(newTaskId)) {
+            "開始するタスクが見つかりません"
+        }
+        require(!newTask.isArchived) { "非表示のタスクは開始できません" }
         val active = sessionDao.getActive()
         val thresholdMs = mergeThresholdSec * 1000L
         val decision = TaskSwitchPolicy.decide(
@@ -152,11 +172,8 @@ class TaskRepository(
         return taskDao.insertTask(TaskEntity(name = name, parentId = parentId, sortOrder = next))
     }
 
-    suspend fun deleteProject(parentId: Long) = deleteTaskTree(parentId)
-
     suspend fun changeColor(id: Long, colorInt: Int) = taskDao.updateTaskColor(id, colorInt)
     suspend fun renameTask(taskId: Long, newName: String) = taskDao.updateTaskName(taskId, newName)
-    suspend fun deleteTaskById(taskId: Long) = deleteTaskTree(taskId)
     suspend fun updateSortOrdersForParent(parentId: Long, idsInOrder: List<Long>) =
         taskDao.updateSortOrdersForParent(parentId, idsInOrder)
 
@@ -220,22 +237,87 @@ class TaskRepository(
     }
 
     // ---------------- Export / Import ----------------
-    private suspend fun collectTaskTreeIds(rootId: Long): List<Long> {
+    suspend fun getTaskTreeIds(rootId: Long): List<Long> {
         val result = mutableListOf<Long>()
         val visited = mutableSetOf<Long>()
 
         suspend fun visit(taskId: Long) {
             if (!visited.add(taskId)) return
             result += taskId
-            taskDao.getChildren(taskId).forEach { child -> visit(child.id) }
+            taskDao.getChildrenIncludingArchived(taskId).forEach { child -> visit(child.id) }
         }
 
         visit(rootId)
         return result
     }
 
+    /**
+     * タスクと配下のタスクを一覧から削除し、既存記録を指定された方針で処理する。
+     * 記録には task_events に加え、予測等に使う task_sessions と実行中状態も含める。
+     */
+    suspend fun deleteTask(
+        rootId: Long,
+        mode: TaskDeletionMode,
+        replacementTaskId: Long? = null,
+        nowMs: Long = System.currentTimeMillis()
+    ) = db.withTransaction {
+        val root = requireNotNull(taskDao.getTaskById(rootId)) { "削除対象が見つかりません" }
+        check(!root.isArchived) { "削除対象は既に非表示です" }
+        val ids = getTaskTreeIds(rootId)
+        if (ids.isEmpty()) return@withTransaction
+
+        when (mode) {
+            TaskDeletionMode.PromoteToParent -> {
+                val destinationId = requireNotNull(root.parentId) {
+                    "最上位の項目は1階層上へ変更できません"
+                }
+                replaceTaskReferences(ids, destinationId)
+                deleteTaskTreeInCurrentTransaction(rootId)
+            }
+
+            TaskDeletionMode.Replace -> {
+                val destinationId = requireNotNull(replacementTaskId) {
+                    "置換先タスクを選択してください"
+                }
+                require(destinationId !in ids) { "削除対象の配下は置換先にできません" }
+                val destination = requireNotNull(taskDao.getTaskById(destinationId)) {
+                    "置換先タスクが見つかりません"
+                }
+                require(!destination.isArchived) { "非表示のタスクは置換先にできません" }
+                replaceTaskReferences(ids, destinationId)
+                deleteTaskTreeInCurrentTransaction(rootId)
+            }
+
+            TaskDeletionMode.KeepHistory -> {
+                // 実行中なら削除時点までを履歴として確定し、その記録も元タスクのまま残す。
+                sessionDao.getActive()?.takeIf { it.taskId in ids }?.let { active ->
+                    sessionDao.updateEnd(active.id, nowMs)
+                    taskDao.insertEvent(
+                        TaskEventEntity(
+                            taskId = active.taskId,
+                            pressedAtEpochMs = active.startedAt,
+                            durationMillis = (nowMs - active.startedAt).coerceAtLeast(0L)
+                        )
+                    )
+                    taskDao.clearActive()
+                }
+                val activeTaskId = taskDao.getActiveOrNull()?.taskId
+                if (activeTaskId != null && activeTaskId in ids) taskDao.clearActive()
+                ids.forEach { taskDao.archiveTask(it) }
+            }
+        }
+    }
+
+    private suspend fun replaceTaskReferences(oldTaskIds: List<Long>, newTaskId: Long) {
+        oldTaskIds.forEach { oldTaskId ->
+            taskDao.replaceEventTask(oldTaskId, newTaskId)
+            sessionDao.replaceTask(oldTaskId, newTaskId)
+            taskDao.replaceActiveTask(oldTaskId, newTaskId)
+        }
+    }
+
     private suspend fun deleteTaskTreeInCurrentTransaction(rootId: Long) {
-        val ids = collectTaskTreeIds(rootId)
+        val ids = getTaskTreeIds(rootId)
         if (ids.isEmpty()) return
 
         val activeTaskId = taskDao.getActiveOrNull()?.taskId

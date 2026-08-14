@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import com.example.timerecorder.data.AnalysisDayType
 import com.example.timerecorder.data.AnalysisLevel
 import com.example.timerecorder.data.AnalysisRequest
+import com.example.timerecorder.data.DailyPlans
 import com.example.timerecorder.data.WeeklyReportEngine
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -58,6 +59,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun WeeklyReportScreen(
     viewModel: TaskViewModel,
+    dailyPlans: DailyPlans,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -99,7 +101,8 @@ fun WeeklyReportScreen(
                         timeZoneId = timeZoneId
                     ),
                     timelineStartMinute = timelineStartHour * 60,
-                    timelineEndMinute = timelineEndHour * 60
+                    timelineEndMinute = timelineEndHour * 60,
+                    dailyPlans = dailyPlans
                 )
                 val uri = withContext(Dispatchers.IO) {
                     createWeeklyReportPdf(context, data)
@@ -132,7 +135,7 @@ fun WeeklyReportScreen(
     ) {
         Text("Weekly report", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "指定した週の7日Timelineと、同じ期間の高度分析を1つのPDFにまとめます。",
+            "指定した週の7日Timeline、Daily plan達成度、Analysisを1つのPDFにまとめます。",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -209,7 +212,7 @@ fun WeeklyReportScreen(
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("高度分析の分類階層", style = MaterialTheme.typography.titleMedium)
+                Text("Analysisの分類階層", style = MaterialTheme.typography.titleMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AnalysisLevel.entries.forEach { option ->
                         FilterChip(

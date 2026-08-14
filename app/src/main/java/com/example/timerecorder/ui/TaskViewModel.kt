@@ -8,7 +8,9 @@ import androidx.lifecycle.viewModelScope
 import com.example.timerecorder.data.AdvancedAnalysisEngine
 import com.example.timerecorder.data.AdvancedAnalysisResult
 import com.example.timerecorder.data.AnalysisRequest
+import com.example.timerecorder.data.DailyPlans
 import com.example.timerecorder.data.SwitchResult
+import com.example.timerecorder.data.TaskDeletionMode
 import com.example.timerecorder.data.TaskRepository
 import com.example.timerecorder.data.WeeklyReportData
 import com.example.timerecorder.data.WeeklyReportEngine
@@ -198,7 +200,6 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     fun addChildTask(parentId: Long, name: String) =
         viewModelScope.launch { repo.addTask(name, parentId) }
 
-    fun deleteParent(parentId: Long) = viewModelScope.launch { repo.deleteProject(parentId) }
     fun changeParentColor(parentId: Long, color: Color) =
         viewModelScope.launch { repo.changeColor(parentId, color.toArgb()) }
 
@@ -207,7 +208,23 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         if (trimmed.isNotEmpty()) repo.renameTask(taskId, trimmed)
     }
 
-    fun deleteTask(taskId: Long) = viewModelScope.launch { repo.deleteTaskById(taskId) }
+    suspend fun taskTreeIds(taskId: Long): Set<Long> = repo.getTaskTreeIds(taskId).toSet()
+
+    fun deleteTask(
+        taskId: Long,
+        mode: TaskDeletionMode,
+        replacementTaskId: Long? = null
+    ) = viewModelScope.launch {
+        try {
+            repo.deleteTask(taskId, mode, replacementTaskId)
+            reloadHistory()
+            _events.emit(UiEvent.ShowMessage("タスクを削除しました"))
+        } catch (e: IllegalArgumentException) {
+            _events.emit(UiEvent.ShowMessage(e.message ?: "タスクを削除できませんでした"))
+        } catch (e: IllegalStateException) {
+            _events.emit(UiEvent.ShowMessage(e.message ?: "タスクを削除できませんでした"))
+        }
+    }
     fun reorderChildren(parentId: Long, idsInOrder: List<Long>) =
         viewModelScope.launch { repo.updateSortOrdersForParent(parentId, idsInOrder) }
 
@@ -263,7 +280,7 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun runAdvancedAnalysis(request: AnalysisRequest) {
+    fun runAdvancedAnalysis(request: AnalysisRequest, dailyPlans: DailyPlans) {
         advancedAnalysisJob?.cancel()
         advancedAnalysisJob = viewModelScope.launch {
             _advancedAnalysis.value = _advancedAnalysis.value.copy(
@@ -278,7 +295,7 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
                     nowMs = request.nowMs
                 )
                 val result = withContext(Dispatchers.Default) {
-                    AdvancedAnalysisEngine.analyze(records, request)
+                    AdvancedAnalysisEngine.analyze(records, request, dailyPlans)
                 }
                 _advancedAnalysis.value = AdvancedAnalysisUiState(result = result)
             } catch (cancelled: CancellationException) {
@@ -294,7 +311,8 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun buildWeeklyReport(
         request: AnalysisRequest,
         timelineStartMinute: Int,
-        timelineEndMinute: Int
+        timelineEndMinute: Int,
+        dailyPlans: DailyPlans
     ): WeeklyReportData {
         val range = AdvancedAnalysisEngine.rangeFor(request)
         val events = withContext(Dispatchers.IO) {
@@ -313,7 +331,12 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
                     displayEndMinute = timelineEndMinute,
                     timeZoneId = request.timeZoneId
                 ),
-                analysis = AdvancedAnalysisEngine.analyze(events, request)
+                analysis = AdvancedAnalysisEngine.analyze(
+                    events = events,
+                    request = request,
+                    dailyPlans = dailyPlans,
+                    completedThroughMs = minOf(System.currentTimeMillis(), range.endMs)
+                )
             )
         }
     }
