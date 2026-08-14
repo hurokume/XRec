@@ -79,7 +79,6 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -134,18 +133,21 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.timerecorder.ui.HistoryItemUi
 import com.example.timerecorder.ui.AdvancedAnalysisScreen
+import com.example.timerecorder.ui.AddTaskScreen
 import com.example.timerecorder.ui.DailyPlanTaskOption
 import com.example.timerecorder.ui.SettingsScreen
+import com.example.timerecorder.ui.TaskDeletionDialog
+import com.example.timerecorder.ui.TaskDeletionUiState
 import com.example.timerecorder.ui.TaskViewModel
 import com.example.timerecorder.ui.UiEvent
 import com.example.timerecorder.ui.WeeklyReportScreen
+import com.example.timerecorder.ui.ReplacementTaskSelectionScreen
 import com.example.timerecorder.data.StatsAggregator
 import com.example.timerecorder.data.StatsRecord
 import com.example.timerecorder.data.StatsTarget
 import com.example.timerecorder.data.DailyPlans
 import com.example.timerecorder.data.DailyPlansCodec
 import com.example.timerecorder.data.TaskDeletionMode
-import com.example.timerecorder.data.db.ParentWithChildren
 import com.example.timerecorder.ui.theme.TimeRecorderTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -1291,36 +1293,24 @@ fun DBTaskScreen(
     var renameTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var renameTaskCurrentName by rememberSaveable { mutableStateOf("") }
     var renameTaskText by rememberSaveable { mutableStateOf("") }
-    var confirmDeleteTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var confirmDeleteTaskName by rememberSaveable { mutableStateOf("") }
-    var confirmDeleteTaskIsRoot by rememberSaveable { mutableStateOf(false) }
-    var deleteModeName by rememberSaveable { mutableStateOf(TaskDeletionMode.KeepHistory.name) }
-    var replacementTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var replacementTaskLabel by rememberSaveable { mutableStateOf<String?>(null) }
-    var showReplacementPicker by rememberSaveable { mutableStateOf(false) }
-    var deleteExcludedTaskIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var taskDeletion by remember { mutableStateOf<TaskDeletionUiState?>(null) }
 
     var colorPickForParentId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     fun requestTaskDeletion(id: Long, name: String, isRoot: Boolean) {
-        confirmDeleteTaskId = id
-        confirmDeleteTaskName = name
-        confirmDeleteTaskIsRoot = isRoot
-        deleteModeName = if (isRoot) {
-            TaskDeletionMode.KeepHistory.name
-        } else {
-            TaskDeletionMode.PromoteToParent.name
-        }
-        replacementTaskId = null
-        replacementTaskLabel = null
-        showReplacementPicker = false
-        deleteExcludedTaskIds = emptySet()
+        taskDeletion = TaskDeletionUiState(
+            taskId = id,
+            taskName = name,
+            isRootTask = isRoot
+        )
     }
 
-    LaunchedEffect(confirmDeleteTaskId) {
-        deleteExcludedTaskIds = confirmDeleteTaskId
-            ?.let { taskVm.taskTreeIds(it) }
-            .orEmpty()
+    LaunchedEffect(taskDeletion?.taskId) {
+        val taskId = taskDeletion?.taskId ?: return@LaunchedEffect
+        val excludedIds = taskVm.taskTreeIds(taskId)
+        taskDeletion = taskDeletion
+            ?.takeIf { it.taskId == taskId }
+            ?.copy(excludedTaskIds = excludedIds)
     }
 
     val presetColors =
@@ -1866,7 +1856,7 @@ fun DBTaskScreen(
             }
         }
 
-        if (showReplacementPicker) {
+        taskDeletion?.takeIf { it.isSelectingReplacement }?.let { deletion ->
             Surface(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1876,13 +1866,17 @@ fun DBTaskScreen(
                 ReplacementTaskSelectionScreen(
                     viewModel = taskVm,
                     parents = parents,
-                    excludedTaskIds = deleteExcludedTaskIds,
+                    excludedTaskIds = deletion.excludedTaskIds,
                     nameSort = effectiveNameSort,
-                    onBack = { showReplacementPicker = false },
+                    onBack = {
+                        taskDeletion = taskDeletion?.copy(isSelectingReplacement = false)
+                    },
                     onPick = { taskId, label ->
-                        replacementTaskId = taskId
-                        replacementTaskLabel = label
-                        showReplacementPicker = false
+                        taskDeletion = taskDeletion?.copy(
+                            replacementTaskId = taskId,
+                            replacementTaskLabel = label,
+                            isSelectingReplacement = false
+                        )
                     }
                 )
             }
@@ -2175,83 +2169,39 @@ fun DBTaskScreen(
         }
 
 
-        if (confirmDeleteTaskId != null && !showReplacementPicker) {
-            val deleteMode = TaskDeletionMode.valueOf(deleteModeName)
-            AlertDialog(
-                onDismissRequest = { confirmDeleteTaskId = null },
-                title = { Text("タスクの削除") },
-                text = {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text("「$confirmDeleteTaskName」と配下のタスクを削除します。既存の記録をどう扱うか選択してください。")
-                        Spacer(Modifier.height(8.dp))
-
-                        if (!confirmDeleteTaskIsRoot) {
-                            TaskDeletionModeRow(
-                                selected = deleteMode == TaskDeletionMode.PromoteToParent,
-                                title = "1階層上のタスクとして記録",
-                                description = "過去の全記録を1階層上のタスクへ移します。",
-                                onClick = {
-                                    deleteModeName = TaskDeletionMode.PromoteToParent.name
-                                    replacementTaskId = null
-                                    replacementTaskLabel = null
-                                }
-                            )
-                        }
-                        TaskDeletionModeRow(
-                            selected = deleteMode == TaskDeletionMode.Replace,
-                            title = "別のタスクに置換",
-                            description = "過去の全記録を選択したタスクへ移します。",
-                            onClick = {
-                                deleteModeName = TaskDeletionMode.Replace.name
-                                replacementTaskId = null
-                                replacementTaskLabel = null
-                                showReplacementPicker = true
-                            }
-                        )
-                        if (deleteMode == TaskDeletionMode.Replace) {
-                            OutlinedButton(
-                                onClick = { showReplacementPicker = true },
-                                modifier = Modifier.padding(start = 48.dp, bottom = 8.dp)
-                            ) {
-                                Text(replacementTaskLabel ?: "置換先タスクを選択")
-                            }
-                        }
-                        TaskDeletionModeRow(
-                            selected = deleteMode == TaskDeletionMode.KeepHistory,
-                            title = "過去の記録は変更しない",
-                            description = "記録はそのまま残し、タスクを選択画面からのみ隠します。",
-                            onClick = {
-                                deleteModeName = TaskDeletionMode.KeepHistory.name
-                                replacementTaskId = null
-                                replacementTaskLabel = null
-                            }
-                        )
-                    }
+        taskDeletion?.takeIf { !it.isSelectingReplacement }?.let { deletion ->
+            TaskDeletionDialog(
+                taskName = deletion.taskName,
+                isRootTask = deletion.isRootTask,
+                mode = deletion.mode,
+                replacementTaskId = deletion.replacementTaskId,
+                replacementTaskLabel = deletion.replacementTaskLabel,
+                onModeChange = { newMode ->
+                    taskDeletion = taskDeletion?.copy(
+                        mode = newMode,
+                        replacementTaskId = null,
+                        replacementTaskLabel = null,
+                        isSelectingReplacement = newMode == TaskDeletionMode.Replace
+                    )
                 },
-                confirmButton = {
-                    TextButton(
-                        enabled = deleteMode != TaskDeletionMode.Replace || replacementTaskId != null,
-                        onClick = {
-                            val id = confirmDeleteTaskId
-                            if (id != null) {
-                                taskVm.deleteTask(id, deleteMode, replacementTaskId)
-                            }
-                            confirmDeleteTaskId = null
-                        }
-                    ) { Text("削除") }
+                onSelectReplacement = {
+                    taskDeletion = taskDeletion?.copy(isSelectingReplacement = true)
                 },
-                dismissButton = {
-                    TextButton(onClick = { confirmDeleteTaskId = null }) { Text("キャンセル") }
+                onConfirm = {
+                    taskVm.deleteTask(
+                        deletion.taskId,
+                        deletion.mode,
+                        deletion.replacementTaskId
+                    )
+                    taskDeletion = null
+                },
+                onDismiss = {
+                    taskDeletion = null
                 }
             )
         }
 
-        if (fabVisible && !showReplacementPicker) {
+        if (fabVisible && taskDeletion?.isSelectingReplacement != true) {
             FloatingActionButton(
                 onClick = {
                     when (val s = ui) {
@@ -2274,291 +2224,6 @@ fun DBTaskScreen(
                     .padding(16.dp)
             ) {
                 Icon(Icons.Filled.AddCircle, contentDescription = "Add task")
-            }
-        }
-    }
-}
-
-@Composable
-private fun TaskDeletionModeRow(
-    selected: Boolean,
-    title: String,
-    description: String,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        RadioButton(selected = selected, onClick = null)
-        Column(Modifier.padding(top = 4.dp)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-private sealed interface ReplacementSelectionUiState {
-    data object TaskList : ReplacementSelectionUiState
-    data class SubtaskList(
-        val projectName: String,
-        val taskName: String,
-        val taskId: Long,
-        val color: Color
-    ) : ReplacementSelectionUiState
-}
-
-/** main UI の Select a task と同じカード一覧・サブタスク遷移で置換先を選ぶ。 */
-@Composable
-private fun ReplacementTaskSelectionScreen(
-    viewModel: TaskViewModel,
-    parents: List<ParentWithChildren>,
-    excludedTaskIds: Set<Long>,
-    nameSort: NameSort,
-    onBack: () -> Unit,
-    onPick: (Long, String) -> Unit
-) {
-    val scope = rememberCoroutineScope()
-    var pickerUi by remember { mutableStateOf<ReplacementSelectionUiState>(ReplacementSelectionUiState.TaskList) }
-
-    BackHandler {
-        if (pickerUi is ReplacementSelectionUiState.SubtaskList) {
-            pickerUi = ReplacementSelectionUiState.TaskList
-        } else {
-            onBack()
-        }
-    }
-
-    val availableParents = remember(parents, excludedTaskIds, nameSort) {
-        val filtered = parents
-            .filterNot { it.parent.id in excludedTaskIds }
-            .map { group ->
-                group.copy(children = group.children.filterNot { it.id in excludedTaskIds })
-            }
-            .filter { it.children.isNotEmpty() }
-        when (nameSort) {
-            NameSort.None -> filtered
-            NameSort.Asc -> filtered.sortedBy { it.parent.name.lowercase() }
-            NameSort.Desc -> filtered.sortedByDescending { it.parent.name.lowercase() }
-        }
-    }
-
-    when (val state = pickerUi) {
-        ReplacementSelectionUiState.TaskList -> Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextButton(onClick = onBack) { Text("＜ 戻る") }
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.label_select_task),
-                    style = MaterialTheme.typography.titleMedium
-                )
-            }
-
-            if (excludedTaskIds.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            } else if (availableParents.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("置換先として選択できるタスクがありません")
-                }
-            } else {
-                LazyColumn(modifier = Modifier.weight(1f, fill = true)) {
-                    items(availableParents.size) { index ->
-                        val group = availableParents[index]
-                        val projectColor = group.parent.colorInt?.let { Color(it) }
-                            ?: MaterialTheme.colorScheme.primary
-                        val children = when (nameSort) {
-                            NameSort.None -> group.children
-                            NameSort.Asc -> group.children.sortedBy { it.name.lowercase() }
-                            NameSort.Desc -> group.children.sortedByDescending { it.name.lowercase() }
-                        }
-
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.primary,
-                                    RoundedCornerShape(2.dp)
-                                ),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Column(Modifier.padding(12.dp)) {
-                                Text(
-                                    group.parent.name,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    modifier = Modifier.padding(bottom = 8.dp)
-                                )
-
-                                children.forEach { child ->
-                                    Card(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 4.dp)
-                                            .border(
-                                                1.dp,
-                                                MaterialTheme.colorScheme.outline,
-                                                RoundedCornerShape(2.dp)
-                                            ),
-                                        onClick = {
-                                            scope.launch {
-                                                if (viewModel.hasChildren(child.id)) {
-                                                    pickerUi = ReplacementSelectionUiState.SubtaskList(
-                                                        projectName = group.parent.name,
-                                                        taskName = child.name,
-                                                        taskId = child.id,
-                                                        color = projectColor
-                                                    )
-                                                } else {
-                                                    onPick(
-                                                        child.id,
-                                                        "${group.parent.name} / ${child.name}"
-                                                    )
-                                                }
-                                            }
-                                        },
-                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                        shape = RoundedCornerShape(2.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                child.name,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                modifier = Modifier.weight(1f),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(16.dp)
-                                                    .background(projectColor, RoundedCornerShape(3.dp))
-                                                    .border(
-                                                        1.dp,
-                                                        MaterialTheme.colorScheme.outline,
-                                                        RoundedCornerShape(3.dp)
-                                                    )
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(12.dp))
-                    }
-                }
-            }
-        }
-
-        is ReplacementSelectionUiState.SubtaskList -> {
-            val subtasks by viewModel.children(state.taskId)
-                .collectAsStateWithLifecycle(initialValue = emptyList())
-            val availableSubtasks = remember(subtasks, excludedTaskIds, nameSort) {
-                val filtered = subtasks.filterNot { it.id in excludedTaskIds }
-                when (nameSort) {
-                    NameSort.None -> filtered
-                    NameSort.Asc -> filtered.sortedBy { it.name.lowercase() }
-                    NameSort.Desc -> filtered.sortedByDescending { it.name.lowercase() }
-                }
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(onClick = {
-                        pickerUi = ReplacementSelectionUiState.TaskList
-                    }) { Text("＜ 戻る") }
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "${state.taskName} のサブタスク",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                }
-
-                if (availableSubtasks.isEmpty()) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("置換先として選択できるサブタスクがありません")
-                    }
-                } else {
-                    LazyColumn(modifier = Modifier.weight(1f)) {
-                        items(availableSubtasks.size) { index ->
-                            val subtask = availableSubtasks[index]
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .border(
-                                        1.dp,
-                                        MaterialTheme.colorScheme.outline,
-                                        RoundedCornerShape(8.dp)
-                                    ),
-                                onClick = {
-                                    onPick(
-                                        subtask.id,
-                                        "${state.projectName} / ${state.taskName} / ${subtask.name}"
-                                    )
-                                        },
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        subtask.name,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        modifier = Modifier.weight(1f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .size(16.dp)
-                                            .background(state.color, RoundedCornerShape(3.dp))
-                                            .border(
-                                                1.dp,
-                                                MaterialTheme.colorScheme.outline,
-                                                RoundedCornerShape(3.dp)
-                                            )
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
     }
@@ -3958,351 +3623,6 @@ fun BlankScreen(label: String, modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
-}
-
-/* =========================
-   タスク追加画面（実装版：過去記録の手動追加）
-   ========================= */
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun AddTaskScreen(
-    onBack: () -> Unit,
-    viewModel: TaskViewModel,
-    initialTaskId: Long? = null,
-    initialStartMs: Long? = null,
-    initialEndMs: Long? = null
-) {
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    val parents by viewModel.parents.collectAsStateWithLifecycle()
-
-    var selectedParentId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var selectedSubtaskId by rememberSaveable { mutableStateOf<Long?>(null) }
-
-    // initialTaskId が来たら初期選択に反映（子 or サブタスクを自動選択）
-    LaunchedEffect(initialTaskId, parents) {
-        val target = initialTaskId ?: return@LaunchedEffect
-
-        // 子タスク一致
-        parents.firstOrNull { g -> g.children.any { it.id == target } }?.let { g ->
-            selectedParentId = g.parent.id
-            selectedTaskId = target
-            selectedSubtaskId = null
-            return@LaunchedEffect
-        }
-
-        // サブタスク一致
-        outer@ for (g in parents) {
-            for (child in g.children) {
-                if (viewModel.hasChildren(child.id)) {
-                    val subs = viewModel.children(child.id).first()
-                    if (subs.any { it.id == target }) {
-                        selectedParentId = g.parent.id
-                        selectedTaskId = child.id
-                        selectedSubtaskId = target
-                        break@outer
-                    }
-                }
-            }
-        }
-    }
-
-    // 選択された親配下の子タスク
-    val tasksInParent = remember(selectedParentId, parents) {
-        parents.firstOrNull { it.parent.id == selectedParentId }?.children.orEmpty()
-    }
-
-    // 選択された子タスク配下のサブタスク
-    val subtasks by remember(selectedTaskId) {
-        if (selectedTaskId != null) {
-            viewModel.children(selectedTaskId!!)
-        } else {
-            kotlinx.coroutines.flow.flowOf(emptyList())
-        }
-    }.collectAsStateWithLifecycle(initialValue = emptyList())
-
-    // 開始・終了の初期値：編集遷移時（initialStart/End）があればそれを採用
-    var startMs by rememberSaveable {
-        mutableLongStateOf(initialStartMs ?: (System.currentTimeMillis() - 60 * 60 * 1000L))
-    }
-    var endMs by rememberSaveable {
-        mutableLongStateOf(initialEndMs ?: System.currentTimeMillis())
-    }
-
-    val dfFull =
-        remember { java.text.SimpleDateFormat("yyyy/MM/dd HH:mm", java.util.Locale.getDefault()) }
-
-    fun pickDateTime(
-        initial: Long,
-        onPicked: (Long) -> Unit
-    ) {
-        val cal = java.util.Calendar.getInstance().apply { timeInMillis = initial }
-        android.app.DatePickerDialog(
-            ctx,
-            { _, y, m, d ->
-                cal.set(java.util.Calendar.YEAR, y)
-                cal.set(java.util.Calendar.MONTH, m)
-                cal.set(java.util.Calendar.DAY_OF_MONTH, d)
-                android.app.TimePickerDialog(
-                    ctx,
-                    { _, hh, mm ->
-                        cal.set(java.util.Calendar.HOUR_OF_DAY, hh)
-                        cal.set(java.util.Calendar.MINUTE, mm)
-                        cal.set(java.util.Calendar.SECOND, 0)
-                        cal.set(java.util.Calendar.MILLISECOND, 0)
-                        onPicked(cal.timeInMillis)
-                    },
-                    cal.get(java.util.Calendar.HOUR_OF_DAY),
-                    cal.get(java.util.Calendar.MINUTE),
-                    true
-                ).show()
-            },
-            cal.get(java.util.Calendar.YEAR),
-            cal.get(java.util.Calendar.MONTH),
-            cal.get(java.util.Calendar.DAY_OF_MONTH)
-        ).show()
-    }
-
-    // 上書き確認ダイアログの状態
-    var showOverwriteDialog by rememberSaveable { mutableStateOf(false) }
-    var pendingTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var pendingStart by rememberSaveable { mutableLongStateOf(0L) }
-    var pendingEnd by rememberSaveable { mutableLongStateOf(0L) }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("タスク記録を追加") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ChevronLeft, contentDescription = "Back")
-                    }
-                }
-            )
-        }
-    ) { inner ->
-        Column(
-            modifier = Modifier
-                .padding(inner)
-                .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Text(
-                "親タスク / タスク / サブタスク（任意）と、開始・終了の日時を指定して保存します。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            // 親タスク
-            DropdownField(
-                label = "親タスク",
-                current = parents.firstOrNull { it.parent.id == selectedParentId }?.parent?.name
-                    ?: "選択してください",
-                enabled = parents.isNotEmpty(),
-                items = parents.map { it.parent.id to it.parent.name },
-                onSelect = { id ->
-                    selectedParentId = id
-                    selectedTaskId = null
-                    selectedSubtaskId = null
-                }
-            )
-
-            // タスク（子）
-            DropdownField(
-                label = "タスク",
-                current = tasksInParent.firstOrNull { it.id == selectedTaskId }?.name
-                    ?: if (selectedParentId == null) "（親タスク未選択）" else "選択してください",
-                enabled = selectedParentId != null && tasksInParent.isNotEmpty(),
-                items = tasksInParent.map { it.id to it.name },
-                onSelect = { id ->
-                    selectedTaskId = id
-                    selectedSubtaskId = null
-                }
-            )
-
-            // サブタスク（任意）
-            DropdownField(
-                label = "サブタスク（任意）",
-                current = when {
-                    selectedTaskId == null -> "（タスク未選択）"
-                    subtasks.isEmpty() -> "（サブタスクなし）"
-                    selectedSubtaskId == null -> "未選択"
-                    else -> subtasks.firstOrNull { it.id == selectedSubtaskId }?.name ?: "未選択"
-                },
-                enabled = selectedTaskId != null && subtasks.isNotEmpty(),
-                items = subtasks.map { it.id to it.name },
-                onSelect = { id -> selectedSubtaskId = id }
-            )
-
-            // 開始日時
-            TimeField(
-                label = "開始",
-                valueText = dfFull.format(java.util.Date(startMs)),
-                onClick = {
-                    pickDateTime(startMs) { picked ->
-                        startMs = picked
-                        if (endMs <= startMs) endMs = startMs + 5 * 60 * 1000L
-                    }
-                }
-            )
-
-            // 終了日時
-            TimeField(
-                label = "終了",
-                valueText = dfFull.format(java.util.Date(endMs)),
-                onClick = {
-                    pickDateTime(endMs) { picked ->
-                        endMs = picked
-                        if (endMs <= startMs) startMs = endMs - 5 * 60 * 1000L
-                    }
-                }
-            )
-
-            Spacer(Modifier.height(8.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onBack) { Text("キャンセル") }
-                FilledTonalButton(onClick = {
-                    val baseTaskId = selectedTaskId
-                    val finalTaskId = selectedSubtaskId ?: baseTaskId
-                    when {
-                        selectedParentId == null -> Toast.makeText(
-                            ctx,
-                            "親タスクを選択してください",
-                            Toast.LENGTH_SHORT
-                        ).show()
-
-                        baseTaskId == null -> Toast.makeText(
-                            ctx,
-                            "タスクを選択してください",
-                            Toast.LENGTH_SHORT
-                        ).show()
-
-                        endMs <= startMs -> Toast.makeText(
-                            ctx,
-                            "終了は開始より後にしてください",
-                            Toast.LENGTH_SHORT
-                        ).show()
-
-                        else -> {
-                            scope.launch {
-                                // 既存と重なる場合は上書き確認
-                                val overlap = viewModel.hasOverlap(startMs, endMs)
-                                if (overlap) {
-                                    pendingTaskId = finalTaskId!!
-                                    pendingStart = startMs
-                                    pendingEnd = endMs
-                                    showOverwriteDialog = true
-                                } else {
-                                    viewModel.addManualRecord(finalTaskId!!, startMs, endMs)
-                                    onBack()
-                                }
-                            }
-                        }
-                    }
-                }) { Text("保存") }
-            }
-
-            Spacer(Modifier.weight(1f))
-        }
-    }
-
-    // 上書き警告ダイアログ
-    if (showOverwriteDialog) {
-        AlertDialog(
-            onDismissRequest = { showOverwriteDialog = false },
-            title = { Text("重複する記録を上書きします") },
-            text = {
-                Text(
-                    "この期間には既存の記録が存在します。\n" +
-                            "追加する記録を優先し、重複部分は削除または切り詰められます。続行しますか？"
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    pendingTaskId?.let { t ->
-                        // 重複時は近傍吸収版で一度だけ登録・調整する
-                        viewModel.upsertRecordAbsorbingNeighbors(t, pendingStart, pendingEnd)
-                    }
-                    showOverwriteDialog = false
-                    onBack()
-                }) { Text("上書きして追加") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showOverwriteDialog = false }) { Text("キャンセル") }
-            }
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DropdownField(
-    label: String,
-    current: String,
-    enabled: Boolean = true,
-    items: List<Pair<Long, String>>,
-    onSelect: (Long) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    // アンカー用コンテナ
-    Box(modifier = Modifier.fillMaxWidth()) {
-        // 表示用の読み取り専用 TextField
-        OutlinedTextField(
-            value = current,
-            onValueChange = {},
-            readOnly = true,
-            enabled = enabled,
-            label = { Text(label) },
-            modifier = Modifier
-                .fillMaxWidth()
-        )
-
-        // フィールド全体をクリックでメニュー展開
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .clickable(enabled = enabled) { expanded = true }
-        )
-
-        // 通常の DropdownMenu を使う
-        DropdownMenu(
-            expanded = expanded && enabled,
-            onDismissRequest = { expanded = false }
-        ) {
-            items.forEach { (id, name) ->
-                DropdownMenuItem(
-                    text = { Text(name) },
-                    onClick = {
-                        onSelect(id)
-                        expanded = false
-                    }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TimeField(
-    label: String,
-    valueText: String,
-    onClick: () -> Unit
-) {
-    OutlinedTextField(
-        value = valueText,
-        onValueChange = {},
-        readOnly = true,
-        label = { Text(label) },
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-    )
 }
 
 // ============================================
