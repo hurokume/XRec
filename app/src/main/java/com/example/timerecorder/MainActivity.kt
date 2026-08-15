@@ -138,6 +138,7 @@ import com.example.timerecorder.ui.DailyPlanTaskOption
 import com.example.timerecorder.ui.SettingsScreen
 import com.example.timerecorder.ui.TaskDeletionDialog
 import com.example.timerecorder.ui.TaskDeletionUiState
+import com.example.timerecorder.ui.TaskAnalysisScreen
 import com.example.timerecorder.ui.TaskViewModel
 import com.example.timerecorder.ui.UiEvent
 import com.example.timerecorder.ui.WeeklyReportScreen
@@ -274,7 +275,7 @@ fun AppRoot(
     val parents by taskVm.parents.collectAsStateWithLifecycle()
 
     // 中央ページ（タスク一覧）を起点に、左右へページング
-    val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
+    val pagerState = rememberPagerState(initialPage = 1, pageCount = { 4 })
 
     val ctx = LocalContext.current
     val active by taskVm.active.collectAsStateWithLifecycle()
@@ -549,6 +550,8 @@ fun AppRoot(
                     2 -> { // 統計
                         taskVm.reloadHistory()                   // ★追加
                     }
+
+                    3 -> { /* 分析画面は選択した期間を都度読み込む */ }
                 }
             }
     }
@@ -1208,7 +1211,7 @@ fun DrawerSheet(onItemSelected: (String) -> Unit) {
 }
 
 /**
- * 3ページ（左：タイムライン / 中央：タスク / 右：集計）を横スワイプで切替。
+ * 4ページ（タイムライン / タスク / 集計 / 分析）を横スワイプで切替。
  */
 @Composable
 fun MainPager(
@@ -1246,6 +1249,8 @@ fun MainPager(
                 includedLeafIds = statsIncludedLeafIds,
                 aggMode = aggMode
             )
+
+            3 -> TaskAnalysisScreen(viewModel = taskVm)
         }
     }
 }

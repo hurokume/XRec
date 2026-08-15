@@ -148,6 +148,9 @@ interface TaskDao {
     @Query("UPDATE task_events SET taskId = :newTaskId WHERE id = :eventId")
     suspend fun updateEventTask(eventId: Long, newTaskId: Long): Int
 
+    @Query("UPDATE task_events SET taskId = :newTaskId WHERE id IN (:eventIds)")
+    suspend fun updateEventTasks(eventIds: List<Long>, newTaskId: Long): Int
+
     @Query(
         """
     SELECT e.id AS eventId,

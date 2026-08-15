@@ -10,6 +10,9 @@ import com.example.timerecorder.data.AdvancedAnalysisResult
 import com.example.timerecorder.data.AnalysisRequest
 import com.example.timerecorder.data.DailyPlans
 import com.example.timerecorder.data.SwitchResult
+import com.example.timerecorder.data.TaskAnalysisEngine
+import com.example.timerecorder.data.TaskAnalysisRequest
+import com.example.timerecorder.data.TaskAnalysisResult
 import com.example.timerecorder.data.TaskDeletionMode
 import com.example.timerecorder.data.TaskRepository
 import com.example.timerecorder.data.WeeklyReportData
@@ -58,6 +61,13 @@ sealed interface UiEvent {
 data class AdvancedAnalysisUiState(
     val isLoading: Boolean = false,
     val result: AdvancedAnalysisResult? = null,
+    val errorMessage: String? = null
+)
+
+data class TaskAnalysisUiState(
+    val request: TaskAnalysisRequest? = null,
+    val isLoading: Boolean = false,
+    val result: TaskAnalysisResult? = null,
     val errorMessage: String? = null
 )
 
@@ -209,6 +219,7 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     suspend fun taskTreeIds(taskId: Long): Set<Long> = repo.getTaskTreeIds(taskId).toSet()
+    suspend fun visibleTaskIds(): Set<Long> = repo.getVisibleTaskIds()
 
     fun deleteTask(
         taskId: Long,
@@ -255,6 +266,10 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     private val _advancedAnalysis = MutableStateFlow(AdvancedAnalysisUiState())
     val advancedAnalysis: StateFlow<AdvancedAnalysisUiState> = _advancedAnalysis
     private var advancedAnalysisJob: Job? = null
+
+    private val _taskAnalysis = MutableStateFlow(TaskAnalysisUiState())
+    val taskAnalysis: StateFlow<TaskAnalysisUiState> = _taskAnalysis
+    private var taskAnalysisJob: Job? = null
 
     fun loadTimelineRange(startMs: Long, endMs: Long) {
         viewModelScope.launch {
@@ -305,6 +320,45 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
                     errorMessage = error.message ?: "分析に失敗しました"
                 )
             }
+        }
+    }
+
+    fun loadTaskAnalysis(request: TaskAnalysisRequest) {
+        taskAnalysisJob?.cancel()
+        _taskAnalysis.value = TaskAnalysisUiState(request = request, isLoading = true)
+        taskAnalysisJob = viewModelScope.launch {
+            try {
+                val range = TaskAnalysisEngine.rangeFor(request)
+                val records = repo.loadAnalysisEvents(
+                    startMs = TaskAnalysisEngine.movingAverageLookbackStart(request),
+                    endMs = range.endMs,
+                    nowMs = minOf(request.nowMs, range.endMs)
+                )
+                val result = withContext(Dispatchers.Default) {
+                    TaskAnalysisEngine.analyze(records, request)
+                }
+                _taskAnalysis.value = TaskAnalysisUiState(request = request, result = result)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                _taskAnalysis.value = TaskAnalysisUiState(
+                    request = request,
+                    errorMessage = error.message ?: "タスク分析に失敗しました"
+                )
+            }
+        }
+    }
+
+    fun reassignEvents(eventIds: Set<Long>, newTaskId: Long) = viewModelScope.launch {
+        try {
+            val updated = repo.reassignEvents(eventIds, newTaskId)
+            reloadHistory()
+            _taskAnalysis.value.request?.let(::loadTaskAnalysis)
+            _events.emit(UiEvent.ShowMessage("${updated}件の記録を変更しました"))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            _events.emit(UiEvent.ShowMessage(error.message ?: "記録を変更できませんでした"))
         }
     }
 

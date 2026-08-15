@@ -68,6 +68,7 @@ class TaskRepository(
 
     fun observeChildren(parentId: Long): Flow<List<TaskEntity>> = taskDao.observeChildren(parentId)
     suspend fun hasChildren(taskId: Long): Boolean = taskDao.countChildren(taskId) > 0
+    suspend fun getVisibleTaskIds(): Set<Long> = taskDao.getVisibleTaskIds().toSet()
     fun observeActive(): Flow<ActiveWithTask?> = taskDao.observeActiveWithTask()
 
     // ---------------- 操作系（短時間統合スイッチ） ----------------
@@ -234,6 +235,18 @@ class TaskRepository(
             }
         }
         return result
+    }
+
+    suspend fun reassignEvents(eventIds: Set<Long>, newTaskId: Long): Int {
+        val persistedIds = eventIds.filter { it > 0L }.distinct()
+        if (persistedIds.isEmpty()) return 0
+        return db.withTransaction {
+            val destination = requireNotNull(taskDao.getTaskById(newTaskId)) {
+                "変更先タスクが見つかりません"
+            }
+            require(!destination.isArchived) { "非表示のタスクには変更できません" }
+            taskDao.updateEventTasks(persistedIds, newTaskId)
+        }
     }
 
     // ---------------- Export / Import ----------------
