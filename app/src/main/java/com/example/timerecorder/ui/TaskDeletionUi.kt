@@ -77,7 +77,7 @@ internal fun TaskDeletionDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("タスクの削除") },
+        title = { Text(stringResource(R.string.delete_task_title)) },
         text = {
             Column(
                 modifier = Modifier
@@ -85,21 +85,21 @@ internal fun TaskDeletionDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text("「$taskName」と配下のタスクを削除します。既存の記録をどう扱うか選択してください。")
+                Text(stringResource(R.string.delete_task_message, taskName))
                 Spacer(Modifier.height(8.dp))
 
                 if (!isRootTask) {
                     DeletionModeRow(
                         selected = mode == TaskDeletionMode.PromoteToParent,
-                        title = "1階層上のタスクとして記録",
-                        description = "過去の全記録を1階層上のタスクへ移します。",
+                        title = stringResource(R.string.delete_task_promote_title),
+                        description = stringResource(R.string.delete_task_promote_description),
                         onClick = { onModeChange(TaskDeletionMode.PromoteToParent) }
                     )
                 }
                 DeletionModeRow(
                     selected = mode == TaskDeletionMode.Replace,
-                    title = "別のタスクに置換",
-                    description = "過去の全記録を選択したタスクへ移します。",
+                    title = stringResource(R.string.delete_task_replace_title),
+                    description = stringResource(R.string.delete_task_replace_description),
                     onClick = { onModeChange(TaskDeletionMode.Replace) }
                 )
                 if (mode == TaskDeletionMode.Replace) {
@@ -107,13 +107,16 @@ internal fun TaskDeletionDialog(
                         onClick = onSelectReplacement,
                         modifier = Modifier.padding(start = 48.dp, bottom = 8.dp)
                     ) {
-                        Text(replacementTaskLabel ?: "置換先タスクを選択")
+                        Text(
+                            replacementTaskLabel
+                                ?: stringResource(R.string.delete_task_select_replacement)
+                        )
                     }
                 }
                 DeletionModeRow(
                     selected = mode == TaskDeletionMode.KeepHistory,
-                    title = "過去の記録は変更しない",
-                    description = "記録はそのまま残し、タスクを選択画面からのみ隠します。",
+                    title = stringResource(R.string.delete_task_keep_history_title),
+                    description = stringResource(R.string.delete_task_keep_history_description),
                     onClick = { onModeChange(TaskDeletionMode.KeepHistory) }
                 )
             }
@@ -122,10 +125,10 @@ internal fun TaskDeletionDialog(
             TextButton(
                 enabled = mode != TaskDeletionMode.Replace || replacementTaskId != null,
                 onClick = onConfirm
-            ) { Text("削除") }
+            ) { Text(stringResource(R.string.action_delete)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("キャンセル") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
         }
     )
 }
@@ -258,7 +261,7 @@ private fun ReplacementTaskList(
 
             parents.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("置換先として選択できるタスクがありません")
+                    Text(stringResource(R.string.replacement_no_tasks))
                 }
             }
 
@@ -330,11 +333,14 @@ private fun ReplacementSubtaskList(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        SelectionHeader(title = "${state.taskName} のサブタスク", onBack = onBack)
+        SelectionHeader(
+            title = stringResource(R.string.replacement_subtask_title, state.taskName),
+            onBack = onBack
+        )
 
         if (availableSubtasks.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("置換先として選択できるサブタスクがありません")
+                Text(stringResource(R.string.replacement_no_subtasks))
             }
         } else {
             LazyColumn(modifier = Modifier.weight(1f)) {
@@ -364,7 +370,9 @@ private fun SelectionHeader(title: String, onBack: () -> Unit) {
             .padding(bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TextButton(onClick = onBack) { Text("＜ 戻る") }
+        TextButton(onClick = onBack) {
+            Text(stringResource(R.string.action_back_with_marker))
+        }
         Spacer(Modifier.width(8.dp))
         Text(title, style = MaterialTheme.typography.titleMedium)
     }

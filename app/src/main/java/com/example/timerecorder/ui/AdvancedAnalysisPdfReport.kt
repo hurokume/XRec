@@ -8,6 +8,7 @@ import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import androidx.core.content.FileProvider
+import com.example.timerecorder.R
 import com.example.timerecorder.data.AdvancedAnalysisResult
 import com.example.timerecorder.data.AnalysisCategoryMetric
 import com.example.timerecorder.data.DailyPlanType
@@ -32,7 +33,12 @@ fun createAdvancedAnalysisReportPdf(
     val document = PdfDocument()
 
     try {
-        AdvancedAnalysisPdfWriter(document).write(
+        AdvancedAnalysisPdfWriter(
+            document = document,
+            stringResolver = context::getString,
+            reportTitle = context.getString(R.string.advanced_analysis_share_subject),
+            reportSubtitle = context.getString(R.string.advanced_analysis_pdf_subtitle)
+        ).write(
             result = result,
             probabilityItemLimit = probabilityItemLimit,
             paletteMask = paletteMask
@@ -51,9 +57,10 @@ fun createAdvancedAnalysisReportPdf(
 
 internal class AdvancedAnalysisPdfWriter(
     private val document: PdfDocument,
+    private val stringResolver: (Int) -> String,
     firstPageNumber: Int = 1,
-    private val reportTitle: String = "TimeRecorder Analysis レポート",
-    private val reportSubtitle: String = "A4 Analysis Report",
+    private val reportTitle: String,
+    private val reportSubtitle: String,
     private val pageBreakBeforeProbability: Boolean = false
 ) {
     private val pageWidth = A4_WIDTH_POINTS.toFloat()
@@ -242,7 +249,7 @@ internal class AdvancedAnalysisPdfWriter(
         paragraph("色が濃いほど、その時刻に行っていた日の割合が高いことを示します。")
         val palettes = selectedAnalysisPalettes(paletteMask)
         paragraph(
-            "パレット: ${palettes.joinToString(" / ") { it.label }}",
+            "パレット: ${palettes.joinToString(" / ") { stringResolver(it.labelRes) }}",
             size = 8f,
             color = Color.rgb(82, 95, 109)
         )

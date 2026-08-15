@@ -211,6 +211,11 @@ fun TaskAnalysisScreen(
 
     val allRootTaskIds = parents.map { it.parent.id }.toSet()
     val allChecked = visibleTaskIds.isNotEmpty() && checkedTaskIds.containsAll(visibleTaskIds)
+    val allItemsLabel = stringResource(R.string.analysis_all_items)
+    val selectedItemsLabel = stringResource(
+        R.string.analysis_selected_items,
+        checkedTaskIds.size
+    )
     if (drillPath.isNotEmpty()) {
         BackHandler { drillPath.removeAt(drillPath.lastIndex) }
     }
@@ -237,10 +242,10 @@ fun TaskAnalysisScreen(
                 canAnalyzeAll = allRootTaskIds.isNotEmpty(),
                 onToggleChecked = ::toggleChecked,
                 onAnalyzeAll = {
-                    openBatchAnalysis(allRootTaskIds, "全項目")
+                    openBatchAnalysis(allRootTaskIds, allItemsLabel)
                 },
                 onAnalyzeChecked = {
-                    openBatchAnalysis(checkedTaskIds, "選択した${checkedTaskIds.size}項目")
+                    openBatchAnalysis(checkedTaskIds, selectedItemsLabel)
                 },
                 onBack = { drillPath.removeAt(drillPath.lastIndex) },
                 onOpenChild = { drillPath += it },
@@ -255,10 +260,10 @@ fun TaskAnalysisScreen(
                 canAnalyzeAll = allRootTaskIds.isNotEmpty(),
                 onToggleChecked = ::toggleChecked,
                 onAnalyzeAll = {
-                    openBatchAnalysis(allRootTaskIds, "全項目")
+                    openBatchAnalysis(allRootTaskIds, allItemsLabel)
                 },
                 onAnalyzeChecked = {
-                    openBatchAnalysis(checkedTaskIds, "選択した${checkedTaskIds.size}項目")
+                    openBatchAnalysis(checkedTaskIds, selectedItemsLabel)
                 },
                 onOpenChild = { drillPath += it },
                 onAnalyze = ::openAnalysis
@@ -391,7 +396,10 @@ private fun AnalysisSubtaskPicker(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.action_back)
+                )
             }
             Checkbox(
                 checked = current.id in checkedTaskIds,
@@ -405,7 +413,7 @@ private fun AnalysisSubtaskPicker(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "サブタスクを選択",
+                    text = stringResource(R.string.analysis_select_subtask),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -420,7 +428,7 @@ private fun AnalysisSubtaskPicker(
         Spacer(Modifier.height(12.dp))
         if (children.isEmpty()) {
             Text(
-                "サブタスクはありません",
+                stringResource(R.string.analysis_no_subtasks),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(12.dp)
             )
@@ -469,7 +477,10 @@ private fun AnalysisBatchActions(
             enabled = canAnalyzeAll,
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
         ) {
-            Text("全項目", style = MaterialTheme.typography.labelMedium)
+            Text(
+                stringResource(R.string.analysis_all_items),
+                style = MaterialTheme.typography.labelMedium
+            )
             Spacer(Modifier.width(4.dp))
             Icon(
                 Icons.AutoMirrored.Filled.ShowChart,
@@ -484,7 +495,7 @@ private fun AnalysisBatchActions(
             Box(Modifier.size(24.dp)) {
                 Icon(
                     Icons.AutoMirrored.Filled.ShowChart,
-                    contentDescription = "チェックした項目を解析",
+                    contentDescription = stringResource(R.string.analysis_analyze_checked),
                     modifier = Modifier
                         .size(20.dp)
                         .align(Alignment.TopStart)
@@ -509,6 +520,11 @@ private fun AnalysisSelectionBottomBar(
     onToggleAll: () -> Unit
 ) {
     BottomAppBar {
+        val toggleAllLabel = if (allChecked) {
+            stringResource(R.string.analysis_uncheck_all)
+        } else {
+            stringResource(R.string.analysis_check_all)
+        }
         IconButton(onClick = onToggleAll, enabled = enabled) {
             Icon(
                 imageVector = when {
@@ -516,16 +532,16 @@ private fun AnalysisSelectionBottomBar(
                     checkedCount > 0 -> Icons.Filled.IndeterminateCheckBox
                     else -> Icons.Filled.CheckBoxOutlineBlank
                 },
-                contentDescription = if (allChecked) "すべてチェック解除" else "すべてチェック"
+                contentDescription = toggleAllLabel
             )
         }
         Text(
-            text = if (allChecked) "すべてチェック解除" else "すべてチェック",
+            text = toggleAllLabel,
             style = MaterialTheme.typography.labelLarge
         )
         Spacer(Modifier.weight(1f))
         Text(
-            text = "${checkedCount}件選択",
+            text = stringResource(R.string.label_item_count_selected, checkedCount),
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(end = 16.dp)
         )
@@ -576,12 +592,15 @@ private fun AnalysisTaskRow(
         if (hasChildren && !titleStyle) {
             Icon(
                 Icons.Filled.ChevronRight,
-                contentDescription = "サブタスクを表示",
+                contentDescription = stringResource(R.string.analysis_show_subtasks),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         IconButton(onClick = onAnalyze) {
-            Icon(Icons.AutoMirrored.Filled.ShowChart, contentDescription = "$name を分析")
+            Icon(
+                Icons.AutoMirrored.Filled.ShowChart,
+                contentDescription = stringResource(R.string.analysis_analyze_task, name)
+            )
         }
     }
 }
@@ -674,7 +693,10 @@ private fun TaskAnalysisDetail(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.action_back)
+                            )
                         }
                         Column(Modifier.weight(1f)) {
                             Text(
@@ -684,12 +706,17 @@ private fun TaskAnalysisDetail(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                result?.let(::formatAnalysisRange) ?: "集計中…",
+                                if (result != null) {
+                                    formatAnalysisRange(result)
+                                } else {
+                                    stringResource(R.string.analysis_loading)
+                                },
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
                         Text(
-                            result?.totalMs?.let(::formatDuration) ?: "--:--:--",
+                            result?.totalMs?.let(::formatDuration)
+                                ?: stringResource(R.string.label_empty_duration),
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -717,7 +744,14 @@ private fun TaskAnalysisDetail(
                             horizontalArrangement = Arrangement.Center
                         ) {
                             AnalysisChoiceChip(
-                                text = "開始 ${formatDate(request.customStartMs ?: request.anchorMs, request.timeZoneId, "yyyy/M/d")}",
+                                text = stringResource(
+                                    R.string.analysis_custom_start,
+                                    formatDate(
+                                        request.customStartMs ?: request.anchorMs,
+                                        request.timeZoneId,
+                                        "yyyy/M/d"
+                                    )
+                                ),
                                 selected = false,
                                 onClick = {
                                     showAnalysisDatePicker(
@@ -729,7 +763,14 @@ private fun TaskAnalysisDetail(
                             )
                             Spacer(Modifier.width(6.dp))
                             AnalysisChoiceChip(
-                                text = "終了 ${formatDate((request.customEndMs ?: request.anchorMs) - 1L, request.timeZoneId, "yyyy/M/d")}",
+                                text = stringResource(
+                                    R.string.analysis_custom_end,
+                                    formatDate(
+                                        (request.customEndMs ?: request.anchorMs) - 1L,
+                                        request.timeZoneId,
+                                        "yyyy/M/d"
+                                    )
+                                ),
                                 selected = false,
                                 onClick = {
                                     showAnalysisDatePicker(
@@ -747,11 +788,23 @@ private fun TaskAnalysisDetail(
                             horizontalArrangement = Arrangement.Center
                         ) {
                             IconButton(onClick = onPrevious) {
-                                Icon(Icons.AutoMirrored.Filled.NavigateBefore, contentDescription = "前の期間")
+                                Icon(
+                                    Icons.AutoMirrored.Filled.NavigateBefore,
+                                    contentDescription = stringResource(
+                                        R.string.analysis_previous_period
+                                    )
+                                )
                             }
-                            AnalysisChoiceChip("今日", selected = false, onClick = onToday)
+                            AnalysisChoiceChip(
+                                stringResource(R.string.action_today),
+                                selected = false,
+                                onClick = onToday
+                            )
                             IconButton(onClick = onNext) {
-                                Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = "次の期間")
+                                Icon(
+                                    Icons.AutoMirrored.Filled.NavigateNext,
+                                    contentDescription = stringResource(R.string.analysis_next_period)
+                                )
                             }
                         }
                     }
@@ -828,7 +881,7 @@ private fun TaskAnalysisDetail(
                 if (result.dayGroups.isEmpty()) {
                     item {
                         Text(
-                            "この期間の記録はありません",
+                            stringResource(R.string.analysis_no_records),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(24.dp)
                         )
@@ -874,12 +927,18 @@ private fun TaskAnalysisDetail(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        "開始 ${formatClock(entry.startMs, request.timeZoneId)}",
+                                        stringResource(
+                                            R.string.analysis_record_start,
+                                            formatClock(entry.startMs, request.timeZoneId)
+                                        ),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Text(
-                                        "終了 ${formatClock(entry.endMs, request.timeZoneId)}",
+                                        stringResource(
+                                            R.string.analysis_record_end,
+                                            formatClock(entry.endMs, request.timeZoneId)
+                                        ),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -911,20 +970,31 @@ private fun TaskAnalysisEditBottomBar(
     BottomAppBar {
         if (editMode) {
             IconButton(onClick = onCancelEditing) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "編集モードを終了")
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.analysis_exit_edit_mode)
+                )
             }
             IconButton(onClick = onApplyEditing, enabled = selectedCount > 0) {
-                Icon(Icons.Filled.Edit, contentDescription = "選択した記録のタスクを変更")
+                Icon(
+                    Icons.Filled.Edit,
+                    contentDescription = stringResource(
+                        R.string.analysis_change_selected_records_task
+                    )
+                )
             }
             Spacer(Modifier.weight(1f))
             Text(
-                text = "${selectedCount}件選択",
+                text = stringResource(R.string.label_item_count_selected, selectedCount),
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.padding(end = 16.dp)
             )
         } else {
             IconButton(onClick = onStartEditing) {
-                Icon(Icons.Filled.Edit, contentDescription = "記録を編集")
+                Icon(
+                    Icons.Filled.Edit,
+                    contentDescription = stringResource(R.string.analysis_edit_records)
+                )
             }
         }
     }
@@ -966,7 +1036,11 @@ private fun AnalysisDayHeader(group: TaskAnalysisDayGroup, timeZoneId: String) {
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             Text(
-                formatDate(group.dayStartMs, timeZoneId, "yyyy年M月d日（E）"),
+                formatDate(
+                    group.dayStartMs,
+                    timeZoneId,
+                    stringResource(R.string.date_pattern_day_full)
+                ),
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.weight(1f)
             )
@@ -975,44 +1049,83 @@ private fun AnalysisDayHeader(group: TaskAnalysisDayGroup, timeZoneId: String) {
     }
 }
 
+@Composable
 private fun periodLabel(period: TaskAnalysisPeriod): String = when (period) {
-    TaskAnalysisPeriod.Day -> "日"
-    TaskAnalysisPeriod.Week -> "週"
-    TaskAnalysisPeriod.Month -> "月"
-    TaskAnalysisPeriod.Year -> "年"
-    TaskAnalysisPeriod.Custom -> "カスタム"
+    TaskAnalysisPeriod.Day -> stringResource(R.string.analysis_period_day)
+    TaskAnalysisPeriod.Week -> stringResource(R.string.analysis_period_week)
+    TaskAnalysisPeriod.Month -> stringResource(R.string.analysis_period_month)
+    TaskAnalysisPeriod.Year -> stringResource(R.string.analysis_period_year)
+    TaskAnalysisPeriod.Custom -> stringResource(R.string.analysis_period_custom)
 }
 
+@Composable
 private fun chartTypeLabel(type: TaskAnalysisChartType): String = when (type) {
-    TaskAnalysisChartType.Total -> "期間別"
-    TaskAnalysisChartType.CumulativeStacked -> "累積積み上げ"
-    TaskAnalysisChartType.HeatMap -> "24時間ヒートマップ"
+    TaskAnalysisChartType.Total -> stringResource(R.string.analysis_chart_period_total)
+    TaskAnalysisChartType.CumulativeStacked ->
+        stringResource(R.string.analysis_chart_cumulative_stacked)
+    TaskAnalysisChartType.HeatMap -> stringResource(R.string.analysis_chart_heatmap)
 }
 
+@Composable
 private fun averageLabel(period: TaskAnalysisPeriod): String = when (period) {
-    TaskAnalysisPeriod.Day -> "1時間平均"
+    TaskAnalysisPeriod.Day -> stringResource(R.string.analysis_average_hour)
     TaskAnalysisPeriod.Week,
     TaskAnalysisPeriod.Month,
-    TaskAnalysisPeriod.Custom -> "1日平均"
+    TaskAnalysisPeriod.Custom -> stringResource(R.string.analysis_average_day)
 
-    TaskAnalysisPeriod.Year -> "1か月平均"
+    TaskAnalysisPeriod.Year -> stringResource(R.string.analysis_average_month)
 }
 
+@Composable
 private fun formatAnalysisRange(result: TaskAnalysisResult): String {
     val zone = result.request.timeZoneId
     return when (result.request.period) {
-        TaskAnalysisPeriod.Day -> formatDate(result.range.startMs, zone, "yyyy年M月d日（E）")
+        TaskAnalysisPeriod.Day -> formatDate(
+            result.range.startMs,
+            zone,
+            stringResource(R.string.date_pattern_day_full)
+        )
         TaskAnalysisPeriod.Week -> {
             val inclusiveEnd = result.range.endMs - 1L
-            "${formatDate(result.range.startMs, zone, "yyyy年M月d日")} ～ " +
-                formatDate(inclusiveEnd, zone, "M月d日")
+            stringResource(
+                R.string.date_range,
+                formatDate(
+                    result.range.startMs,
+                    zone,
+                    stringResource(R.string.date_pattern_day)
+                ),
+                formatDate(
+                    inclusiveEnd,
+                    zone,
+                    stringResource(R.string.date_pattern_month_day)
+                )
+            )
         }
 
-        TaskAnalysisPeriod.Month -> formatDate(result.range.startMs, zone, "yyyy年M月")
-        TaskAnalysisPeriod.Year -> formatDate(result.range.startMs, zone, "yyyy年")
+        TaskAnalysisPeriod.Month -> formatDate(
+            result.range.startMs,
+            zone,
+            stringResource(R.string.date_pattern_month)
+        )
+        TaskAnalysisPeriod.Year -> formatDate(
+            result.range.startMs,
+            zone,
+            stringResource(R.string.date_pattern_year)
+        )
         TaskAnalysisPeriod.Custom -> {
-            "${formatDate(result.range.startMs, zone, "yyyy年M月d日")} ～ " +
-                formatDate(result.range.endMs - 1L, zone, "yyyy年M月d日")
+            stringResource(
+                R.string.date_range,
+                formatDate(
+                    result.range.startMs,
+                    zone,
+                    stringResource(R.string.date_pattern_day)
+                ),
+                formatDate(
+                    result.range.endMs - 1L,
+                    zone,
+                    stringResource(R.string.date_pattern_day)
+                )
+            )
         }
     }
 }
@@ -1061,7 +1174,7 @@ private fun formatClock(valueMs: Long, timeZoneId: String): String =
     formatDate(valueMs, timeZoneId, "HH:mm:ss")
 
 private fun formatDate(valueMs: Long, timeZoneId: String, pattern: String): String =
-    SimpleDateFormat(pattern, Locale.JAPAN).apply {
+    SimpleDateFormat(pattern, Locale.getDefault()).apply {
         timeZone = TimeZone.getTimeZone(timeZoneId)
     }.format(Date(valueMs))
 
@@ -1070,5 +1183,5 @@ private fun formatDuration(valueMs: Long): String {
     val hours = totalSeconds / 3_600L
     val minutes = totalSeconds % 3_600L / 60L
     val seconds = totalSeconds % 60L
-    return String.format(Locale.JAPAN, "%d:%02d:%02d", hours, minutes, seconds)
+    return String.format(Locale.getDefault(), "%d:%02d:%02d", hours, minutes, seconds)
 }

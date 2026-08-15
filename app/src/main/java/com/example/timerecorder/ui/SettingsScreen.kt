@@ -45,9 +45,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.timerecorder.R
 import com.example.timerecorder.data.DailyPlanEntry
 import com.example.timerecorder.data.DailyPlans
 import com.example.timerecorder.data.DailyPlanType
@@ -75,7 +77,10 @@ fun SettingsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("表示設定", style = MaterialTheme.typography.titleMedium)
+        Text(
+            stringResource(R.string.settings_display_title),
+            style = MaterialTheme.typography.titleMedium
+        )
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -85,9 +90,12 @@ fun SettingsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("タスク停止ボタン", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "タスク実行中に上部バーへ停止ボタンを表示します。",
+                        stringResource(R.string.settings_stop_button_title),
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        stringResource(R.string.settings_stop_button_description),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -132,9 +140,12 @@ private fun DailyPlansEditor(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Daily plans", style = MaterialTheme.typography.titleMedium)
         Text(
-            "平日と休日（土日）の基本パターンを時間帯ごとに定義します。予定タスクまたはその配下タスクの記録時間から、日ごとの達成度を算出します。",
+            stringResource(R.string.daily_plan_title),
+            style = MaterialTheme.typography.titleMedium
+        )
+        Text(
+            stringResource(R.string.daily_plan_description),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -142,12 +153,12 @@ private fun DailyPlansEditor(
             FilterChip(
                 selected = selectedType == DailyPlanType.Weekday,
                 onClick = { selectedType = DailyPlanType.Weekday },
-                label = { Text("平日") }
+                label = { Text(stringResource(R.string.label_weekday)) }
             )
             FilterChip(
                 selected = selectedType == DailyPlanType.Holiday,
                 onClick = { selectedType = DailyPlanType.Holiday },
-                label = { Text("休日") }
+                label = { Text(stringResource(R.string.label_holiday)) }
             )
         }
 
@@ -163,7 +174,7 @@ private fun DailyPlansEditor(
         if (entries.isEmpty()) {
             Card(Modifier.fillMaxWidth()) {
                 Text(
-                    "この日の行動パターンは未設定です。",
+                    stringResource(R.string.daily_plan_empty),
                     modifier = Modifier.padding(16.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -184,7 +195,8 @@ private fun DailyPlansEditor(
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                optionById[entry.targetTaskId]?.label ?: "削除されたタスク",
+                                optionById[entry.targetTaskId]?.label
+                                    ?: stringResource(R.string.daily_plan_deleted_task),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -195,10 +207,13 @@ private fun DailyPlansEditor(
                                 editingEntry = entry
                             }
                         ) {
-                            Text("編集")
+                            Text(stringResource(R.string.action_edit))
                         }
                         IconButton(onClick = { replaceEntries(entries.filterIndexed { i, _ -> i != index }) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "予定を削除")
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = stringResource(R.string.daily_plan_delete)
+                            )
                         }
                     }
                 }
@@ -218,11 +233,11 @@ private fun DailyPlansEditor(
             }
         ) {
             Icon(Icons.Filled.Add, contentDescription = null)
-            Text(" 行動を追加")
+            Text(stringResource(R.string.daily_plan_add_action))
         }
         if (taskOptions.isEmpty()) {
             Text(
-                "Daily planを作成するには、先にタスクを追加してください。",
+                stringResource(R.string.daily_plan_requires_task),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error
             )
@@ -267,9 +282,12 @@ private fun DailyPlanTimeline(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Column(Modifier.padding(horizontal = 14.dp)) {
-                Text("Timeline", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "予定ブロックをタップすると編集できます。",
+                    stringResource(R.string.daily_plan_timeline_title),
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Text(
+                    stringResource(R.string.daily_plan_tap_to_edit),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -319,7 +337,7 @@ private fun DailyPlanTimeline(
                 ) {
                     if (entries.isEmpty()) {
                         Text(
-                            text = "予定を追加すると、ここにTimelineが表示されます。",
+                            text = stringResource(R.string.daily_plan_timeline_empty),
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
                                 .padding(top = 16.dp, start = 12.dp, end = 12.dp),
@@ -348,7 +366,8 @@ private fun DailyPlanTimeline(
                             if (height >= 22f) {
                                 Text(
                                     text = "${formatPlanTime(entry.startMinute)}  " +
-                                            (option?.label ?: "削除されたタスク"),
+                                            (option?.label
+                                                ?: stringResource(R.string.daily_plan_deleted_task)),
                                     maxLines = 1,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -381,17 +400,26 @@ private fun PlanEntryDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (editingIndex == null) "行動を追加" else "行動を編集") },
+        title = {
+            Text(
+                if (editingIndex == null) {
+                    stringResource(R.string.daily_plan_add_title)
+                } else {
+                    stringResource(R.string.daily_plan_edit_title)
+                }
+            )
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 PlanDropdown(
-                    label = "タスク",
-                    valueLabel = taskOptions.firstOrNull { it.id == taskId }?.label ?: "選択してください",
+                    label = stringResource(R.string.record_task),
+                    valueLabel = taskOptions.firstOrNull { it.id == taskId }?.label
+                        ?: stringResource(R.string.record_select_prompt),
                     choices = taskOptions.map { it.id to it.label },
                     onSelect = { taskId = it }
                 )
                 PlanDropdown(
-                    label = "開始",
+                    label = stringResource(R.string.label_start),
                     valueLabel = formatPlanTime(startMinute),
                     choices = (0 until 48).map { slot ->
                         val minute = slot * 30
@@ -400,7 +428,7 @@ private fun PlanEntryDialog(
                     onSelect = { startMinute = it.toInt() }
                 )
                 PlanDropdown(
-                    label = "終了",
+                    label = stringResource(R.string.label_end),
                     valueLabel = formatPlanTime(endMinute),
                     choices = (1..48).map { slot ->
                         val minute = slot * 30
@@ -409,9 +437,15 @@ private fun PlanEntryDialog(
                     onSelect = { endMinute = it.toInt() }
                 )
                 if (endMinute <= startMinute) {
-                    Text("終了は開始より後にしてください。", color = MaterialTheme.colorScheme.error)
+                    Text(
+                        stringResource(R.string.daily_plan_end_after_start_error),
+                        color = MaterialTheme.colorScheme.error
+                    )
                 } else if (overlaps) {
-                    Text("同じ日の別の予定と時間帯が重複しています。", color = MaterialTheme.colorScheme.error)
+                    Text(
+                        stringResource(R.string.daily_plan_overlap_error),
+                        color = MaterialTheme.colorScheme.error
+                    )
                 }
             }
         },
@@ -420,10 +454,12 @@ private fun PlanEntryDialog(
                 enabled = isValid,
                 onClick = { onSave(DailyPlanEntry(taskId, startMinute, endMinute)) }
             ) {
-                Text("保存")
+                Text(stringResource(R.string.action_save))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } }
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        }
     )
 }
 

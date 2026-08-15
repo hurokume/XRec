@@ -38,8 +38,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.timerecorder.R
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -154,10 +156,13 @@ fun AddTaskScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("タスク記録を追加") },
+                title = { Text(stringResource(R.string.record_add_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ChevronLeft, contentDescription = "Back")
+                        Icon(
+                            Icons.Filled.ChevronLeft,
+                            contentDescription = stringResource(R.string.action_back)
+                        )
                     }
                 }
             )
@@ -171,16 +176,16 @@ fun AddTaskScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(
-                "親タスク / タスク / サブタスク（任意）と、開始・終了の日時を指定して保存します。",
+                stringResource(R.string.record_add_description),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             // 親タスク
             DropdownField(
-                label = "親タスク",
+                label = stringResource(R.string.record_parent_task),
                 current = parents.firstOrNull { it.parent.id == selectedParentId }?.parent?.name
-                    ?: "選択してください",
+                    ?: stringResource(R.string.record_select_prompt),
                 enabled = parents.isNotEmpty(),
                 items = parents.map { it.parent.id to it.parent.name },
                 onSelect = { id ->
@@ -192,9 +197,13 @@ fun AddTaskScreen(
 
             // タスク（子）
             DropdownField(
-                label = "タスク",
+                label = stringResource(R.string.record_task),
                 current = tasksInParent.firstOrNull { it.id == selectedTaskId }?.name
-                    ?: if (selectedParentId == null) "（親タスク未選択）" else "選択してください",
+                    ?: if (selectedParentId == null) {
+                        stringResource(R.string.record_parent_not_selected)
+                    } else {
+                        stringResource(R.string.record_select_prompt)
+                    },
                 enabled = selectedParentId != null && tasksInParent.isNotEmpty(),
                 items = tasksInParent.map { it.id to it.name },
                 onSelect = { id ->
@@ -205,12 +214,13 @@ fun AddTaskScreen(
 
             // サブタスク（任意）
             DropdownField(
-                label = "サブタスク（任意）",
+                label = stringResource(R.string.record_optional_subtask),
                 current = when {
-                    selectedTaskId == null -> "（タスク未選択）"
-                    subtasks.isEmpty() -> "（サブタスクなし）"
-                    selectedSubtaskId == null -> "未選択"
-                    else -> subtasks.firstOrNull { it.id == selectedSubtaskId }?.name ?: "未選択"
+                    selectedTaskId == null -> stringResource(R.string.record_task_not_selected)
+                    subtasks.isEmpty() -> stringResource(R.string.record_no_subtasks)
+                    selectedSubtaskId == null -> stringResource(R.string.record_not_selected)
+                    else -> subtasks.firstOrNull { it.id == selectedSubtaskId }?.name
+                        ?: stringResource(R.string.record_not_selected)
                 },
                 enabled = selectedTaskId != null && subtasks.isNotEmpty(),
                 items = subtasks.map { it.id to it.name },
@@ -219,7 +229,7 @@ fun AddTaskScreen(
 
             // 開始日時
             TimeField(
-                label = "開始",
+                label = stringResource(R.string.label_start),
                 valueText = dfFull.format(java.util.Date(startMs)),
                 onClick = {
                     pickDateTime(startMs) { picked ->
@@ -231,7 +241,7 @@ fun AddTaskScreen(
 
             // 終了日時
             TimeField(
-                label = "終了",
+                label = stringResource(R.string.label_end),
                 valueText = dfFull.format(java.util.Date(endMs)),
                 onClick = {
                     pickDateTime(endMs) { picked ->
@@ -244,26 +254,28 @@ fun AddTaskScreen(
             Spacer(Modifier.height(8.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onBack) { Text("キャンセル") }
+                OutlinedButton(onClick = onBack) {
+                    Text(stringResource(R.string.action_cancel))
+                }
                 FilledTonalButton(onClick = {
                     val baseTaskId = selectedTaskId
                     val finalTaskId = selectedSubtaskId ?: baseTaskId
                     when {
                         selectedParentId == null -> Toast.makeText(
                             ctx,
-                            "親タスクを選択してください",
+                            ctx.getString(R.string.record_select_parent_error),
                             Toast.LENGTH_SHORT
                         ).show()
 
                         baseTaskId == null -> Toast.makeText(
                             ctx,
-                            "タスクを選択してください",
+                            ctx.getString(R.string.record_select_task_error),
                             Toast.LENGTH_SHORT
                         ).show()
 
                         endMs <= startMs -> Toast.makeText(
                             ctx,
-                            "終了は開始より後にしてください",
+                            ctx.getString(R.string.record_end_after_start_error),
                             Toast.LENGTH_SHORT
                         ).show()
 
@@ -283,7 +295,7 @@ fun AddTaskScreen(
                             }
                         }
                     }
-                }) { Text("保存") }
+                }) { Text(stringResource(R.string.action_save)) }
             }
 
             Spacer(Modifier.weight(1f))
@@ -294,12 +306,9 @@ fun AddTaskScreen(
     if (showOverwriteDialog) {
         AlertDialog(
             onDismissRequest = { showOverwriteDialog = false },
-            title = { Text("重複する記録を上書きします") },
+            title = { Text(stringResource(R.string.record_overwrite_title)) },
             text = {
-                Text(
-                    "この期間には既存の記録が存在します。\n" +
-                            "追加する記録を優先し、重複部分は削除または切り詰められます。続行しますか？"
-                )
+                Text(stringResource(R.string.record_overwrite_message))
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -309,10 +318,12 @@ fun AddTaskScreen(
                     }
                     showOverwriteDialog = false
                     onBack()
-                }) { Text("上書きして追加") }
+                }) { Text(stringResource(R.string.record_overwrite_confirm)) }
             },
             dismissButton = {
-                TextButton(onClick = { showOverwriteDialog = false }) { Text("キャンセル") }
+                TextButton(onClick = { showOverwriteDialog = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
             }
         )
     }

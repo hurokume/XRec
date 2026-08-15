@@ -1,10 +1,12 @@
 package com.example.timerecorder.ui
 
 import android.app.Application
+import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.timerecorder.R
 import com.example.timerecorder.data.AdvancedAnalysisEngine
 import com.example.timerecorder.data.AdvancedAnalysisResult
 import com.example.timerecorder.data.AnalysisRequest
@@ -73,6 +75,9 @@ data class TaskAnalysisUiState(
 
 class TaskViewModel(app: Application) : AndroidViewModel(app) {
 
+    private fun text(@StringRes resourceId: Int, vararg formatArgs: Any): String =
+        getApplication<Application>().getString(resourceId, *formatArgs)
+
     private val db = AppDatabase.get(app.applicationContext, viewModelScope)
     private val taskDao: TaskDao = db.taskDao()
     private val repo: TaskRepository = TaskRepository(
@@ -116,7 +121,9 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
             val prevSec = (result.prevDurationMs / 1000).coerceAtLeast(0)
             val thresholdSec = (result.thresholdMs / 1000).coerceAtLeast(0)
             _events.tryEmit(
-                UiEvent.ShowMessage("直前のタスクが ${prevSec}秒（しきい値 ${thresholdSec}秒）未満だったため統合しました")
+                UiEvent.ShowMessage(
+                    text(R.string.message_short_task_merged, prevSec, thresholdSec)
+                )
             )
         }
 
@@ -229,11 +236,15 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         try {
             repo.deleteTask(taskId, mode, replacementTaskId)
             reloadHistory()
-            _events.emit(UiEvent.ShowMessage("タスクを削除しました"))
+            _events.emit(UiEvent.ShowMessage(text(R.string.message_task_deleted)))
         } catch (e: IllegalArgumentException) {
-            _events.emit(UiEvent.ShowMessage(e.message ?: "タスクを削除できませんでした"))
+            _events.emit(
+                UiEvent.ShowMessage(e.message ?: text(R.string.error_task_delete_failed))
+            )
         } catch (e: IllegalStateException) {
-            _events.emit(UiEvent.ShowMessage(e.message ?: "タスクを削除できませんでした"))
+            _events.emit(
+                UiEvent.ShowMessage(e.message ?: text(R.string.error_task_delete_failed))
+            )
         }
     }
     fun reorderChildren(parentId: Long, idsInOrder: List<Long>) =
@@ -317,7 +328,8 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
                 throw cancelled
             } catch (error: Throwable) {
                 _advancedAnalysis.value = AdvancedAnalysisUiState(
-                    errorMessage = error.message ?: "分析に失敗しました"
+                    errorMessage = error.message
+                        ?: text(R.string.error_advanced_analysis_failed)
                 )
             }
         }
@@ -343,7 +355,7 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
             } catch (error: Throwable) {
                 _taskAnalysis.value = TaskAnalysisUiState(
                     request = request,
-                    errorMessage = error.message ?: "タスク分析に失敗しました"
+                    errorMessage = error.message ?: text(R.string.error_task_analysis_failed)
                 )
             }
         }
@@ -354,11 +366,17 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
             val updated = repo.reassignEvents(eventIds, newTaskId)
             reloadHistory()
             _taskAnalysis.value.request?.let(::loadTaskAnalysis)
-            _events.emit(UiEvent.ShowMessage("${updated}件の記録を変更しました"))
+            _events.emit(
+                UiEvent.ShowMessage(text(R.string.message_records_reassigned, updated))
+            )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
-            _events.emit(UiEvent.ShowMessage(error.message ?: "記録を変更できませんでした"))
+            _events.emit(
+                UiEvent.ShowMessage(
+                    error.message ?: text(R.string.error_records_reassign_failed)
+                )
+            )
         }
     }
 
@@ -405,15 +423,21 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     fun addManualRecord(taskId: Long, startedAt: Long, endedAt: Long) {
         viewModelScope.launch {
             if (endedAt <= startedAt) {
-                _events.emit(UiEvent.ShowMessage("終了は開始より後にしてください"))
+                _events.emit(
+                    UiEvent.ShowMessage(text(R.string.record_end_after_start_error))
+                )
                 return@launch
             }
             try {
                 repo.addManualRecord(taskId, startedAt, endedAt)
                 reloadHistory()
-                _events.emit(UiEvent.ShowMessage("記録を追加しました"))
+                _events.emit(UiEvent.ShowMessage(text(R.string.message_record_added)))
             } catch (t: Throwable) {
-                _events.emit(UiEvent.ShowMessage("追加に失敗: ${t.message}"))
+                _events.emit(
+                    UiEvent.ShowMessage(
+                        text(R.string.error_record_add_failed, t.message.orEmpty())
+                    )
+                )
             }
         }
     }
@@ -469,7 +493,9 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     fun upsertRecordAbsorbingNeighbors(taskId: Long, startMs: Long, endMs: Long) {
         viewModelScope.launch {
             if (endMs <= startMs) {
-                _events.emit(UiEvent.ShowMessage("終了は開始より後にしてください"))
+                _events.emit(
+                    UiEvent.ShowMessage(text(R.string.record_end_after_start_error))
+                )
                 return@launch
             }
 
@@ -536,7 +562,7 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
             )
 
             reloadHistory()
-            _events.emit(UiEvent.ShowMessage("保存しました"))
+            _events.emit(UiEvent.ShowMessage(text(R.string.message_saved)))
         }
     }
 
@@ -544,7 +570,7 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     fun splitEventAt(eventId: Long, splitAtMs: Long) = viewModelScope.launch {
         val ev = taskDao.getEventById(eventId)
         if (ev == null) {
-            _events.emit(UiEvent.ShowMessage("対象の記録が見つかりません"))
+            _events.emit(UiEvent.ShowMessage(text(R.string.error_record_not_found)))
             return@launch
         }
 
@@ -552,7 +578,9 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         val e = ev.pressedAtEpochMs + kotlin.math.max(0L, ev.durationMillis)
 
         if (splitAtMs <= s || splitAtMs >= e) {
-            _events.emit(UiEvent.ShowMessage("分割時刻は記録の範囲内で指定してください"))
+            _events.emit(
+                UiEvent.ShowMessage(text(R.string.error_split_time_out_of_range))
+            )
             return@launch
         }
 
@@ -572,7 +600,7 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         )
 
         reloadHistory()
-        _events.emit(UiEvent.ShowMessage("分割しました"))
+        _events.emit(UiEvent.ShowMessage(text(R.string.message_record_split)))
     }
 
     fun deleteEvent(eventId: Long) {
@@ -584,9 +612,13 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
                 reloadHistory()
 
                 // 任意：スナックバー用イベント
-                _events.emit(UiEvent.ShowMessage("記録を削除しました"))
+                _events.emit(UiEvent.ShowMessage(text(R.string.message_record_deleted)))
             } catch (e: Exception) {
-                _events.emit(UiEvent.ShowMessage("削除に失敗しました: ${e.message}"))
+                _events.emit(
+                    UiEvent.ShowMessage(
+                        text(R.string.error_record_delete_failed, e.message.orEmpty())
+                    )
+                )
             }
         }
     }
@@ -600,9 +632,13 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 repo.importEventsFromCsv(csv, replaceAll)
                 reloadHistory()
-                _events.emit(UiEvent.ShowMessage("CSVインポート完了"))
+                _events.emit(UiEvent.ShowMessage(text(R.string.message_csv_import_complete)))
             } catch (e: Exception) {
-                _events.emit(UiEvent.ShowMessage("CSVインポート失敗: ${e.message}"))
+                _events.emit(
+                    UiEvent.ShowMessage(
+                        text(R.string.error_csv_import_failed, e.message.orEmpty())
+                    )
+                )
             }
         }
     }

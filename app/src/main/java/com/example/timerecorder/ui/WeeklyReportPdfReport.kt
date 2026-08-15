@@ -8,6 +8,7 @@ import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import androidx.core.content.FileProvider
+import com.example.timerecorder.R
 import com.example.timerecorder.data.WeeklyReportData
 import java.io.File
 import java.io.FileOutputStream
@@ -35,9 +36,10 @@ fun createWeeklyReportPdf(
         WeeklyTimelinePdfWriter(document).write(data)
         AdvancedAnalysisPdfWriter(
             document = document,
+            stringResolver = context::getString,
             firstPageNumber = 2,
-            reportTitle = "TimeRecorder Weekly Report",
-            reportSubtitle = "Analysis",
+            reportTitle = context.getString(R.string.weekly_report_share_subject),
+            reportSubtitle = context.getString(R.string.advanced_analysis_title),
             pageBreakBeforeProbability = true
         ).write(
             result = data.analysis,

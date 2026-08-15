@@ -117,6 +117,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -610,19 +611,22 @@ fun AppRoot(
                                                 putExtra(Intent.EXTRA_TEXT, text)
                                                 putExtra(
                                                     Intent.EXTRA_SUBJECT,
-                                                    "TimeRecorder Tasks Export"
+                                                    ctx.getString(R.string.export_tasks_subject)
                                                 )
                                             }
                                             ctx.startActivity(
                                                 Intent.createChooser(
                                                     send,
-                                                    "Export tasks as JSON"
+                                                    ctx.getString(R.string.export_tasks_chooser)
                                                 )
                                             )
                                         } catch (e: Exception) {
                                             Toast.makeText(
                                                 ctx,
-                                                "Export 失敗: ${e.message}",
+                                                ctx.getString(
+                                                    R.string.export_failed,
+                                                    e.message.orEmpty()
+                                                ),
                                                 Toast.LENGTH_LONG
                                             ).show()
                                         }
@@ -665,7 +669,8 @@ fun AppRoot(
                                 val titleText =
                                     if (showTimelineTitle) {
                                         // ① 選択中ブロックを最優先（タスク / サブタスク + HH:MM）
-                                        val core = selectedTimelineTitleCore ?: "選択中"
+                                        val core = selectedTimelineTitleCore
+                                            ?: stringResource(R.string.main_selected_item)
                                         val dur =
                                             hhmm(selectedTimelineStartMs, selectedTimelineEndMs)
                                         "$core ($dur)"
@@ -678,14 +683,18 @@ fun AppRoot(
                                     } else {
                                         // ③ どちらも無ければ既存タイトル
                                         when (screen) {
-                                            AppScreen.Main -> if (sortMode) "並び替え" else stringResource(
-                                                R.string.header_title
-                                            )
+                                            AppScreen.Main -> if (sortMode) {
+                                                stringResource(R.string.main_sort_title)
+                                            } else {
+                                                stringResource(R.string.header_title)
+                                            }
 
-                                            AppScreen.History -> "History"
-                                            AppScreen.Analysis -> "Analysis"
-                                            AppScreen.WeeklyReport -> "Weekly report"
-                                            AppScreen.Settings -> "Settings"
+                                            AppScreen.History -> stringResource(R.string.drawer_history)
+                                            AppScreen.Analysis -> stringResource(R.string.drawer_analysis)
+                                            AppScreen.WeeklyReport -> stringResource(
+                                                R.string.weekly_report_title
+                                            )
+                                            AppScreen.Settings -> stringResource(R.string.drawer_settings)
                                         }
                                     }
 
@@ -701,7 +710,9 @@ fun AppRoot(
                                     IconButton(onClick = { taskVm.onStopPressed() }) {
                                         Icon(
                                             Icons.Filled.StopCircle,
-                                            contentDescription = "Stop active task"
+                                            contentDescription = stringResource(
+                                                R.string.main_stop_active_task
+                                            )
                                         )
                                     }
                                 }
@@ -709,7 +720,9 @@ fun AppRoot(
                                     IconButton(onClick = { sortMode = false }) {
                                         Icon(
                                             Icons.Filled.Close,
-                                            contentDescription = "Exit sort mode"
+                                            contentDescription = stringResource(
+                                                R.string.main_exit_sort_mode
+                                            )
                                         )
                                     }
                                 } else {
@@ -740,7 +753,11 @@ fun AppRoot(
                                         val e = selectedTimelineEndMs
                                         if (eid == null || eid <= 0L || s < 0L || e <= s) {
                                             // active中など eventIdが無い/不正なら何もしない
-                                            scope.launch { snackbar.showSnackbar("分割できない記録です") }
+                                            scope.launch {
+                                                snackbar.showSnackbar(
+                                                    ctx.getString(R.string.main_split_unavailable)
+                                                )
+                                            }
                                             return@AdaptiveBottomBar
                                         }
 
@@ -764,7 +781,13 @@ fun AppRoot(
                                                 }.timeInMillis
 
                                                 if (base <= s || base >= e) {
-                                                    scope.launch { snackbar.showSnackbar("分割時刻は選択中の区間内で指定してください") }
+                                                    scope.launch {
+                                                        snackbar.showSnackbar(
+                                                            ctx.getString(
+                                                                R.string.main_split_out_of_range
+                                                            )
+                                                        )
+                                                    }
                                                 } else {
                                                     taskVm.splitEventAt(eid, base)
                                                     // 選択は一旦クリア
@@ -793,7 +816,11 @@ fun AppRoot(
                                         val s = selectedTimelineStartMs
                                         val e = selectedTimelineEndMs
                                         if (eid == null || eid <= 0L || s < 0L || e <= s) {
-                                            scope.launch { snackbar.showSnackbar("削除できない記録です") }
+                                            scope.launch {
+                                                snackbar.showSnackbar(
+                                                    ctx.getString(R.string.main_delete_unavailable)
+                                                )
+                                            }
                                             return@AdaptiveBottomBar
                                         }
                                         pendingDeleteEventId = eid
@@ -809,9 +836,13 @@ fun AppRoot(
                                         scope.launch {
                                             snackbar.showSnackbar(
                                                 when (nameSort) {
-                                                    NameSort.Asc -> "A→Z（昇順）"
-                                                    NameSort.Desc -> "Z→A（降順）"
-                                                    else -> "任意順"
+                                                    NameSort.Asc -> ctx.getString(
+                                                        R.string.main_sort_ascending
+                                                    )
+                                                    NameSort.Desc -> ctx.getString(
+                                                        R.string.main_sort_descending
+                                                    )
+                                                    else -> ctx.getString(R.string.main_sort_manual)
                                                 }
                                             )
                                         }
@@ -904,11 +935,11 @@ fun AppRoot(
                     if (showImportDialog) {
                         AlertDialog(
                             onDismissRequest = { showImportDialog = false },
-                            title = { Text("Import (JSON)") },
+                            title = { Text(stringResource(R.string.import_json_title)) },
                             text = {
                                 Column {
                                     Text(
-                                        "エクスポートした JSON をここに貼り付けてください。",
+                                        stringResource(R.string.import_json_description),
                                         style = MaterialTheme.typography.bodySmall
                                     )
                                     Spacer(Modifier.height(8.dp))
@@ -921,7 +952,7 @@ fun AppRoot(
                                             .height(160.dp),
                                         placeholder = {
                                             Text(
-                                                "[\n  {\"name\":\"Project\",\"color\":16753928,\"children\":[{\"name\":\"Task\"}]}\n]"
+                                                stringResource(R.string.import_json_placeholder)
                                             )
                                         }
                                     )
@@ -932,7 +963,7 @@ fun AppRoot(
                                             checked = replaceAll,
                                             onCheckedChange = { replaceAll = it }
                                         )
-                                        Text("既存を全て削除して置き換える")
+                                        Text(stringResource(R.string.import_json_replace_all))
                                     }
                                 }
                             },
@@ -949,20 +980,25 @@ fun AppRoot(
                                             importText = ""
                                             replaceAll = false
                                             showImportDialog = false
-                                            snackbar.showSnackbar("Import 完了")
+                                            snackbar.showSnackbar(
+                                                ctx.getString(R.string.import_complete)
+                                            )
                                         } catch (e: Exception) {
                                             Toast.makeText(
                                                 ctx,
-                                                "Import 失敗: ${e.message}",
+                                                ctx.getString(
+                                                    R.string.import_failed,
+                                                    e.message.orEmpty()
+                                                ),
                                                 Toast.LENGTH_LONG
                                             ).show()
                                         }
                                     }
-                                }) { Text("実行") }
+                                }) { Text(stringResource(R.string.action_execute)) }
                             },
                             dismissButton = {
                                 TextButton(onClick = { showImportDialog = false }) {
-                                    Text("キャンセル")
+                                    Text(stringResource(R.string.action_cancel))
                                 }
                             }
                         )
@@ -970,12 +1006,11 @@ fun AppRoot(
                     if (showImportTsvDialog) {
                         AlertDialog(
                             onDismissRequest = { showImportTsvDialog = false },
-                            title = { Text("Import (TSV)") },
+                            title = { Text(stringResource(R.string.import_tsv_title)) },
                             text = {
                                 Column {
                                     Text(
-                                        "次の形式のTSVを貼り付けてください。\n" +
-                                                "event_name\t task_name\t subtask_name\t start_epoch_ms\t end_epoch_ms\t duration_ms\t start_iso\t end_iso",
+                                        stringResource(R.string.import_tsv_description),
                                         style = MaterialTheme.typography.bodySmall
                                     )
                                     Spacer(Modifier.height(8.dp))
@@ -987,7 +1022,7 @@ fun AppRoot(
                                             .height(160.dp),
                                         placeholder = {
                                             Text(
-                                                "WASTE\ttest\tda\t1757689200000\t1757692800000\t3600000\t2025-09-13T00:00:00+09:00\t2025-09-13T01:00:00+09:00"
+                                                stringResource(R.string.import_tsv_placeholder)
                                             )
                                         }
                                     )
@@ -996,13 +1031,13 @@ fun AppRoot(
                                         Checkbox(
                                             checked = clearExistingEvents,
                                             onCheckedChange = { clearExistingEvents = it })
-                                        Text("既存の記録を全て削除してから取り込み")
+                                        Text(stringResource(R.string.import_tsv_clear_existing))
                                     }
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Checkbox(
                                             checked = createMissing,
                                             onCheckedChange = { createMissing = it })
-                                        Text("存在しないプロジェクト/タスク/サブタスクを自動作成")
+                                        Text(stringResource(R.string.import_tsv_create_missing))
                                     }
                                 }
                             },
@@ -1017,20 +1052,25 @@ fun AppRoot(
                                             )
                                             showImportTsvDialog = false
                                             importTsvText = ""
-                                            snackbar.showSnackbar("TSV Import 完了（$count 件）")
+                                            snackbar.showSnackbar(
+                                                ctx.getString(R.string.import_tsv_complete, count)
+                                            )
                                         } catch (e: Exception) {
                                             Toast.makeText(
                                                 ctx,
-                                                "Import 失敗: ${e.message}",
+                                                ctx.getString(
+                                                    R.string.import_failed,
+                                                    e.message.orEmpty()
+                                                ),
                                                 Toast.LENGTH_LONG
                                             ).show()
                                         }
                                     }
-                                }) { Text("実行") }
+                                }) { Text(stringResource(R.string.action_execute)) }
                             },
                             dismissButton = {
                                 TextButton(onClick = { showImportTsvDialog = false }) {
-                                    Text("キャンセル")
+                                    Text(stringResource(R.string.action_cancel))
                                 }
                             }
                         )
@@ -1054,23 +1094,29 @@ fun AppRoot(
                                             putExtra(Intent.EXTRA_STREAM, uri)
                                             putExtra(
                                                 Intent.EXTRA_SUBJECT,
-                                                "TimeRecorder Events Export (TSV)"
+                                                ctx.getString(R.string.export_tsv_subject)
                                             )
                                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                             clipData = android.content.ClipData.newUri(
                                                 ctx.contentResolver,
-                                                "TimeRecorder TSV",
+                                                ctx.getString(R.string.export_tsv_clip_label),
                                                 uri
                                             )
                                         }
                                         ctx.startActivity(
-                                            Intent.createChooser(send, "Export records as TSV")
+                                            Intent.createChooser(
+                                                send,
+                                                ctx.getString(R.string.export_tsv_chooser)
+                                            )
                                         )
                                         showExportTsvDialog = false
                                     } catch (e: Exception) {
                                         Toast.makeText(
                                             ctx,
-                                            "Export TSV 失敗: ${e.message}",
+                                            ctx.getString(
+                                                R.string.export_tsv_failed,
+                                                e.message.orEmpty()
+                                            ),
                                             Toast.LENGTH_LONG
                                         ).show()
                                     }
@@ -1084,8 +1130,10 @@ fun AppRoot(
                                 pendingDeleteEventId = null
                                 showDeleteEventDialog = false
                             },
-                            title = { Text("記録を削除") },
-                            text = { Text("選択中の記録を削除します。よろしいですか？") },
+                            title = { Text(stringResource(R.string.delete_record_title)) },
+                            text = {
+                                Text(stringResource(R.string.delete_record_confirmation))
+                            },
                             confirmButton = {
                                 TextButton(onClick = {
                                     pendingDeleteEventId?.let { eid ->
@@ -1099,13 +1147,13 @@ fun AppRoot(
                                     selectedTimelineEndMs = -1L
                                     pendingDeleteEventId = null
                                     showDeleteEventDialog = false
-                                }) { Text("削除") }
+                                }) { Text(stringResource(R.string.action_delete)) }
                             },
                             dismissButton = {
                                 TextButton(onClick = {
                                     pendingDeleteEventId = null
                                     showDeleteEventDialog = false
-                                }) { Text("キャンセル") }
+                                }) { Text(stringResource(R.string.action_cancel)) }
                             }
                         )
                     }
@@ -1152,19 +1200,19 @@ fun DrawerSheet(onItemSelected: (String) -> Unit) {
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
         NavigationDrawerItem(
-            label = { Text("History") },
+            label = { Text(stringResource(R.string.drawer_history)) },
             selected = false,
             onClick = { onItemSelected("history") },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
         NavigationDrawerItem(
-            label = { Text("Analysis") },
+            label = { Text(stringResource(R.string.drawer_analysis)) },
             selected = false,
             onClick = { onItemSelected("analysis") },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
         NavigationDrawerItem(
-            label = { Text("Weekly report (PDF)") },
+            label = { Text(stringResource(R.string.drawer_weekly_report)) },
             selected = false,
             onClick = { onItemSelected("weekly_report") },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
@@ -1176,26 +1224,26 @@ fun DrawerSheet(onItemSelected: (String) -> Unit) {
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
         NavigationDrawerItem(
-            label = { Text("Export (TSV)") },
+            label = { Text(stringResource(R.string.drawer_export_tsv)) },
             selected = false,
             onClick = { onItemSelected("export_tsv") },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
         NavigationDrawerItem(
-            label = { Text("Import (TSV)") },
+            label = { Text(stringResource(R.string.drawer_import_tsv)) },
             selected = false,
             onClick = { onItemSelected("import_tsv") },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
         // Export / Import
         NavigationDrawerItem(
-            label = { Text("Export (JSON)") },
+            label = { Text(stringResource(R.string.drawer_export_json)) },
             selected = false,
             onClick = { onItemSelected("export") },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
         NavigationDrawerItem(
-            label = { Text("Import (JSON)") },
+            label = { Text(stringResource(R.string.drawer_import_json)) },
             selected = false,
             onClick = { onItemSelected("import") },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
@@ -1281,6 +1329,9 @@ fun DBTaskScreen(
     val parents by taskVm.parents.collectAsStateWithLifecycle()
     val activeUi by taskVm.activeUi.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val duplicateParentErrorText = stringResource(R.string.task_duplicate_parent_error)
+    val duplicateChildErrorText = stringResource(R.string.task_duplicate_child_error)
+    val emptyNameErrorText = stringResource(R.string.task_empty_name_error)
 
     var ui by remember { mutableStateOf<TaskCenterUiState>(TaskCenterUiState.List) }
     var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -1453,7 +1504,7 @@ fun DBTaskScreen(
             when (val s = ui) {
                 TaskCenterUiState.List -> {
                     Text(
-                        text = if (sortMode) "長押しして上下にドラッグすると並び替えできます"
+                        text = if (sortMode) stringResource(R.string.task_reorder_description)
                         else stringResource(R.string.label_select_task),
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(bottom = 16.dp),
@@ -1520,7 +1571,9 @@ fun DBTaskScreen(
                                         }) {
                                             Icon(
                                                 Icons.Filled.Menu,
-                                                contentDescription = "Parent task menu"
+                                                contentDescription = stringResource(
+                                                    R.string.task_parent_menu
+                                                )
                                             )
                                         }
                                         DropdownMenu(
@@ -1531,7 +1584,7 @@ fun DBTaskScreen(
                                             }
                                         ) {
                                             DropdownMenuItem(
-                                                text = { Text("タスクを追加") },
+                                                text = { Text(stringResource(R.string.task_add)) },
                                                 onClick = {
                                                     menuForParentId = null
                                                     newChildName = ""
@@ -1541,7 +1594,7 @@ fun DBTaskScreen(
                                                 }
                                             )
                                             DropdownMenuItem(
-                                                text = { Text("名前を変更") },       // ★追加
+                                                text = { Text(stringResource(R.string.task_rename)) },
                                                 onClick = {
                                                     menuForParentId = null
                                                     renameIsParent = true           // ★親の改名フラグをON
@@ -1553,7 +1606,11 @@ fun DBTaskScreen(
                                                 }
                                             )
                                             DropdownMenuItem(
-                                                text = { Text("親タスク（プロジェクト）を削除") },
+                                                text = {
+                                                    Text(
+                                                        stringResource(R.string.task_delete_parent)
+                                                    )
+                                                },
                                                 onClick = {
                                                     menuForParentId = null
                                                     requestTaskDeletion(
@@ -1565,7 +1622,9 @@ fun DBTaskScreen(
                                                 }
                                             )
                                             DropdownMenuItem(
-                                                text = { Text("色の変更") },
+                                                text = {
+                                                    Text(stringResource(R.string.task_change_color))
+                                                },
                                                 onClick = {
                                                     menuForParentId = null
                                                     colorPickForParentId = p.parent.id
@@ -1739,7 +1798,9 @@ fun DBTaskScreen(
                                                     }) {
                                                         Icon(
                                                             Icons.Filled.Menu,
-                                                            contentDescription = "Task menu"
+                                                            contentDescription = stringResource(
+                                                                R.string.task_menu
+                                                            )
                                                         )
                                                     }
                                                     DropdownMenu(
@@ -1751,7 +1812,13 @@ fun DBTaskScreen(
                                                         }
                                                     ) {
                                                         DropdownMenuItem(
-                                                            text = { Text("サブタスクを編集") },
+                                                            text = {
+                                                                Text(
+                                                                    stringResource(
+                                                                        R.string.task_edit_subtasks
+                                                                    )
+                                                                )
+                                                            },
                                                             onClick = {
                                                                 menuForChildTaskId = null
                                                                 ui =
@@ -1767,7 +1834,13 @@ fun DBTaskScreen(
 
                                                         // サブタスク追加
                                                         DropdownMenuItem(
-                                                            text = { Text("サブタスクを追加") },
+                                                            text = {
+                                                                Text(
+                                                                    stringResource(
+                                                                        R.string.task_add_subtask
+                                                                    )
+                                                                )
+                                                            },
                                                             onClick = {
                                                                 menuForChildTaskId = null
                                                                 newChildName = ""
@@ -1778,7 +1851,9 @@ fun DBTaskScreen(
                                                             }
                                                         )
                                                         DropdownMenuItem(
-                                                            text = { Text("名前を変更") },
+                                                            text = {
+                                                                Text(stringResource(R.string.task_rename))
+                                                            },
                                                             onClick = {
                                                                 menuForChildTaskId = null
                                                                 renameIsParent = false
@@ -1791,7 +1866,9 @@ fun DBTaskScreen(
                                                             }
                                                         )
                                                         DropdownMenuItem(
-                                                            text = { Text("タスクを削除") },
+                                                            text = {
+                                                                Text(stringResource(R.string.task_delete))
+                                                            },
                                                             onClick = {
                                                                 menuForChildTaskId = null
                                                                 requestTaskDeletion(
@@ -1825,7 +1902,10 @@ fun DBTaskScreen(
                         parents.firstOrNull { g -> g.children.any { it.id == s.parentId } }
                             ?.parent?.colorInt?.let { Color(it) }
                     }
-                    val liveTitle = "${liveChild?.name ?: s.parentTitle} のサブタスク"
+                    val liveTitle = stringResource(
+                        R.string.task_subtask_title,
+                        liveChild?.name ?: s.parentTitle
+                    )
                     val colorForUi = liveParentColor ?: s.color
 
                     SubtaskPicker(
@@ -1891,7 +1971,7 @@ fun DBTaskScreen(
         if (showAddDialog) {
             AlertDialog(
                 onDismissRequest = { showAddDialog = false },
-                title = { Text("タスクを追加") },
+                title = { Text(stringResource(R.string.task_add)) },
                 text = {
                     OutlinedTextField(
                         value = newTaskName,
@@ -1901,14 +1981,15 @@ fun DBTaskScreen(
                                 val name = it.trim()
                                 addParentError = when {
                                     name.isEmpty() -> null
-                                    taskVm.hasDuplicateParentName(name) -> "同名の親タスクが既に存在します"
+                                    taskVm.hasDuplicateParentName(name) ->
+                                        duplicateParentErrorText
                                     else -> null
                                 }
                             }
                         },
                         singleLine = true,
                         isError = addParentError != null,
-                        label = { Text("タスク名（1〜128文字）") },
+                        label = { Text(stringResource(R.string.task_name_label)) },
                         supportingText = { if (addParentError != null) Text(addParentError!!) }
                     )
                 },
@@ -1916,9 +1997,9 @@ fun DBTaskScreen(
                     TextButton(onClick = {
                         val name = newTaskName.trim().take(128)
                         when {
-                            name.isEmpty() -> addParentError = "1文字以上で入力してください"
+                            name.isEmpty() -> addParentError = emptyNameErrorText
                             taskVm.hasDuplicateParentName(name) -> addParentError =
-                                "同名の親タスクが既に存在します"
+                                duplicateParentErrorText
 
                             else -> {
                                 taskVm.addParentTask(name)
@@ -1926,10 +2007,12 @@ fun DBTaskScreen(
                                 addParentError = null
                             }
                         }
-                    }) { Text("追加") }
+                    }) { Text(stringResource(R.string.action_add)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showAddDialog = false }) { Text("キャンセル") }
+                    TextButton(onClick = { showAddDialog = false }) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
                 }
             )
         }
@@ -1937,7 +2020,7 @@ fun DBTaskScreen(
         if (showAddChildDialogFor != null) {
             AlertDialog(
                 onDismissRequest = { showAddChildDialogFor = null },
-                title = { Text("子タスクを追加") },
+                title = { Text(stringResource(R.string.task_add_child)) },
                 text = {
                     OutlinedTextField(
                         value = newChildName,
@@ -1949,7 +2032,7 @@ fun DBTaskScreen(
                                 addChildError = when {
                                     name.isEmpty() -> null
                                     pid != null && taskVm.hasDuplicateChildName(pid, name) ->
-                                        "同名のタスクがこのプロジェクトに存在します"
+                                        duplicateChildErrorText
 
                                     else -> null
                                 }
@@ -1957,7 +2040,7 @@ fun DBTaskScreen(
                         },
                         singleLine = true,
                         isError = addChildError != null,
-                        label = { Text("タスク名（1〜128文字）") },
+                        label = { Text(stringResource(R.string.task_name_label)) },
                         supportingText = { if (addChildError != null) Text(addChildError!!) }
                     )
                 },
@@ -1967,9 +2050,9 @@ fun DBTaskScreen(
                         val name = newChildName.trim().take(128)
                         when {
                             pid == null -> {}
-                            name.isEmpty() -> addChildError = "1文字以上で入力してください"
+                            name.isEmpty() -> addChildError = emptyNameErrorText
                             taskVm.hasDuplicateChildName(pid, name) ->
-                                addChildError = "同名のタスクがこのプロジェクトに存在します"
+                                addChildError = duplicateChildErrorText
 
                             else -> {
                                 taskVm.addChildTask(pid, name)
@@ -1977,10 +2060,12 @@ fun DBTaskScreen(
                                 addChildError = null
                             }
                         }
-                    }) { Text("追加") }
+                    }) { Text(stringResource(R.string.action_add)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showAddChildDialogFor = null }) { Text("キャンセル") }
+                    TextButton(onClick = { showAddChildDialogFor = null }) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
                 }
             )
         }
@@ -1999,19 +2084,23 @@ fun DBTaskScreen(
                 hexInput = colorToHex(initColor, withAlpha = false)
             }
             val parsedHex = remember(hexInput) { parseHexColor(hexInput) }
-            val hexError = remember(parsedHex, hexInput) {
+            val hexFormatError = stringResource(R.string.task_color_hex_error)
+            val hexError = remember(parsedHex, hexInput, hexFormatError) {
                 if (hexInput.isBlank()) null
-                else if (parsedHex == null) "形式: #RRGGBB または #AARRGGBB"
+                else if (parsedHex == null) hexFormatError
                 else null
             }
 
             AlertDialog(
                 onDismissRequest = { colorPickForParentId = null },
-                title = { Text("色の変更") },
+                title = { Text(stringResource(R.string.task_change_color)) },
                 text = {
                     Column {
                         // 1) プリセット
-                        Text("プリセット", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            stringResource(R.string.task_color_preset),
+                            style = MaterialTheme.typography.labelMedium
+                        )
                         Spacer(Modifier.height(8.dp))
                         Row {
                             presetColors.forEach { c ->
@@ -2039,7 +2128,10 @@ fun DBTaskScreen(
                         Spacer(Modifier.height(16.dp))
 
                         // 2) HEX入力
-                        Text("HEX 指定", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            stringResource(R.string.task_color_hex_title),
+                            style = MaterialTheme.typography.labelMedium
+                        )
                         Spacer(Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             OutlinedTextField(
@@ -2047,7 +2139,9 @@ fun DBTaskScreen(
                                 onValueChange = { hexInput = it.uppercase() },
                                 singleLine = true,
                                 isError = hexError != null,
-                                label = { Text("HEX (#RRGGBB / #AARRGGBB)") },
+                                label = {
+                                    Text(stringResource(R.string.task_color_hex_label))
+                                },
                                 supportingText = { if (hexError != null) Text(hexError!!) },
                                 modifier = Modifier.weight(1f)
                             )
@@ -2075,17 +2169,19 @@ fun DBTaskScreen(
                                     colorPickForParentId = null
                                 },
                                 enabled = parsedHex != null
-                            ) { Text("HEXを適用") }
+                            ) { Text(stringResource(R.string.task_color_apply_hex)) }
 
                             FilledTonalButton(onClick = { showRgbPicker = true }) {
-                                Text("カラーピッカー…")
+                                Text(stringResource(R.string.task_color_picker))
                             }
                         }
                     }
                 },
                 confirmButton = {},
                 dismissButton = {
-                    TextButton(onClick = { colorPickForParentId = null }) { Text("閉じる") }
+                    TextButton(onClick = { colorPickForParentId = null }) {
+                        Text(stringResource(R.string.action_close))
+                    }
                 }
             )
 
@@ -2109,11 +2205,11 @@ fun DBTaskScreen(
         if (renameTaskId != null) {
             AlertDialog(
                 onDismissRequest = { renameTaskId = null },
-                title = { Text("名前を変更") },
+                title = { Text(stringResource(R.string.task_rename)) },
                 text = {
                     Column {
                         Text(
-                            "現在: $renameTaskCurrentName",
+                            stringResource(R.string.task_current_name, renameTaskCurrentName),
                             style = MaterialTheme.typography.bodySmall
                         )
                         Spacer(Modifier.height(8.dp))
@@ -2132,7 +2228,7 @@ fun DBTaskScreen(
                                                     ignoreCase = true
                                                 ) &&
                                                 taskVm.hasDuplicateParentName(name) ->
-                                            "同名の親タスクが既に存在します"
+                                            duplicateParentErrorText
 
                                         else -> null
                                     }
@@ -2140,7 +2236,7 @@ fun DBTaskScreen(
                             },
                             singleLine = true,
                             isError = renameError != null,   // ★エラー表示
-                            label = { Text("新しい名前（1〜128文字）") },
+                            label = { Text(stringResource(R.string.task_new_name_label)) },
                             supportingText = { if (renameError != null) Text(renameError!!) }
                         )
                     }
@@ -2151,12 +2247,12 @@ fun DBTaskScreen(
                         val name = renameTaskText.trim().take(128)
                         when {
                             id == null -> Unit
-                            name.isEmpty() -> renameError = "1文字以上で入力してください"
+                            name.isEmpty() -> renameError = emptyNameErrorText
                             // ★親名の重複は禁止（ただし大文字小文字差だけの同名はOK）
                             renameIsParent &&
                                     !name.equals(renameTaskCurrentName.trim(), ignoreCase = true) &&
                                     taskVm.hasDuplicateParentName(name) -> {
-                                renameError = "同名の親タスクが既に存在します"
+                                renameError = duplicateParentErrorText
                             }
 
                             else -> {
@@ -2165,10 +2261,12 @@ fun DBTaskScreen(
                                 renameError = null
                             }
                         }
-                    }) { Text("保存") }
+                    }) { Text(stringResource(R.string.action_save)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { renameTaskId = null }) { Text("キャンセル") }
+                    TextButton(onClick = { renameTaskId = null }) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
                 }
             )
         }
@@ -2228,7 +2326,10 @@ fun DBTaskScreen(
                     .align(Alignment.BottomEnd)
                     .padding(16.dp)
             ) {
-                Icon(Icons.Filled.AddCircle, contentDescription = "Add task")
+                Icon(
+                    Icons.Filled.AddCircle,
+                    contentDescription = stringResource(R.string.task_add_accessibility)
+                )
             }
         }
     }
@@ -2262,14 +2363,16 @@ private fun StatsFilterDialog(
 
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("統計フィルター") },
+        title = { Text(stringResource(R.string.stats_filter_title)) },
         text = {
             Column {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
                         selected.clear(); selected.addAll(leafIds)
-                    }) { Text("全選択") }
-                    OutlinedButton(onClick = { selected.clear() }) { Text("全解除") }
+                    }) { Text(stringResource(R.string.action_select_all)) }
+                    OutlinedButton(onClick = { selected.clear() }) {
+                        Text(stringResource(R.string.action_clear_all))
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
 
@@ -2368,10 +2471,14 @@ private fun StatsFilterDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onApply(selected.toSet()) }) { Text("適用") }
+            TextButton(onClick = { onApply(selected.toSet()) }) {
+                Text(stringResource(R.string.action_apply))
+            }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("キャンセル") }
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
         }
     )
 }
@@ -2421,7 +2528,9 @@ private fun SubtaskPicker(
                 .padding(bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TextButton(onClick = onBack) { Text("＜ 戻る") }
+            TextButton(onClick = onBack) {
+                Text(stringResource(R.string.action_back_with_marker))
+            }
             Spacer(Modifier.width(8.dp))
             Text(text = title, style = MaterialTheme.typography.titleMedium)
         }
@@ -2474,21 +2583,24 @@ private fun SubtaskPicker(
 
                         var menuExpanded by remember { mutableStateOf(false) }
                         IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Filled.Menu, contentDescription = "Subtask menu")
+                            Icon(
+                                Icons.Filled.Menu,
+                                contentDescription = stringResource(R.string.task_subtask_menu)
+                            )
                         }
                         DropdownMenu(
                             expanded = menuExpanded,
                             onDismissRequest = { menuExpanded = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("名前を変更") },
+                                text = { Text(stringResource(R.string.task_rename)) },
                                 onClick = {
                                     menuExpanded = false
                                     onRenameRequest(t.id, t.name)
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("削除") },
+                                text = { Text(stringResource(R.string.action_delete)) },
                                 onClick = {
                                     menuExpanded = false
                                     onDeleteRequest(t.id, t.name)
@@ -2624,7 +2736,10 @@ private fun TimelineScreen(
                     if (weekMode) weekOffset -= 1 else anchorOffset -= dayCount
                     viewModel.reloadHistory() // スワイプ相当の移動で同期
                 }) {
-                    Icon(Icons.Filled.ChevronLeft, contentDescription = "prev")
+                    Icon(
+                        Icons.Filled.ChevronLeft,
+                        contentDescription = stringResource(R.string.timeline_previous)
+                    )
                 }
                 Text(
                     headerLabel,
@@ -2635,7 +2750,10 @@ private fun TimelineScreen(
                     if (weekMode) weekOffset += 1 else anchorOffset += dayCount
                     viewModel.reloadHistory() // スワイプ相当の移動で同期
                 }) {
-                    Icon(Icons.Filled.ChevronRight, contentDescription = "next")
+                    Icon(
+                        Icons.Filled.ChevronRight,
+                        contentDescription = stringResource(R.string.timeline_next)
+                    )
                 }
             }
 
@@ -2646,22 +2764,31 @@ private fun TimelineScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SegButton("3日", active = !weekMode && dayCount == 3) {
+                SegButton(
+                    stringResource(R.string.timeline_days, 3),
+                    active = !weekMode && dayCount == 3
+                ) {
                     weekMode = false; dayCount = 3
                     anchorOffset = -(dayCount - 1) // 今日を右端
                     viewModel.reloadHistory()
                 }
-                SegButton("5日", active = !weekMode && dayCount == 5) {
+                SegButton(
+                    stringResource(R.string.timeline_days, 5),
+                    active = !weekMode && dayCount == 5
+                ) {
                     weekMode = false; dayCount = 5
                     anchorOffset = -(dayCount - 1)
                     viewModel.reloadHistory()
                 }
-                SegButton("7日", active = !weekMode && dayCount == 7) {
+                SegButton(
+                    stringResource(R.string.timeline_days, 7),
+                    active = !weekMode && dayCount == 7
+                ) {
                     weekMode = false; dayCount = 7
                     anchorOffset = -(dayCount - 1)
                     viewModel.reloadHistory()
                 }
-                SegButton("週間", active = weekMode) {
+                SegButton(stringResource(R.string.timeline_week), active = weekMode) {
                     weekMode = true
                     dayCount = 7            // 週間は7固定
                     weekOffset = 0          // 今週
@@ -2751,7 +2878,10 @@ private fun TimelineScreen(
                 .align(Alignment.BottomEnd)
                 .padding(16.dp)
         ) {
-            Icon(Icons.Filled.AddCircle, contentDescription = "Add record")
+            Icon(
+                Icons.Filled.AddCircle,
+                contentDescription = stringResource(R.string.timeline_add_record)
+            )
         }
     }
 }
@@ -3045,7 +3175,7 @@ private fun RgbColorPickerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("色を選択") },
+        title = { Text(stringResource(R.string.task_color_select)) },
         text = {
             Column {
                 // プレビュー＋HEX
@@ -3075,10 +3205,14 @@ private fun RgbColorPickerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(current) }) { Text("適用") }
+            TextButton(onClick = { onConfirm(current) }) {
+                Text(stringResource(R.string.action_apply))
+            }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("キャンセル") }
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
         }
     )
 }
@@ -3301,19 +3435,23 @@ private fun StatsScreen(
             .padding(16.dp)
             .verticalScroll(scroll)
     ) {
-        Text("集計", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.stats_title), style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(12.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SegButton("7日", active = days == 7) { days = 7 }
-            SegButton("30日", active = days == 30) { days = 30 }
-            SegButton("90日", active = days == 90) { days = 90 }
+            SegButton(stringResource(R.string.timeline_days, 7), active = days == 7) { days = 7 }
+            SegButton(stringResource(R.string.timeline_days, 30), active = days == 30) { days = 30 }
+            SegButton(stringResource(R.string.timeline_days, 90), active = days == 90) { days = 90 }
             Spacer(Modifier.weight(1f))
         }
 
         Spacer(Modifier.height(8.dp))
         Text(
-            "期間: 過去${days}日 / 合計 ${(totalAll / 1000 / 60)} 分",
+            stringResource(
+                R.string.stats_period_summary,
+                days,
+                totalAll / 1_000L / 60L
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -3334,7 +3472,7 @@ private fun StatsScreen(
                         .padding(24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("データがありません。記録するとここに表示されます。")
+                    Text(stringResource(R.string.stats_no_data))
                 }
             }
         } else {
@@ -3387,7 +3525,12 @@ private fun BarChart(
             val ratio = (value / maxVal).coerceIn(0f, 1f)
             val barColor = colors.getOrNull(index) ?: MaterialTheme.colorScheme.primary
             val pct = ((value / totalVal) * 100.0).roundToInt()
-            val displayLabel = "$label (${hhmm(value)}, $pct %)"
+            val displayLabel = stringResource(
+                R.string.stats_bar_label,
+                label,
+                hhmm(value),
+                pct
+            )
 
             Column(Modifier.padding(vertical = 6.dp)) {
                 Text(
@@ -3473,7 +3616,7 @@ fun HistoryScreen(modifier: Modifier = Modifier, viewModel: TaskViewModel) {
                                 .fillMaxWidth()
                                 .padding(8.dp),
                             contentAlignment = Alignment.Center
-                        ) { Text("以上です") }
+                        ) { Text(stringResource(R.string.history_end)) }
                     }
                 }
             }
@@ -3553,17 +3696,20 @@ fun AdaptiveBottomBar(
                     IconButton(onClick = onActionA) {
                         Icon(
                             painter = painterResource(id = R.drawable.content_cut_24px),
-                            contentDescription = "content_cut_24"
+                            contentDescription = stringResource(R.string.bottom_split_record)
                         )
                     }
                     IconButton(onClick = onActionB) {
                         Icon(
                             painter = painterResource(id = R.drawable.edit_24px),
-                            contentDescription = "edit_24"
+                            contentDescription = stringResource(R.string.bottom_edit_record)
                         )
                     }
                     IconButton(onClick = onDeleteAction) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Delete record")
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = stringResource(R.string.bottom_delete_record)
+                        )
                     }
                     Spacer(Modifier.weight(1f))
                     if (timelineSpanText != null) {
@@ -3581,14 +3727,17 @@ fun AdaptiveBottomBar(
             BottomAppBar(
                 actions = {
                     IconButton(onClick = onSortAction) {
-                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
+                        Icon(
+                            Icons.AutoMirrored.Filled.Sort,
+                            contentDescription = stringResource(R.string.bottom_sort)
+                        )
                     }
                     if (showExtraIcon) {
                         IconButton(onClick = onExtraAction) {
                             // ★ 仮アイコン：設定アイコン（後でカスタムに差し替え）
                             Icon(
                                 painter = painterResource(id = R.drawable.sort_by_alpha_24px),
-                                contentDescription = "Placeholder"
+                                contentDescription = stringResource(R.string.bottom_sort_by_name)
                             )
                         }
                     }
@@ -3599,15 +3748,20 @@ fun AdaptiveBottomBar(
         2 -> {
             BottomAppBar {
                 IconButton(onClick = onFilterAction) {
-                    Icon(Icons.Filled.FilterList, contentDescription = "Filter")
+                    Icon(
+                        Icons.Filled.FilterList,
+                        contentDescription = stringResource(R.string.bottom_filter)
+                    )
                 }
                 Spacer(Modifier.weight(1f))
                 // 3モード巡回（アイコンは共通、CD に現在モード名）
                 IconButton(onClick = onAggCycleAction) {
                     val cd = when (aggMode) {
-                        StatsAggMode.Project -> "Aggregate: Project"
-                        StatsAggMode.Task -> "Aggregate: Task"
-                        StatsAggMode.Leaf -> "Aggregate: All (leaf)"
+                        StatsAggMode.Project -> stringResource(
+                            R.string.bottom_aggregate_project
+                        )
+                        StatsAggMode.Task -> stringResource(R.string.bottom_aggregate_task)
+                        StatsAggMode.Leaf -> stringResource(R.string.bottom_aggregate_leaf)
                     }
                     Icon(Icons.Filled.Dashboard, contentDescription = cd)
                 }
@@ -3729,7 +3883,7 @@ private fun Preview_TasksMain() {
                 .padding(16.dp)
         ) {
             Text(
-                text = "タスクを選択してください",
+                text = stringResource(R.string.label_select_task),
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
@@ -3879,21 +4033,27 @@ private fun ExportTsvRangeDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Export (TSV)") },
+        title = { Text(stringResource(R.string.export_tsv_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("期間をカレンダーから選択してください。点が付いた日には記録があります。")
+                Text(stringResource(R.string.export_tsv_range_description))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = { monthOffset -= 1 }) {
-                        Icon(Icons.Filled.ChevronLeft, contentDescription = "Prev month")
+                        Icon(
+                            Icons.Filled.ChevronLeft,
+                            contentDescription = stringResource(R.string.calendar_previous_month)
+                        )
                     }
                     Text(monthLabel(monthStart), style = MaterialTheme.typography.titleMedium)
                     IconButton(onClick = { monthOffset += 1 }) {
-                        Icon(Icons.Filled.ChevronRight, contentDescription = "Next month")
+                        Icon(
+                            Icons.Filled.ChevronRight,
+                            contentDescription = stringResource(R.string.calendar_next_month)
+                        )
                     }
                 }
                 ExportCalendarMonth(
@@ -3931,10 +4091,12 @@ private fun ExportTsvRangeDialog(
                     }.timeInMillis
                     onExport(start, endExclusive)
                 }
-            ) { Text("エクスポート") }
+            ) { Text(stringResource(R.string.action_export)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("キャンセル") }
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
         }
     )
 }
@@ -3953,7 +4115,7 @@ private fun ExportCalendarMonth(
     val firstDayOfWeek = monthCal.get(java.util.Calendar.DAY_OF_WEEK)
     val offset = (firstDayOfWeek + 5) % 7
     val daysInMonth = monthCal.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
-    val weekLabels = listOf("月", "火", "水", "木", "金", "土", "日")
+    val weekLabels = stringArrayResource(R.array.weekday_short_labels)
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth()) {
@@ -4069,10 +4231,17 @@ private fun Preview_StatsMain() {
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            Text("集計", style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(R.string.stats_title),
+                style = MaterialTheme.typography.titleMedium
+            )
             Spacer(Modifier.height(12.dp))
             Text(
-                "期間: 過去7日 / 合計 ${sampleVals.sum().toLong()} 分",
+                stringResource(
+                    R.string.stats_period_summary,
+                    7,
+                    sampleVals.sum().toLong()
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -4113,7 +4282,10 @@ private fun Preview_StatsMain() {
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Text("${value.toInt()} 分", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        stringResource(R.string.label_minutes, value.toInt()),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

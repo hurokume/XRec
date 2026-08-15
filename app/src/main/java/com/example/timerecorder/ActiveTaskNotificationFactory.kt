@@ -41,10 +41,10 @@ internal class ActiveTaskNotificationFactory(
 
         val channel = NotificationChannel(
             ActiveTaskNotificationContract.CHANNEL_ID,
-            "Active task",
+            context.getString(R.string.notification_channel_name),
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "現在実行中のタスクと予測候補"
+            description = context.getString(R.string.notification_channel_description)
             setShowBadge(false)
             enableVibration(false)
             vibrationPattern = null
@@ -56,9 +56,9 @@ internal class ActiveTaskNotificationFactory(
 
     fun startingNotification(): Notification =
         baseBuilder()
-            .setContentTitle("Time Recorder")
-            .setContentText("起動中…")
-            .addAction(0, "次へ", pendingNext())
+            .setContentTitle(context.getString(R.string.app_name))
+            .setContentText(context.getString(R.string.notification_starting))
+            .addAction(0, context.getString(R.string.notification_next), pendingNext())
             .build()
 
     fun activeNotification(
@@ -78,7 +78,7 @@ internal class ActiveTaskNotificationFactory(
 
         return baseBuilder()
             .setContentTitle(title)
-            .setContentText("計測中")
+            .setContentText(context.getString(R.string.notification_running))
             .setWhen(startedAtMs)
             .setUsesChronometer(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -86,7 +86,11 @@ internal class ActiveTaskNotificationFactory(
             .setStyle(NotificationCompat.DecoratedCustomViewStyle())
             .setCustomContentView(collapsedViews(title, startedAtMs))
             .setCustomBigContentView(expandedViews(title, startedAtMs, candidates))
-            .addAction(android.R.drawable.ic_media_next, "次へ", pendingNext())
+            .addAction(
+                android.R.drawable.ic_media_next,
+                context.getString(R.string.notification_next),
+                pendingNext()
+            )
             .build()
     }
 

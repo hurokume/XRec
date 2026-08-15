@@ -1,5 +1,6 @@
 package com.example.timerecorder.ui
 
+import android.content.Context
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -30,9 +31,13 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringArrayResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.timerecorder.R
 import com.example.timerecorder.data.TaskAnalysisBucket
 import com.example.timerecorder.data.TaskAnalysisCategory
 import com.example.timerecorder.data.TaskAnalysisEngine
@@ -44,6 +49,7 @@ import kotlin.math.max
 
 @Composable
 internal fun TotalBarChart(result: TaskAnalysisResult, taskColor: Color) {
+    val context = LocalContext.current
     val average = result.averagePerBucketMs
     val lineColor = MaterialTheme.colorScheme.onSurfaceVariant
     val movingAverageColor = MaterialTheme.colorScheme.tertiary
@@ -62,7 +68,10 @@ internal fun TotalBarChart(result: TaskAnalysisResult, taskColor: Color) {
     )
     val axis = remember(maxValue) { durationAxis(maxValue) }
     Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Text("期間別累計", style = MaterialTheme.typography.titleMedium)
+        Text(
+            stringResource(R.string.analysis_chart_period_total_title),
+            style = MaterialTheme.typography.titleMedium
+        )
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
@@ -82,7 +91,8 @@ internal fun TotalBarChart(result: TaskAnalysisResult, taskColor: Color) {
                 plotTop = baseline - chartHeight,
                 baseline = baseline,
                 labelColor = labelColor,
-                gridColor = lineColor.copy(alpha = 0.18f)
+                gridColor = lineColor.copy(alpha = 0.18f),
+                formatLabel = { formatAxisDuration(context, it) }
             )
             val averageY = baseline - chartHeight * average.toFloat() / axis.maxMs.toFloat()
             drawLine(
@@ -149,7 +159,11 @@ internal fun TotalBarChart(result: TaskAnalysisResult, taskColor: Color) {
                 .padding(start = 50.dp, top = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            ChartLineLegend("期間平均", lineColor, dashed = true)
+            ChartLineLegend(
+                stringResource(R.string.analysis_chart_average),
+                lineColor,
+                dashed = true
+            )
             ChartLineLegend(
                 movingAverageLabel(result, movingAverageWindow),
                 movingAverageColor,
@@ -164,6 +178,7 @@ internal fun TotalBarChart(result: TaskAnalysisResult, taskColor: Color) {
 
 @Composable
 internal fun CumulativeStackedChart(result: TaskAnalysisResult) {
+    val context = LocalContext.current
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
     val outline = MaterialTheme.colorScheme.outline
     val palette = analysisCategoryColors(result.categories)
@@ -177,7 +192,10 @@ internal fun CumulativeStackedChart(result: TaskAnalysisResult) {
     val maxValue = cumulative.maxOfOrNull { it.values.sum() } ?: 0L
     val axis = remember(maxValue) { durationAxis(maxValue) }
     Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Text("累積積み上げ", style = MaterialTheme.typography.titleMedium)
+        Text(
+            stringResource(R.string.analysis_chart_cumulative_title),
+            style = MaterialTheme.typography.titleMedium
+        )
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
@@ -197,7 +215,8 @@ internal fun CumulativeStackedChart(result: TaskAnalysisResult) {
                 plotTop = baseline - chartHeight,
                 baseline = baseline,
                 labelColor = labelColor,
-                gridColor = outline.copy(alpha = 0.18f)
+                gridColor = outline.copy(alpha = 0.18f),
+                formatLabel = { formatAxisDuration(context, it) }
             )
             cumulative.forEachIndexed { index, totals ->
                 var bottom = baseline
@@ -316,7 +335,8 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawDurationYAxis(
     plotTop: Float,
     baseline: Float,
     labelColor: Int,
-    gridColor: Color
+    gridColor: Color,
+    formatLabel: (Long) -> String
 ) {
     val paint = Paint().apply {
         color = labelColor
@@ -333,7 +353,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawDurationYAxis(
             strokeWidth = 0.75.dp.toPx()
         )
         drawContext.canvas.nativeCanvas.drawText(
-            formatAxisDuration(tick),
+            formatLabel(tick),
             plotLeft - 6.dp.toPx(),
             y + 3.dp.toPx(),
             paint
@@ -353,15 +373,22 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawDurationYAxis(
     )
 }
 
-private fun formatAxisDuration(valueMs: Long): String {
-    if (valueMs == 0L) return "0"
+private fun formatAxisDuration(context: Context, valueMs: Long): String {
+    if (valueMs == 0L) return context.getString(R.string.analysis_axis_zero)
     val hour = 60L * 60L * 1_000L
     val minute = 60L * 1_000L
     return when {
-        valueMs >= hour && valueMs % hour == 0L -> "${valueMs / hour}h"
-        valueMs >= hour -> String.format(Locale.US, "%.1fh", valueMs.toDouble() / hour)
-        valueMs >= minute -> "${valueMs / minute}m"
-        else -> "${valueMs / 1_000L}s"
+        valueMs >= hour && valueMs % hour == 0L ->
+            context.getString(R.string.analysis_axis_hours, valueMs / hour)
+        valueMs >= hour -> context.getString(
+            R.string.analysis_axis_hours_decimal,
+            valueMs.toDouble() / hour
+        )
+        valueMs >= minute -> context.getString(
+            R.string.analysis_axis_minutes,
+            valueMs / minute
+        )
+        else -> context.getString(R.string.analysis_axis_seconds, valueMs / 1_000L)
     }
 }
 
@@ -386,14 +413,15 @@ private fun ChartLineLegend(text: String, color: Color, dashed: Boolean) {
     }
 }
 
+@Composable
 private fun movingAverageLabel(result: TaskAnalysisResult, window: Int): String = when (
     result.request.period
 ) {
-    TaskAnalysisPeriod.Day -> "${window}時間移動平均"
-    TaskAnalysisPeriod.Week -> "${window}日移動平均"
-    TaskAnalysisPeriod.Month -> "${window}日移動平均"
-    TaskAnalysisPeriod.Year -> "${window}か月移動平均"
-    TaskAnalysisPeriod.Custom -> "${window}日移動平均"
+    TaskAnalysisPeriod.Day -> stringResource(R.string.analysis_moving_average_hours, window)
+    TaskAnalysisPeriod.Week -> stringResource(R.string.analysis_moving_average_days, window)
+    TaskAnalysisPeriod.Month -> stringResource(R.string.analysis_moving_average_days, window)
+    TaskAnalysisPeriod.Year -> stringResource(R.string.analysis_moving_average_months, window)
+    TaskAnalysisPeriod.Custom -> stringResource(R.string.analysis_moving_average_days, window)
 }
 
 @Composable
@@ -401,7 +429,8 @@ internal fun ProbabilityHeatMap(result: TaskAnalysisResult) {
     val low = MaterialTheme.colorScheme.surfaceVariant
     val high = MaterialTheme.colorScheme.primary
     val outline = MaterialTheme.colorScheme.surface
-    val weekdays = listOf("月", "火", "水", "木", "金", "土", "日")
+    val weekdays = stringArrayResource(R.array.weekday_short_labels)
+    val hourLabels = stringArrayResource(R.array.analysis_heatmap_hour_labels)
     val maximumProbability = remember(result.heatCells) {
         result.heatCells.maxOfOrNull { it.probability } ?: 0.0
     }
@@ -414,7 +443,10 @@ internal fun ProbabilityHeatMap(result: TaskAnalysisResult) {
         }
     }
     Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Text("24時間の記録確率", style = MaterialTheme.typography.titleMedium)
+        Text(
+            stringResource(R.string.analysis_chart_probability_title),
+            style = MaterialTheme.typography.titleMedium
+        )
         Spacer(Modifier.height(12.dp))
         Row {
             Column(modifier = Modifier.width(24.dp)) {
@@ -452,7 +484,7 @@ internal fun ProbabilityHeatMap(result: TaskAnalysisResult) {
             }
         }
         Row(modifier = Modifier.padding(start = 24.dp).fillMaxWidth()) {
-            listOf("0", "6", "12", "18", "24時").forEach { label ->
+            hourLabels.forEach { label ->
                 Text(
                     label,
                     fontSize = 9.sp,
@@ -469,7 +501,10 @@ internal fun ProbabilityHeatMap(result: TaskAnalysisResult) {
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("0%", style = MaterialTheme.typography.labelSmall)
+            Text(
+                stringResource(R.string.analysis_heatmap_zero_percent),
+                style = MaterialTheme.typography.labelSmall
+            )
             repeat(5) { index ->
                 Box(
                     Modifier
@@ -479,7 +514,10 @@ internal fun ProbabilityHeatMap(result: TaskAnalysisResult) {
                 )
             }
             Text(
-                "最大 ${formatProbability(maximumProbability)}",
+                stringResource(
+                    R.string.analysis_chart_max_probability,
+                    formatProbability(maximumProbability)
+                ),
                 style = MaterialTheme.typography.labelSmall
             )
         }

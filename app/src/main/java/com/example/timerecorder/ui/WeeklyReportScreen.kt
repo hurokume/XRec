@@ -42,7 +42,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.example.timerecorder.R
 import com.example.timerecorder.data.AnalysisDayType
 import com.example.timerecorder.data.AnalysisLevel
 import com.example.timerecorder.data.AnalysisRequest
@@ -111,13 +113,24 @@ fun WeeklyReportScreen(
                     type = "application/pdf"
                     putExtra(Intent.EXTRA_STREAM, uri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    putExtra(Intent.EXTRA_SUBJECT, "TimeRecorder Weekly Report")
+                    putExtra(
+                        Intent.EXTRA_SUBJECT,
+                        context.getString(R.string.weekly_report_share_subject)
+                    )
                 }
-                context.startActivity(Intent.createChooser(share, "Weekly reportを共有"))
+                context.startActivity(
+                    Intent.createChooser(
+                        share,
+                        context.getString(R.string.weekly_report_share_chooser)
+                    )
+                )
             } catch (error: Throwable) {
                 Toast.makeText(
                     context,
-                    "Weekly reportの作成に失敗しました: ${error.message}",
+                    context.getString(
+                        R.string.weekly_report_error,
+                        error.message.orEmpty()
+                    ),
                     Toast.LENGTH_LONG
                 ).show()
             } finally {
@@ -133,9 +146,12 @@ fun WeeklyReportScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Weekly report", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "指定した週の7日Timeline、Daily plan達成度、Analysisを1つのPDFにまとめます。",
+            stringResource(R.string.weekly_report_title),
+            style = MaterialTheme.typography.headlineSmall
+        )
+        Text(
+            stringResource(R.string.weekly_report_description),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -145,13 +161,21 @@ fun WeeklyReportScreen(
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("対象週", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    stringResource(R.string.weekly_report_target_week),
+                    style = MaterialTheme.typography.titleMedium
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = { moveWeek(-1) }) {
-                        Icon(Icons.Filled.ChevronLeft, contentDescription = "前の週")
+                        Icon(
+                            Icons.Filled.ChevronLeft,
+                            contentDescription = stringResource(
+                                R.string.weekly_report_previous_week
+                            )
+                        )
                     }
                     Text(
                         weekLabel,
@@ -159,7 +183,10 @@ fun WeeklyReportScreen(
                         style = MaterialTheme.typography.bodyLarge
                     )
                     IconButton(onClick = { moveWeek(1) }) {
-                        Icon(Icons.Filled.ChevronRight, contentDescription = "次の週")
+                        Icon(
+                            Icons.Filled.ChevronRight,
+                            contentDescription = stringResource(R.string.weekly_report_next_week)
+                        )
                     }
                 }
                 OutlinedButton(
@@ -167,7 +194,7 @@ fun WeeklyReportScreen(
                     enabled = weekStartMs != currentWeek.startMs,
                     onClick = { weekStartMs = currentWeek.startMs }
                 ) {
-                    Text("今週")
+                    Text(stringResource(R.string.weekly_report_this_week))
                 }
             }
         }
@@ -177,9 +204,12 @@ fun WeeklyReportScreen(
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("Timeline表示時間", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "PDFのTimelineページに掲載する1日あたりの時間帯を指定します。",
+                    stringResource(R.string.weekly_report_timeline_hours),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    stringResource(R.string.weekly_report_timeline_hours_description),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -189,16 +219,16 @@ fun WeeklyReportScreen(
                     horizontalArrangement = Arrangement.Center
                 ) {
                     HourDropdown(
-                        label = "開始",
+                        label = stringResource(R.string.label_start),
                         value = timelineStartHour,
                         choices = 0 until timelineEndHour,
                         onValueChange = { timelineStartHour = it }
                     )
                     Spacer(Modifier.width(12.dp))
-                    Text("-")
+                    Text(stringResource(R.string.range_separator_hyphen))
                     Spacer(Modifier.width(12.dp))
                     HourDropdown(
-                        label = "終了",
+                        label = stringResource(R.string.label_end),
                         value = timelineEndHour,
                         choices = (timelineStartHour + 1)..24,
                         onValueChange = { timelineEndHour = it }
@@ -212,7 +242,10 @@ fun WeeklyReportScreen(
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("Analysisの分類階層", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    stringResource(R.string.weekly_report_analysis_level),
+                    style = MaterialTheme.typography.titleMedium
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AnalysisLevel.entries.forEach { option ->
                         FilterChip(
@@ -221,9 +254,15 @@ fun WeeklyReportScreen(
                             label = {
                                 Text(
                                     when (option) {
-                                        AnalysisLevel.Large -> "大分類"
-                                        AnalysisLevel.Middle -> "中分類"
-                                        AnalysisLevel.Small -> "小分類"
+                                        AnalysisLevel.Large -> stringResource(
+                                            R.string.analysis_level_large
+                                        )
+                                        AnalysisLevel.Middle -> stringResource(
+                                            R.string.analysis_level_middle
+                                        )
+                                        AnalysisLevel.Small -> stringResource(
+                                            R.string.analysis_level_small
+                                        )
                                     }
                                 )
                             }
@@ -231,7 +270,7 @@ fun WeeklyReportScreen(
                     }
                 }
                 Text(
-                    "分析は選択した週の全時間を対象にし、Timelineのみ上の時間帯で切り抜きます。",
+                    stringResource(R.string.weekly_report_analysis_scope_description),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -249,7 +288,13 @@ fun WeeklyReportScreen(
                 Icon(Icons.Filled.PictureAsPdf, contentDescription = null)
             }
             Spacer(Modifier.width(8.dp))
-            Text(if (isExporting) "Weekly reportを作成中..." else "Weekly report PDFを作成")
+            Text(
+                if (isExporting) {
+                    stringResource(R.string.weekly_report_creating)
+                } else {
+                    stringResource(R.string.weekly_report_create_pdf)
+                }
+            )
         }
         Spacer(Modifier.height(12.dp))
     }
@@ -265,7 +310,13 @@ private fun HourDropdown(
     var expanded by remember { mutableStateOf(false) }
     Box {
         OutlinedButton(onClick = { expanded = true }) {
-            Text("$label ${String.format(Locale.getDefault(), "%02d:00", value)}")
+            Text(
+                stringResource(
+                    R.string.weekly_report_hour_value,
+                    label,
+                    String.format(Locale.getDefault(), "%02d:00", value)
+                )
+            )
         }
         DropdownMenu(
             expanded = expanded,
