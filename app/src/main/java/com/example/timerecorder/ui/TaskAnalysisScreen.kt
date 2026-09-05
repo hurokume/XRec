@@ -9,7 +9,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,9 +26,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.NavigateBefore
 import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.automirrored.filled.ShowChart
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.IndeterminateCheckBox
@@ -38,7 +37,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +51,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -79,6 +78,7 @@ import java.util.Date
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
+import kotlinx.coroutines.launch
 
 private enum class TaskAnalysisChartType {
     Total,
@@ -104,6 +104,7 @@ fun TaskAnalysisScreen(
     val parents by viewModel.parents.collectAsStateWithLifecycle()
     val analysisState by viewModel.taskAnalysis.collectAsStateWithLifecycle()
     val drillPath = remember { mutableStateListOf<AnalysisTaskChoice>() }
+    val scope = rememberCoroutineScope()
     val batchColor = MaterialTheme.colorScheme.primary
 
     var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -125,10 +126,11 @@ fun TaskAnalysisScreen(
     }
 
     fun toggleChecked(taskId: Long) {
-        checkedTaskIds = if (taskId in checkedTaskIds) {
-            checkedTaskIds - taskId
-        } else {
-            checkedTaskIds + taskId
+        scope.launch {
+            val visible = visibleTaskIds.ifEmpty { viewModel.visibleTaskIds() }
+            visibleTaskIds = visible
+            val subtree = viewModel.taskTreeIds(taskId).intersect(visible)
+            checkedTaskIds = toggleTaskTreeSelection(checkedTaskIds, subtree)
         }
     }
 
@@ -222,7 +224,7 @@ fun TaskAnalysisScreen(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         bottomBar = {
-            AnalysisSelectionBottomBar(
+            HierarchicalTaskSelectionBottomBar(
                 checkedCount = checkedTaskIds.size,
                 allChecked = allChecked,
                 enabled = visibleTaskIds.isNotEmpty(),
@@ -472,20 +474,13 @@ private fun AnalysisBatchActions(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        FilledTonalButton(
+        IconButton(
             onClick = onAnalyzeAll,
-            enabled = canAnalyzeAll,
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+            enabled = canAnalyzeAll
         ) {
-            Text(
-                stringResource(R.string.analysis_all_items),
-                style = MaterialTheme.typography.labelMedium
-            )
-            Spacer(Modifier.width(4.dp))
             Icon(
                 Icons.AutoMirrored.Filled.ShowChart,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp)
+                contentDescription = stringResource(R.string.analysis_analyze_all)
             )
         }
         IconButton(
@@ -509,42 +504,6 @@ private fun AnalysisBatchActions(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun AnalysisSelectionBottomBar(
-    checkedCount: Int,
-    allChecked: Boolean,
-    enabled: Boolean,
-    onToggleAll: () -> Unit
-) {
-    BottomAppBar {
-        val toggleAllLabel = if (allChecked) {
-            stringResource(R.string.analysis_uncheck_all)
-        } else {
-            stringResource(R.string.analysis_check_all)
-        }
-        IconButton(onClick = onToggleAll, enabled = enabled) {
-            Icon(
-                imageVector = when {
-                    allChecked -> Icons.Filled.CheckBox
-                    checkedCount > 0 -> Icons.Filled.IndeterminateCheckBox
-                    else -> Icons.Filled.CheckBoxOutlineBlank
-                },
-                contentDescription = toggleAllLabel
-            )
-        }
-        Text(
-            text = toggleAllLabel,
-            style = MaterialTheme.typography.labelLarge
-        )
-        Spacer(Modifier.weight(1f))
-        Text(
-            text = stringResource(R.string.label_item_count_selected, checkedCount),
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(end = 16.dp)
-        )
     }
 }
 
@@ -629,16 +588,18 @@ private fun TaskAnalysisDetail(
     var editMode by rememberSaveable(request.taskIds) { mutableStateOf(false) }
     var selectingDestination by rememberSaveable(request.taskIds) { mutableStateOf(false) }
     var selectedEventIds by remember(request.taskIds) { mutableStateOf<Set<Long>>(emptySet()) }
-    val taskHasChildren = remember { androidx.compose.runtime.mutableStateMapOf<Long, Boolean>() }
-
-    LaunchedEffect(result) {
+    val selectableEventIds = remember(result) {
         result?.dayGroups
             ?.flatMap { it.entries }
-            ?.map { it.taskId }
-            ?.distinct()
-            ?.forEach { taskId ->
-                taskHasChildren[taskId] = viewModel.hasChildren(taskId)
-            }
+            ?.mapNotNull { entry -> entry.eventId.takeIf { it > 0L } }
+            ?.toSet()
+            .orEmpty()
+    }
+    val allEventsSelected = selectableEventIds.isNotEmpty() &&
+        selectedEventIds.containsAll(selectableEventIds)
+
+    LaunchedEffect(selectableEventIds) {
+        selectedEventIds = selectedEventIds.intersect(selectableEventIds)
     }
 
     BackHandler(enabled = selectingDestination) { selectingDestination = false }
@@ -670,10 +631,19 @@ private fun TaskAnalysisDetail(
             TaskAnalysisEditBottomBar(
                 editMode = editMode,
                 selectedCount = selectedEventIds.size,
+                allSelected = allEventsSelected,
+                selectionEnabled = selectableEventIds.isNotEmpty(),
                 onStartEditing = { editMode = true },
                 onCancelEditing = {
                     editMode = false
                     selectedEventIds = emptySet()
+                },
+                onToggleAll = {
+                    selectedEventIds = if (allEventsSelected) {
+                        emptySet()
+                    } else {
+                        selectableEventIds
+                    }
                 },
                 onApplyEditing = { selectingDestination = true }
             )
@@ -895,8 +865,7 @@ private fun TaskAnalysisDetail(
                             items = group.entries,
                             key = { "${group.dayStartMs}-${it.eventId}-${it.startMs}" }
                         ) { entry ->
-                            val editable = entry.eventId > 0L &&
-                                taskHasChildren[entry.taskId] == false
+                            val editable = entry.eventId > 0L
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -963,8 +932,11 @@ private fun TaskAnalysisDetail(
 private fun TaskAnalysisEditBottomBar(
     editMode: Boolean,
     selectedCount: Int,
+    allSelected: Boolean,
+    selectionEnabled: Boolean,
     onStartEditing: () -> Unit,
     onCancelEditing: () -> Unit,
+    onToggleAll: () -> Unit,
     onApplyEditing: () -> Unit
 ) {
     BottomAppBar {
@@ -975,20 +947,32 @@ private fun TaskAnalysisEditBottomBar(
                     contentDescription = stringResource(R.string.analysis_exit_edit_mode)
                 )
             }
-            IconButton(onClick = onApplyEditing, enabled = selectedCount > 0) {
+            IconButton(onClick = onToggleAll, enabled = selectionEnabled) {
                 Icon(
-                    Icons.Filled.Edit,
+                    imageVector = when {
+                        allSelected -> Icons.Filled.CheckBox
+                        selectedCount > 0 -> Icons.Filled.IndeterminateCheckBox
+                        else -> Icons.Filled.CheckBoxOutlineBlank
+                    },
                     contentDescription = stringResource(
-                        R.string.analysis_change_selected_records_task
+                        if (allSelected) {
+                            R.string.analysis_uncheck_all
+                        } else {
+                            R.string.analysis_check_all
+                        }
                     )
                 )
             }
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = stringResource(R.string.label_item_count_selected, selectedCount),
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(end = 16.dp)
-            )
+            if (selectedCount > 0) {
+                IconButton(onClick = onApplyEditing) {
+                    Icon(
+                        Icons.Filled.Edit,
+                        contentDescription = stringResource(
+                            R.string.analysis_change_selected_records_task
+                        )
+                    )
+                }
+            }
         } else {
             IconButton(onClick = onStartEditing) {
                 Icon(

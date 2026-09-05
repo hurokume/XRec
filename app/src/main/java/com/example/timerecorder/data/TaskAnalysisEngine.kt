@@ -276,7 +276,7 @@ object TaskAnalysisEngine {
             )
         }
 
-        val dayGroups = buildDayGroups(clippedEvents, range, request.timeZoneId)
+        val dayGroups = buildDayGroups(clippedEvents, request.timeZoneId)
         val heatCells = buildHeatCells(clippedEvents, range, request.timeZoneId)
         val totalMs = buckets.sumOf { it.totalMs }
         val completedThroughMs = min(request.nowMs, range.endMs)
@@ -392,31 +392,20 @@ object TaskAnalysisEngine {
 
     private fun buildDayGroups(
         events: List<SelectedEvent>,
-        range: TaskAnalysisRange,
         timeZoneId: String
     ): List<TaskAnalysisDayGroup> {
         val timeZone = TimeZone.getTimeZone(timeZoneId)
         val groups = linkedMapOf<Long, MutableList<TaskAnalysisEntry>>()
         events.forEach { selected ->
-            var cursor = selected.startMs
-            while (cursor < selected.endMs) {
-                val dayStart = startOfDay(cursor, timeZone)
-                val nextDay = Calendar.getInstance(timeZone).apply {
-                    timeInMillis = dayStart
-                    add(Calendar.DAY_OF_MONTH, 1)
-                }.timeInMillis
-                val segmentEnd = min(selected.endMs, nextDay)
-                groups.getOrPut(dayStart) { mutableListOf() } += TaskAnalysisEntry(
-                    eventId = selected.source.eventId,
-                    taskId = selected.source.taskId,
-                    taskLabel = selected.detailLabel,
-                    startMs = max(cursor, range.startMs),
-                    endMs = min(segmentEnd, range.endMs),
-                    durationMs = (min(segmentEnd, range.endMs) - max(cursor, range.startMs))
-                        .coerceAtLeast(0L)
-                )
-                cursor = segmentEnd
-            }
+            val dayStart = startOfDay(selected.startMs, timeZone)
+            groups.getOrPut(dayStart) { mutableListOf() } += TaskAnalysisEntry(
+                eventId = selected.source.eventId,
+                taskId = selected.source.taskId,
+                taskLabel = selected.detailLabel,
+                startMs = selected.startMs,
+                endMs = selected.endMs,
+                durationMs = (selected.endMs - selected.startMs).coerceAtLeast(0L)
+            )
         }
         return groups.entries
             .sortedByDescending { it.key }

@@ -41,8 +41,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.timerecorder.NameSort
 import com.example.timerecorder.R
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -50,6 +50,7 @@ import kotlinx.coroutines.launch
 fun AddTaskScreen(
     onBack: () -> Unit,
     viewModel: TaskViewModel,
+    initialEventId: Long? = null,
     initialTaskId: Long? = null,
     initialStartMs: Long? = null,
     initialEndMs: Long? = null
@@ -58,37 +59,20 @@ fun AddTaskScreen(
     val scope = rememberCoroutineScope()
 
     val parents by viewModel.parents.collectAsStateWithLifecycle()
+    val isEditing = initialEventId != null
 
     var selectedParentId by rememberSaveable { mutableStateOf<Long?>(null) }
     var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var selectedSubtaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var editedTaskId by rememberSaveable { mutableStateOf(initialTaskId) }
+    var editedTaskPath by rememberSaveable { mutableStateOf("") }
+    var showTaskSelection by rememberSaveable { mutableStateOf(false) }
 
-    // initialTaskId が来たら初期選択に反映（子 or サブタスクを自動選択）
-    LaunchedEffect(initialTaskId, parents) {
+    // 編集対象の現在のタスク名は初回だけ解決し、選択画面から戻った値を上書きしない。
+    LaunchedEffect(initialTaskId) {
         val target = initialTaskId ?: return@LaunchedEffect
-
-        // 子タスク一致
-        parents.firstOrNull { g -> g.children.any { it.id == target } }?.let { g ->
-            selectedParentId = g.parent.id
-            selectedTaskId = target
-            selectedSubtaskId = null
-            return@LaunchedEffect
-        }
-
-        // サブタスク一致
-        outer@ for (g in parents) {
-            for (child in g.children) {
-                if (viewModel.hasChildren(child.id)) {
-                    val subs = viewModel.children(child.id).first()
-                    if (subs.any { it.id == target }) {
-                        selectedParentId = g.parent.id
-                        selectedTaskId = child.id
-                        selectedSubtaskId = target
-                        break@outer
-                    }
-                }
-            }
-        }
+        editedTaskId = target
+        editedTaskPath = viewModel.taskPathLabel(target).orEmpty()
     }
 
     // 選択された親配下の子タスク
@@ -153,10 +137,33 @@ fun AddTaskScreen(
     var pendingStart by rememberSaveable { mutableLongStateOf(0L) }
     var pendingEnd by rememberSaveable { mutableLongStateOf(0L) }
 
+    if (showTaskSelection) {
+        ReplacementTaskSelectionScreen(
+            viewModel = viewModel,
+            parents = parents,
+            excludedTaskIds = setOf(Long.MIN_VALUE),
+            nameSort = NameSort.None,
+            onBack = { showTaskSelection = false },
+            onPick = { taskId, path ->
+                editedTaskId = taskId
+                editedTaskPath = path
+                showTaskSelection = false
+            }
+        )
+        return
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.record_add_title)) },
+                title = {
+                    Text(
+                        stringResource(
+                            if (isEditing) R.string.record_edit_title
+                            else R.string.record_add_title
+                        )
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -176,56 +183,69 @@ fun AddTaskScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(
-                stringResource(R.string.record_add_description),
+                stringResource(
+                    if (isEditing) R.string.record_edit_description
+                    else R.string.record_add_description
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            // 親タスク
-            DropdownField(
-                label = stringResource(R.string.record_parent_task),
-                current = parents.firstOrNull { it.parent.id == selectedParentId }?.parent?.name
-                    ?: stringResource(R.string.record_select_prompt),
-                enabled = parents.isNotEmpty(),
-                items = parents.map { it.parent.id to it.parent.name },
-                onSelect = { id ->
-                    selectedParentId = id
-                    selectedTaskId = null
-                    selectedSubtaskId = null
-                }
-            )
-
-            // タスク（子）
-            DropdownField(
-                label = stringResource(R.string.record_task),
-                current = tasksInParent.firstOrNull { it.id == selectedTaskId }?.name
-                    ?: if (selectedParentId == null) {
-                        stringResource(R.string.record_parent_not_selected)
-                    } else {
+            if (isEditing) {
+                PickerField(
+                    label = stringResource(R.string.record_task),
+                    valueText = editedTaskPath.ifBlank {
                         stringResource(R.string.record_select_prompt)
                     },
-                enabled = selectedParentId != null && tasksInParent.isNotEmpty(),
-                items = tasksInParent.map { it.id to it.name },
-                onSelect = { id ->
-                    selectedTaskId = id
-                    selectedSubtaskId = null
-                }
-            )
+                    onClick = { showTaskSelection = true }
+                )
+            } else {
+                // 親タスク
+                DropdownField(
+                    label = stringResource(R.string.record_parent_task),
+                    current = parents.firstOrNull { it.parent.id == selectedParentId }?.parent?.name
+                        ?: stringResource(R.string.record_select_prompt),
+                    enabled = parents.isNotEmpty(),
+                    items = parents.map { it.parent.id to it.parent.name },
+                    onSelect = { id ->
+                        selectedParentId = id
+                        selectedTaskId = null
+                        selectedSubtaskId = null
+                    }
+                )
 
-            // サブタスク（任意）
-            DropdownField(
-                label = stringResource(R.string.record_optional_subtask),
-                current = when {
-                    selectedTaskId == null -> stringResource(R.string.record_task_not_selected)
-                    subtasks.isEmpty() -> stringResource(R.string.record_no_subtasks)
-                    selectedSubtaskId == null -> stringResource(R.string.record_not_selected)
-                    else -> subtasks.firstOrNull { it.id == selectedSubtaskId }?.name
-                        ?: stringResource(R.string.record_not_selected)
-                },
-                enabled = selectedTaskId != null && subtasks.isNotEmpty(),
-                items = subtasks.map { it.id to it.name },
-                onSelect = { id -> selectedSubtaskId = id }
-            )
+                // タスク（子）
+                DropdownField(
+                    label = stringResource(R.string.record_task),
+                    current = tasksInParent.firstOrNull { it.id == selectedTaskId }?.name
+                        ?: if (selectedParentId == null) {
+                            stringResource(R.string.record_parent_not_selected)
+                        } else {
+                            stringResource(R.string.record_select_prompt)
+                        },
+                    enabled = selectedParentId != null && tasksInParent.isNotEmpty(),
+                    items = tasksInParent.map { it.id to it.name },
+                    onSelect = { id ->
+                        selectedTaskId = id
+                        selectedSubtaskId = null
+                    }
+                )
+
+                // サブタスク（任意）
+                DropdownField(
+                    label = stringResource(R.string.record_optional_subtask),
+                    current = when {
+                        selectedTaskId == null -> stringResource(R.string.record_task_not_selected)
+                        subtasks.isEmpty() -> stringResource(R.string.record_no_subtasks)
+                        selectedSubtaskId == null -> stringResource(R.string.record_not_selected)
+                        else -> subtasks.firstOrNull { it.id == selectedSubtaskId }?.name
+                            ?: stringResource(R.string.record_not_selected)
+                    },
+                    enabled = selectedTaskId != null && subtasks.isNotEmpty(),
+                    items = subtasks.map { it.id to it.name },
+                    onSelect = { id -> selectedSubtaskId = id }
+                )
+            }
 
             // 開始日時
             TimeField(
@@ -258,10 +278,14 @@ fun AddTaskScreen(
                     Text(stringResource(R.string.action_cancel))
                 }
                 FilledTonalButton(onClick = {
-                    val baseTaskId = selectedTaskId
-                    val finalTaskId = selectedSubtaskId ?: baseTaskId
+                    val baseTaskId = if (isEditing) editedTaskId else selectedTaskId
+                    val finalTaskId = if (isEditing) {
+                        editedTaskId
+                    } else {
+                        selectedSubtaskId ?: baseTaskId
+                    }
                     when {
-                        selectedParentId == null -> Toast.makeText(
+                        !isEditing && selectedParentId == null -> Toast.makeText(
                             ctx,
                             ctx.getString(R.string.record_select_parent_error),
                             Toast.LENGTH_SHORT
@@ -280,7 +304,15 @@ fun AddTaskScreen(
                         ).show()
 
                         else -> {
-                            scope.launch {
+                            if (isEditing) {
+                                viewModel.editEventAbsorbNeighbors(
+                                    eventId = requireNotNull(initialEventId),
+                                    newTaskId = requireNotNull(finalTaskId),
+                                    newStartMs = startMs,
+                                    newEndMs = endMs
+                                )
+                                onBack()
+                            } else scope.launch {
                                 // 既存と重なる場合は上書き確認
                                 val overlap = viewModel.hasOverlap(startMs, endMs)
                                 if (overlap) {
@@ -379,18 +411,32 @@ private fun DropdownField(
 }
 
 @Composable
+private fun PickerField(
+    label: String,
+    valueText: String,
+    onClick: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = valueText,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clickable(onClick = onClick)
+        )
+    }
+}
+
+@Composable
 private fun TimeField(
     label: String,
     valueText: String,
     onClick: () -> Unit
 ) {
-    OutlinedTextField(
-        value = valueText,
-        onValueChange = {},
-        readOnly = true,
-        label = { Text(label) },
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-    )
+    PickerField(label = label, valueText = valueText, onClick = onClick)
 }

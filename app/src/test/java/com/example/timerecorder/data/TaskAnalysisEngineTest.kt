@@ -161,7 +161,7 @@ class TaskAnalysisEngineTest {
     }
 
     @Test
-    fun recordsCrossingMidnightAreSplitIntoTwoDayGroups() {
+    fun recordsCrossingMidnightRemainInStartingDayGroup() {
         val task = AnalysisCategoryNode(2L, "開発")
         val start = utcMillis(2026, 8, 14, 23, 30)
         val result = TaskAnalysisEngine.analyze(
@@ -171,9 +171,14 @@ class TaskAnalysisEngineTest {
             request = request(2L, "開発", TaskAnalysisPeriod.Week, start)
         )
 
-        assertEquals(2, result.dayGroups.size)
-        assertEquals(listOf(hour / 2, hour / 2), result.dayGroups.map { it.totalMs })
-        assertTrue(result.dayGroups.all { it.entries.single().taskLabel == "開発" })
+        val group = result.dayGroups.single()
+        val entry = group.entries.single()
+        assertEquals(utcMillis(2026, 8, 14), group.dayStartMs)
+        assertEquals(hour, group.totalMs)
+        assertEquals("開発", entry.taskLabel)
+        assertEquals(start, entry.startMs)
+        assertEquals(start + hour, entry.endMs)
+        assertEquals(hour, entry.durationMs)
     }
 
     @Test

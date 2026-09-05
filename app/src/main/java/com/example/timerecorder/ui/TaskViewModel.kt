@@ -226,6 +226,7 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     suspend fun taskTreeIds(taskId: Long): Set<Long> = repo.getTaskTreeIds(taskId).toSet()
+    suspend fun taskPathLabel(taskId: Long): String? = repo.getTaskPathLabel(taskId)
     suspend fun visibleTaskIds(): Set<Long> = repo.getVisibleTaskIds()
 
     fun deleteTask(
@@ -414,7 +415,7 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     suspend fun exportTasksJson(): String = repo.exportTasksJson()
-    fun importTasksFromJson(json: String, replaceAll: Boolean) = viewModelScope.launch {
+    suspend fun importTasksFromJson(json: String, replaceAll: Boolean) {
         repo.importTasksJson(json, replaceAll)
     }
 

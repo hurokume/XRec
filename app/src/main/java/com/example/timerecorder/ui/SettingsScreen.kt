@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -68,6 +69,7 @@ fun SettingsScreen(
     dailyPlans: DailyPlans,
     taskOptions: List<DailyPlanTaskOption>,
     onDailyPlansChange: (DailyPlans) -> Unit,
+    onManageDataClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -112,6 +114,39 @@ fun SettingsScreen(
             taskOptions = taskOptions,
             onDailyPlansChange = onDailyPlansChange
         )
+
+        Text(
+            stringResource(R.string.settings_data_title),
+            style = MaterialTheme.typography.titleMedium
+        )
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onManageDataClick)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.manage_data_title),
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        stringResource(R.string.settings_manage_data_description),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Icon(
+                    Icons.Filled.ChevronRight,
+                    contentDescription = stringResource(R.string.settings_open_manage_data)
+                )
+            }
+        }
     }
 }
 

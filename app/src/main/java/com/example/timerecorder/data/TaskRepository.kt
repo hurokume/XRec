@@ -69,6 +69,18 @@ class TaskRepository(
     fun observeChildren(parentId: Long): Flow<List<TaskEntity>> = taskDao.observeChildren(parentId)
     suspend fun hasChildren(taskId: Long): Boolean = taskDao.countChildren(taskId) > 0
     suspend fun getVisibleTaskIds(): Set<Long> = taskDao.getVisibleTaskIds().toSet()
+    suspend fun getTaskPathLabel(taskId: Long): String? {
+        val names = mutableListOf<String>()
+        val visited = mutableSetOf<Long>()
+        var current = taskDao.getTaskById(taskId)
+        while (current != null && visited.add(current.id)) {
+            names += current.name
+            current = current.parentId?.let { taskDao.getTaskById(it) }
+        }
+        return names.takeIf { it.isNotEmpty() }
+            ?.asReversed()
+            ?.joinToString(" / ")
+    }
     fun observeActive(): Flow<ActiveWithTask?> = taskDao.observeActiveWithTask()
 
     // ---------------- 操作系（短時間統合スイッチ） ----------------

@@ -33,7 +33,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -48,6 +47,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -94,7 +94,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -136,7 +135,9 @@ import com.example.timerecorder.ui.HistoryItemUi
 import com.example.timerecorder.ui.AdvancedAnalysisScreen
 import com.example.timerecorder.ui.AddTaskScreen
 import com.example.timerecorder.ui.DailyPlanTaskOption
+import com.example.timerecorder.ui.ManageDataScreen
 import com.example.timerecorder.ui.SettingsScreen
+import com.example.timerecorder.ui.StatsFilterSelectionScreen
 import com.example.timerecorder.ui.TaskDeletionDialog
 import com.example.timerecorder.ui.TaskDeletionUiState
 import com.example.timerecorder.ui.TaskAnalysisScreen
@@ -151,11 +152,13 @@ import com.example.timerecorder.data.DailyPlans
 import com.example.timerecorder.data.DailyPlansCodec
 import com.example.timerecorder.data.TaskDeletionMode
 import com.example.timerecorder.ui.theme.TimeRecorderTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -166,7 +169,7 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /** 画面モード（メイン/履歴） */
-private enum class AppScreen { Main, History, Analysis, WeeklyReport, Settings }
+private enum class AppScreen { Main, History, Analysis, WeeklyReport, Settings, ManageData }
 
 /** 名前ソートモード */
 enum class NameSort { None, Asc, Desc }
@@ -211,15 +214,27 @@ class MainActivity : ComponentActivity() {
                             AppRoot(
                                 taskVm = taskViewModel,
                                 onNavigateAddTask = { navController.navigate(Routes.AddTask) },
-                                onNavigateEditTask = { id, s, e ->
-                                    navController.navigate("${Routes.AddTask}?initialTaskId=$id&initialStartMs=$s&initialEndMs=$e")
+                                onNavigateEditTask = { eventId, taskId, startMs, endMs ->
+                                    navController.navigate(
+                                        "${Routes.AddTask}?initialEventId=$eventId" +
+                                            "&initialTaskId=$taskId" +
+                                            "&initialStartMs=$startMs" +
+                                            "&initialEndMs=$endMs"
+                                    )
                                 }
                             )
                         }
 
                         composable(
-                            route = "${Routes.AddTask}?initialTaskId={initialTaskId}&initialStartMs={initialStartMs}&initialEndMs={initialEndMs}",
+                            route = "${Routes.AddTask}?initialEventId={initialEventId}" +
+                                "&initialTaskId={initialTaskId}" +
+                                "&initialStartMs={initialStartMs}" +
+                                "&initialEndMs={initialEndMs}",
                             arguments = listOf(
+                                navArgument("initialEventId") {
+                                    type = NavType.LongType
+                                    defaultValue = -1L
+                                },
                                 navArgument("initialTaskId") {
                                     type = NavType.LongType
                                     defaultValue = -1L
@@ -234,6 +249,8 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         ) { backStackEntry ->
+                            val initEvent = backStackEntry.arguments?.getLong("initialEventId")
+                                ?.takeIf { it > 0L }
                             val initTask = backStackEntry.arguments?.getLong("initialTaskId")
                                 ?.takeIf { it >= 0L }
                             val initStart = backStackEntry.arguments?.getLong("initialStartMs")
@@ -243,6 +260,7 @@ class MainActivity : ComponentActivity() {
                             AddTaskScreen(
                                 viewModel = taskViewModel,
                                 onBack = { navController.popBackStack() },
+                                initialEventId = initEvent,
                                 initialTaskId = initTask,
                                 initialStartMs = initStart,
                                 initialEndMs = initEnd
@@ -264,7 +282,7 @@ class MainActivity : ComponentActivity() {
 fun AppRoot(
     taskVm: TaskViewModel,
     onNavigateAddTask: () -> Unit,
-    onNavigateEditTask: (Long, Long, Long) -> Unit
+    onNavigateEditTask: (Long, Long, Long, Long) -> Unit
 ) {
 
     val snackbar = remember { SnackbarHostState() }
@@ -365,7 +383,6 @@ fun AppRoot(
     var pendingDeleteEventId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     var showImportTsvDialog by rememberSaveable { mutableStateOf(false) }
-    var importTsvText by rememberSaveable { mutableStateOf("") }
     var clearExistingEvents by rememberSaveable { mutableStateOf(false) }
     var createMissing by rememberSaveable { mutableStateOf(true) }
 
@@ -375,9 +392,8 @@ fun AppRoot(
 
     val activeUi by taskVm.activeUi.collectAsStateWithLifecycle()
 
-    // フィルターダイアログ表示フラグ
-    var showStatsFilterDialog by remember { mutableStateOf(false) }
-    var statsIncludedLeafIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var showStatsFilterScreen by rememberSaveable { mutableStateOf(false) }
+    var statsIncludedTaskIds by remember { mutableStateOf<Set<Long>?>(null) }
 
     var statsAggMode by rememberSaveable { mutableStateOf(StatsAggMode.Leaf) }
 
@@ -394,16 +410,15 @@ fun AppRoot(
     LaunchedEffect(Unit) {
         val sp = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val csv = sp.getString(KEY_STATS_INCLUDED, null)
-        statsIncludedLeafIds = csv
+        statsIncludedTaskIds = csv
             ?.split(',')
             ?.mapNotNull { it.toLongOrNull() }
             ?.toSet()
-            ?: emptySet()
     }
 
     // 保存ヘルパ
     fun saveStatsFilter(ids: Set<Long>) {
-        statsIncludedLeafIds = ids
+        statsIncludedTaskIds = ids
         val sp = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         sp.edit().putString(KEY_STATS_INCLUDED, ids.joinToString(",")).apply()
     }
@@ -528,8 +543,58 @@ fun AppRoot(
 
     // Import ダイアログの状態
     var showImportDialog by rememberSaveable { mutableStateOf(false) }
-    var importText by rememberSaveable { mutableStateOf("") }
     var replaceAll by rememberSaveable { mutableStateOf(false) }
+
+    val importJsonFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val json = readImportFile(ctx, uri)
+                    taskVm.importTasksFromJson(json, replaceAll)
+                    replaceAll = false
+                    showImportDialog = false
+                    snackbar.showSnackbar(ctx.getString(R.string.import_complete))
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        ctx,
+                        ctx.getString(R.string.import_failed, e.message.orEmpty()),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    val importTsvFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val tsv = readImportFile(ctx, uri)
+                    val count = taskVm.importEventsTsv(
+                        tsv = tsv,
+                        clearExisting = clearExistingEvents,
+                        createMissing = createMissing
+                    )
+                    clearExistingEvents = false
+                    createMissing = true
+                    showImportTsvDialog = false
+                    taskVm.reloadHistory()
+                    timelineRefreshTick = System.currentTimeMillis()
+                    snackbar.showSnackbar(ctx.getString(R.string.import_tsv_complete, count))
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        ctx,
+                        ctx.getString(R.string.import_failed, e.message.orEmpty()),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
 
     // 現在表示中のページインデックス（BottomBar の表示切替に利用）
     var currentPage by remember { mutableIntStateOf(pagerState.currentPage) }
@@ -560,11 +625,17 @@ fun AppRoot(
     // 画面モード（メイン / 履歴）
     var screen by remember { mutableStateOf(AppScreen.Main) }
 
-    // Home 以外では、システムの戻る操作で Activity を終了せず Home に戻す
-    BackHandler(enabled = screen != AppScreen.Main) {
+    // Manage Data は Settings の子画面として一段ずつ戻る。
+    BackHandler(enabled = screen == AppScreen.ManageData) {
+        screen = AppScreen.Settings
+    }
+    // その他の Home 以外の画面では、Activity を終了せず Home に戻す。
+    BackHandler(enabled = screen != AppScreen.Main && screen != AppScreen.ManageData) {
         screen = AppScreen.Main
     }
-
+    BackHandler(enabled = screen == AppScreen.Main && showStatsFilterScreen) {
+        showStatsFilterScreen = false
+    }
     // 並び替えモード（タスクの上下入れ替え）
     var sortMode by rememberSaveable { mutableStateOf(false) }
 
@@ -593,51 +664,6 @@ fun AppRoot(
 
                                 "weekly_report" -> screen = AppScreen.WeeklyReport
 
-                                "export_tsv" -> {
-                                    showExportTsvDialog = true
-                                }
-
-                                "import_tsv" -> {
-                                    showImportTsvDialog = true
-                                }
-
-                                "export" -> {
-                                    // タスク定義を JSON で共有
-                                    scope.launch {
-                                        try {
-                                            val text = taskVm.exportTasksJson()
-                                            val send = Intent(Intent.ACTION_SEND).apply {
-                                                type = "text/plain"
-                                                putExtra(Intent.EXTRA_TEXT, text)
-                                                putExtra(
-                                                    Intent.EXTRA_SUBJECT,
-                                                    ctx.getString(R.string.export_tasks_subject)
-                                                )
-                                            }
-                                            ctx.startActivity(
-                                                Intent.createChooser(
-                                                    send,
-                                                    ctx.getString(R.string.export_tasks_chooser)
-                                                )
-                                            )
-                                        } catch (e: Exception) {
-                                            Toast.makeText(
-                                                ctx,
-                                                ctx.getString(
-                                                    R.string.export_failed,
-                                                    e.message.orEmpty()
-                                                ),
-                                                Toast.LENGTH_LONG
-                                            ).show()
-                                        }
-                                    }
-                                }
-
-                                "import" -> {
-                                    // JSON テキスト貼り付けで Import するためのダイアログ
-                                    showImportDialog = true
-                                }
-
                                 "settings" -> screen = AppScreen.Settings
 
                                 "help" -> { /* ヘルプ（今後実装） */
@@ -657,7 +683,18 @@ fun AppRoot(
                     snackbarHost = { SnackbarHost(hostState = snackbar) },
                     topBar = {
                         TopAppBar(
-                            navigationIcon = {},
+                            navigationIcon = {
+                                if (screen == AppScreen.ManageData) {
+                                    IconButton(onClick = { screen = AppScreen.Settings }) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.ArrowBack,
+                                            contentDescription = stringResource(
+                                                R.string.action_back
+                                            )
+                                        )
+                                    }
+                                }
+                            },
                             title = {
                                 val showTimelineTitle =
                                     screen == AppScreen.Main &&
@@ -667,7 +704,9 @@ fun AppRoot(
                                             selectedTimelineEndMs > selectedTimelineStartMs
 
                                 val titleText =
-                                    if (showTimelineTitle) {
+                                    if (showStatsFilterScreen) {
+                                        stringResource(R.string.stats_filter_title)
+                                    } else if (showTimelineTitle) {
                                         // ① 選択中ブロックを最優先（タスク / サブタスク + HH:MM）
                                         val core = selectedTimelineTitleCore
                                             ?: stringResource(R.string.main_selected_item)
@@ -695,6 +734,9 @@ fun AppRoot(
                                                 R.string.weekly_report_title
                                             )
                                             AppScreen.Settings -> stringResource(R.string.drawer_settings)
+                                            AppScreen.ManageData -> stringResource(
+                                                R.string.manage_data_title
+                                            )
                                         }
                                     }
 
@@ -706,38 +748,42 @@ fun AppRoot(
                                 )
                             },
                             actions = {
-                                if (activeUi != null && showStopButton) {
-                                    IconButton(onClick = { taskVm.onStopPressed() }) {
-                                        Icon(
-                                            Icons.Filled.StopCircle,
-                                            contentDescription = stringResource(
-                                                R.string.main_stop_active_task
+                                if (!showStatsFilterScreen) {
+                                    if (activeUi != null && showStopButton) {
+                                        IconButton(onClick = { taskVm.onStopPressed() }) {
+                                            Icon(
+                                                Icons.Filled.StopCircle,
+                                                contentDescription = stringResource(
+                                                    R.string.main_stop_active_task
+                                                )
                                             )
-                                        )
+                                        }
                                     }
-                                }
-                                if (screen == AppScreen.Main && sortMode) {
-                                    IconButton(onClick = { sortMode = false }) {
-                                        Icon(
-                                            Icons.Filled.Close,
-                                            contentDescription = stringResource(
-                                                R.string.main_exit_sort_mode
+                                    if (screen == AppScreen.Main && sortMode) {
+                                        IconButton(onClick = { sortMode = false }) {
+                                            Icon(
+                                                Icons.Filled.Close,
+                                                contentDescription = stringResource(
+                                                    R.string.main_exit_sort_mode
+                                                )
                                             )
-                                        )
-                                    }
-                                } else {
-                                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Menu,
-                                            contentDescription = stringResource(R.string.drawer_title)
-                                        )
+                                        }
+                                    } else {
+                                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Menu,
+                                                contentDescription = stringResource(
+                                                    R.string.drawer_title
+                                                )
+                                            )
+                                        }
                                     }
                                 }
                             }
                         )
                     },
                     bottomBar = {
-                        if (screen == AppScreen.Main) {
+                        if (screen == AppScreen.Main && !showStatsFilterScreen) {
                             // 左ページでは選択時のみ、他ページは常に表示
                             val showBar = when (currentPage) {
                                 0 -> selectedTimelineTaskId != null
@@ -799,18 +845,36 @@ fun AppRoot(
                                         ).show()
                                     },
                                     onActionB = {
-                                        val id = selectedTimelineTaskId
-                                        if (id != null && selectedTimelineStartMs >= 0 && selectedTimelineEndMs >= 0) {
+                                        val eventId = selectedTimelineEventId
+                                        val taskId = selectedTimelineTaskId
+                                        val startMs = selectedTimelineStartMs
+                                        val endMs = selectedTimelineEndMs
+                                        if (
+                                            eventId != null && eventId > 0L &&
+                                            taskId != null &&
+                                            startMs >= 0L && endMs > startMs
+                                        ) {
                                             onNavigateEditTask(
-                                                id,
-                                                selectedTimelineStartMs,
-                                                selectedTimelineEndMs
+                                                eventId,
+                                                taskId,
+                                                startMs,
+                                                endMs
                                             )
+                                            selectedTimelineEventId = null
+                                            selectedTimelineTaskId = null
+                                            selectedTimelineStartMs = -1L
+                                            selectedTimelineEndMs = -1L
+                                        } else {
+                                            scope.launch {
+                                                snackbar.showSnackbar(
+                                                    ctx.getString(R.string.main_edit_unavailable)
+                                                )
+                                            }
                                         }
                                     },
                                     onLeftAction = { /* 予備 */ },
                                     onSortAction = { sortMode = true },
-                                    onRightAction = { showStatsFilterDialog = true },
+                                    onRightAction = { showStatsFilterScreen = true },
                                     onDeleteAction = {
                                         val eid = selectedTimelineEventId
                                         val s = selectedTimelineStartMs
@@ -849,7 +913,7 @@ fun AppRoot(
                                     },
                                     timelineSpanText = spanText,
                                     onFilterAction = {
-                                        if (currentPage == 2) showStatsFilterDialog = true
+                                        if (currentPage == 2) showStatsFilterScreen = true
                                     },
                                     onAggCycleAction = { if (currentPage == 2) cycleStatsAgg() },
                                     aggMode = statsAggMode
@@ -860,41 +924,53 @@ fun AppRoot(
                 ) { innerPadding ->
                     // ページ本体
                     when (screen) {
-                        AppScreen.Main -> MainPager(
-                            modifier = Modifier.padding(innerPadding),
-                            pagerState = pagerState,
-                            taskVm = taskVm,
-                            sortMode = sortMode,
-                            onNavigateAddTask = onNavigateAddTask,
-                            selectedTimelineTaskId = selectedTimelineTaskId,
-                            selectedTimelineEventId = selectedTimelineEventId,
-                            onTimelineTaskSelected = { tid ->
-                                selectedTimelineTaskId = tid
-                                if (tid == null) {
-                                    selectedTimelineEventId = null
-                                    selectedTimelineStartMs = -1L
-                                    selectedTimelineEndMs = -1L
-                                }
-                            },
-                            onTimelineEventSelected = { eid ->                                  // ★ 追加
-                                selectedTimelineEventId = eid
-                                if (eid == null) {
-                                    selectedTimelineTaskId = null
-                                    selectedTimelineStartMs = -1L
-                                    selectedTimelineEndMs = -1L
-                                }
-                            },
-                            onTimelineBlockSelected = { eid, tid, s, e ->
-                                selectedTimelineEventId = eid
-                                selectedTimelineTaskId = tid
-                                selectedTimelineStartMs = s
-                                selectedTimelineEndMs = e
-                            },
-                            nameSort = nameSort,
-                            timelineRefreshTick = timelineRefreshTick,
-                            statsIncludedLeafIds = statsIncludedLeafIds,
-                            aggMode = statsAggMode
-                        )
+                        AppScreen.Main -> {
+                            if (showStatsFilterScreen) {
+                                StatsFilterSelectionScreen(
+                                    modifier = Modifier.padding(innerPadding),
+                                    viewModel = taskVm,
+                                    selectedTaskIds = statsIncludedTaskIds,
+                                    onSelectionChange = ::saveStatsFilter,
+                                    onBack = { showStatsFilterScreen = false }
+                                )
+                            } else {
+                                MainPager(
+                                    modifier = Modifier.padding(innerPadding),
+                                    pagerState = pagerState,
+                                    taskVm = taskVm,
+                                    sortMode = sortMode,
+                                    onNavigateAddTask = onNavigateAddTask,
+                                    selectedTimelineTaskId = selectedTimelineTaskId,
+                                    selectedTimelineEventId = selectedTimelineEventId,
+                                    onTimelineTaskSelected = { tid ->
+                                        selectedTimelineTaskId = tid
+                                        if (tid == null) {
+                                            selectedTimelineEventId = null
+                                            selectedTimelineStartMs = -1L
+                                            selectedTimelineEndMs = -1L
+                                        }
+                                    },
+                                    onTimelineEventSelected = { eid ->
+                                        selectedTimelineEventId = eid
+                                        if (eid == null) {
+                                            selectedTimelineTaskId = null
+                                            selectedTimelineStartMs = -1L
+                                            selectedTimelineEndMs = -1L
+                                        }
+                                    },
+                                    onTimelineBlockSelected = { eid, tid, s, e ->
+                                        selectedTimelineEventId = eid
+                                        selectedTimelineTaskId = tid
+                                        selectedTimelineStartMs = s
+                                        selectedTimelineEndMs = e
+                                    },
+                                    nameSort = nameSort,
+                                    timelineRefreshTick = timelineRefreshTick,
+                                    statsIncludedTaskIds = statsIncludedTaskIds,
+                                    aggMode = statsAggMode
+                                )
+                            }
+                        }
 
                         AppScreen.History -> HistoryScreen(
                             modifier = Modifier
@@ -927,7 +1003,47 @@ fun AppRoot(
                             onShowStopButtonChange = ::updateShowStopButton,
                             dailyPlans = dailyPlans,
                             taskOptions = dailyPlanTaskOptions,
-                            onDailyPlansChange = ::updateDailyPlans
+                            onDailyPlansChange = ::updateDailyPlans,
+                            onManageDataClick = { screen = AppScreen.ManageData }
+                        )
+
+                        AppScreen.ManageData -> ManageDataScreen(
+                            modifier = Modifier
+                                .padding(innerPadding)
+                                .fillMaxSize(),
+                            onExportTsv = { showExportTsvDialog = true },
+                            onImportTsv = { showImportTsvDialog = true },
+                            onExportJson = {
+                                scope.launch {
+                                    try {
+                                        val text = taskVm.exportTasksJson()
+                                        val send = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, text)
+                                            putExtra(
+                                                Intent.EXTRA_SUBJECT,
+                                                ctx.getString(R.string.export_tasks_subject)
+                                            )
+                                        }
+                                        ctx.startActivity(
+                                            Intent.createChooser(
+                                                send,
+                                                ctx.getString(R.string.export_tasks_chooser)
+                                            )
+                                        )
+                                    } catch (e: Exception) {
+                                        Toast.makeText(
+                                            ctx,
+                                            ctx.getString(
+                                                R.string.export_failed,
+                                                e.message.orEmpty()
+                                            ),
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                }
+                            },
+                            onImportJson = { showImportDialog = true }
                         )
                     }
 
@@ -943,20 +1059,6 @@ fun AppRoot(
                                         style = MaterialTheme.typography.bodySmall
                                     )
                                     Spacer(Modifier.height(8.dp))
-                                    // JSON 入力欄
-                                    OutlinedTextField(
-                                        value = importText,
-                                        onValueChange = { importText = it },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(160.dp),
-                                        placeholder = {
-                                            Text(
-                                                stringResource(R.string.import_json_placeholder)
-                                            )
-                                        }
-                                    )
-                                    Spacer(Modifier.height(8.dp))
                                     // 既存を全削除して置換するかどうか
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Checkbox(
@@ -969,32 +1071,10 @@ fun AppRoot(
                             },
                             confirmButton = {
                                 TextButton(onClick = {
-                                    // Import 実行
-                                    scope.launch {
-                                        try {
-                                            taskVm.importTasksFromJson(
-                                                importText,
-                                                replaceAll
-                                            )
-                                            // 後片付け
-                                            importText = ""
-                                            replaceAll = false
-                                            showImportDialog = false
-                                            snackbar.showSnackbar(
-                                                ctx.getString(R.string.import_complete)
-                                            )
-                                        } catch (e: Exception) {
-                                            Toast.makeText(
-                                                ctx,
-                                                ctx.getString(
-                                                    R.string.import_failed,
-                                                    e.message.orEmpty()
-                                                ),
-                                                Toast.LENGTH_LONG
-                                            ).show()
-                                        }
-                                    }
-                                }) { Text(stringResource(R.string.action_execute)) }
+                                    importJsonFileLauncher.launch(
+                                        arrayOf("application/json", "text/json", "text/plain")
+                                    )
+                                }) { Text(stringResource(R.string.import_select_file)) }
                             },
                             dismissButton = {
                                 TextButton(onClick = { showImportDialog = false }) {
@@ -1014,19 +1094,6 @@ fun AppRoot(
                                         style = MaterialTheme.typography.bodySmall
                                     )
                                     Spacer(Modifier.height(8.dp))
-                                    OutlinedTextField(
-                                        value = importTsvText,
-                                        onValueChange = { importTsvText = it },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(160.dp),
-                                        placeholder = {
-                                            Text(
-                                                stringResource(R.string.import_tsv_placeholder)
-                                            )
-                                        }
-                                    )
-                                    Spacer(Modifier.height(8.dp))
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Checkbox(
                                             checked = clearExistingEvents,
@@ -1043,30 +1110,14 @@ fun AppRoot(
                             },
                             confirmButton = {
                                 TextButton(onClick = {
-                                    scope.launch {
-                                        try {
-                                            val count = taskVm.importEventsTsv(
-                                                tsv = importTsvText,
-                                                clearExisting = clearExistingEvents,
-                                                createMissing = createMissing
-                                            )
-                                            showImportTsvDialog = false
-                                            importTsvText = ""
-                                            snackbar.showSnackbar(
-                                                ctx.getString(R.string.import_tsv_complete, count)
-                                            )
-                                        } catch (e: Exception) {
-                                            Toast.makeText(
-                                                ctx,
-                                                ctx.getString(
-                                                    R.string.import_failed,
-                                                    e.message.orEmpty()
-                                                ),
-                                                Toast.LENGTH_LONG
-                                            ).show()
-                                        }
-                                    }
-                                }) { Text(stringResource(R.string.action_execute)) }
+                                    importTsvFileLauncher.launch(
+                                        arrayOf(
+                                            "text/tab-separated-values",
+                                            "text/tsv",
+                                            "text/plain"
+                                        )
+                                    )
+                                }) { Text(stringResource(R.string.import_select_file)) }
                             },
                             dismissButton = {
                                 TextButton(onClick = { showImportTsvDialog = false }) {
@@ -1157,17 +1208,6 @@ fun AppRoot(
                             }
                         )
                     }
-                    if (showStatsFilterDialog && currentPage == 2) {
-                        StatsFilterDialog(
-                            taskVm = taskVm,
-                            currentIncluded = statsIncludedLeafIds,
-                            onApply = { ids ->
-                                saveStatsFilter(ids)
-                                showStatsFilterDialog = false
-                            },
-                            onDismiss = { showStatsFilterDialog = false }
-                        )
-                    }
                 }
             }
         }
@@ -1217,37 +1257,6 @@ fun DrawerSheet(onItemSelected: (String) -> Unit) {
             onClick = { onItemSelected("weekly_report") },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Manage Data",
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-        )
-        NavigationDrawerItem(
-            label = { Text(stringResource(R.string.drawer_export_tsv)) },
-            selected = false,
-            onClick = { onItemSelected("export_tsv") },
-            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-        )
-        NavigationDrawerItem(
-            label = { Text(stringResource(R.string.drawer_import_tsv)) },
-            selected = false,
-            onClick = { onItemSelected("import_tsv") },
-            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-        )
-        // Export / Import
-        NavigationDrawerItem(
-            label = { Text(stringResource(R.string.drawer_export_json)) },
-            selected = false,
-            onClick = { onItemSelected("export") },
-            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-        )
-        NavigationDrawerItem(
-            label = { Text(stringResource(R.string.drawer_import_json)) },
-            selected = false,
-            onClick = { onItemSelected("import") },
-            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-        )
         NavigationDrawerItem(
             label = { Text(stringResource(R.string.drawer_help)) },
             selected = false,
@@ -1275,7 +1284,7 @@ fun MainPager(
     onTimelineBlockSelected: (Long, Long, Long, Long) -> Unit,
     nameSort: NameSort,
     timelineRefreshTick: Long,
-    statsIncludedLeafIds: Set<Long>,
+    statsIncludedTaskIds: Set<Long>?,
     aggMode: StatsAggMode
 ) {
     HorizontalPager(state = pagerState, modifier = modifier.fillMaxSize()) { page ->
@@ -1294,7 +1303,7 @@ fun MainPager(
             1 -> DBTaskScreen(taskVm = taskVm, sortMode = sortMode, nameSort = nameSort)
             2 -> StatsScreen(
                 viewModel = taskVm,
-                includedLeafIds = statsIncludedLeafIds,
+                includedTaskIds = statsIncludedTaskIds,
                 aggMode = aggMode
             )
 
@@ -2335,154 +2344,6 @@ fun DBTaskScreen(
     }
 }
 
-@Composable
-private fun StatsFilterDialog(
-    taskVm: TaskViewModel,
-    currentIncluded: Set<Long>,
-    onApply: (Set<Long>) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val parents by taskVm.parents.collectAsStateWithLifecycle()
-
-    // ✅ leaf（統計対象の粒度）と選択状態を“状態コレクション”で管理
-    val leafIds = remember { mutableStateListOf<Long>() }
-    val selected = remember { mutableStateListOf<Long>() }
-
-    // 親/子の変更に合わせて leaf を初期化（まずは子タスクを leaf 候補に）
-    LaunchedEffect(parents) {
-        leafIds.clear()
-        parents.forEach { g -> g.children.forEach { child -> leafIds.add(child.id) } }
-        // 初回選択：currentIncluded が空なら leaf 全選択、指定があればそれを反映
-        if (selected.isEmpty()) {
-            selected.clear()
-            if (currentIncluded.isEmpty()) selected.addAll(leafIds) else selected.addAll(
-                currentIncluded
-            )
-        }
-    }
-
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.stats_filter_title)) },
-        text = {
-            Column {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        selected.clear(); selected.addAll(leafIds)
-                    }) { Text(stringResource(R.string.action_select_all)) }
-                    OutlinedButton(onClick = { selected.clear() }) {
-                        Text(stringResource(R.string.action_clear_all))
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 420.dp)
-                ) {
-                    parents.forEach { group ->
-                        item {
-                            Text(
-                                text = group.parent.name,
-                                style = MaterialTheme.typography.labelLarge,
-                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
-                            )
-                        }
-                        items(group.children.size) { idx ->
-                            val child = group.children[idx]
-
-                            // サブタスク監視
-                            val subs by taskVm.children(child.id)
-                                .collectAsStateWithLifecycle(initialValue = emptyList())
-
-                            // subs の有無に応じて leafIds / selected の“既定”を動的更新
-                            LaunchedEffect(subs) {
-                                // child は一度外す（あれば）
-                                leafIds.remove(child.id)
-                                if (subs.isNotEmpty()) {
-                                    // サブタスクを leaf に
-                                    subs.forEach { if (!leafIds.contains(it.id)) leafIds.add(it.id) }
-                                    if (currentIncluded.isEmpty()) {
-                                        // 既定（初回のみ）: child → subs に置き換え
-                                        selected.remove(child.id)
-                                        subs.forEach {
-                                            if (!selected.contains(it.id)) selected.add(
-                                                it.id
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    // サブタスク無し：child を leaf に戻す
-                                    if (!leafIds.contains(child.id)) leafIds.add(child.id)
-                                    if (currentIncluded.isEmpty() && !selected.contains(child.id)) {
-                                        selected.add(child.id)
-                                    }
-                                }
-                            }
-
-                            if (subs.isEmpty()) {
-                                // child を leaf として表示
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp)
-                                ) {
-                                    Checkbox(
-                                        checked = selected.contains(child.id),
-                                        onCheckedChange = { on ->
-                                            if (on) {
-                                                if (!selected.contains(child.id)) selected.add(child.id)
-                                            } else {
-                                                selected.remove(child.id)
-                                            }
-                                        }
-                                    )
-                                    Text(child.name, modifier = Modifier.padding(start = 4.dp))
-                                }
-                            } else {
-                                // サブタスクを leaf として表示（インデント）
-                                subs.forEach { sub ->
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(start = 24.dp, top = 2.dp, bottom = 2.dp)
-                                    ) {
-                                        Checkbox(
-                                            checked = selected.contains(sub.id),
-                                            onCheckedChange = { on ->
-                                                if (on) {
-                                                    if (!selected.contains(sub.id)) selected.add(sub.id)
-                                                } else {
-                                                    selected.remove(sub.id)
-                                                }
-                                            }
-                                        )
-                                        Text(sub.name, modifier = Modifier.padding(start = 4.dp))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    item { Spacer(Modifier.height(4.dp)) }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onApply(selected.toSet()) }) {
-                Text(stringResource(R.string.action_apply))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.action_cancel))
-            }
-        }
-    )
-}
-
 /**
  * サブタスク選択画面。
  * - 親の配色を右端の色チップで表示
@@ -3243,7 +3104,7 @@ private fun ChannelSlider(label: String, value: Int, onChange: (Int) -> Unit) {
 private fun StatsScreen(
     viewModel: TaskViewModel,
     modifier: Modifier = Modifier,
-    includedLeafIds: Set<Long> = emptySet(),
+    includedTaskIds: Set<Long>? = null,
     aggMode: StatsAggMode = StatsAggMode.Leaf
 ) {
     val statsItems by viewModel.statsItems.collectAsStateWithLifecycle()
@@ -3355,7 +3216,7 @@ private fun StatsScreen(
         parents,
         windowStart,
         windowEnd,
-        includedLeafIds,
+        includedTaskIds,
         aggMode,
         projByTaskId,
         childByLeafId,
@@ -3388,7 +3249,7 @@ private fun StatsScreen(
             records = records,
             windowStartMs = windowStart,
             windowEndMs = windowEnd,
-            includedLeafIds = includedLeafIds
+            includedTaskIds = includedTaskIds
         ) { record ->
             when (aggMode) {
                 StatsAggMode.Project -> projByTaskId[record.taskId]
@@ -3960,6 +3821,17 @@ private fun Preview_TasksMain() {
             }
         }
     }
+}
+
+private suspend fun readImportFile(
+    context: Context,
+    uri: android.net.Uri
+): String = withContext(Dispatchers.IO) {
+    context.contentResolver.openInputStream(uri)
+        ?.bufferedReader(Charsets.UTF_8)
+        ?.use { it.readText() }
+        ?.removePrefix("\uFEFF")
+        ?: error(context.getString(R.string.import_file_open_failed))
 }
 
 private fun writeTsvToCacheAndGetUri(

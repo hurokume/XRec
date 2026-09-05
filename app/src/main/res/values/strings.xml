@@ -47,12 +47,26 @@
     <string name="drawer_import_json">Import (JSON)</string>
     <string name="drawer_help">Help</string>
 
+    <!-- Settings / data management -->
+    <string name="settings_data_title">データ</string>
+    <string name="manage_data_title">Manage Data</string>
+    <string name="settings_manage_data_description">記録データとタスク定義のインポート・エクスポート</string>
+    <string name="settings_open_manage_data">Manage Dataを開く</string>
+    <string name="manage_data_description">Time Recorderのデータをファイルへ書き出したり、ファイルから読み込んだりできます。</string>
+    <string name="manage_data_records_title">記録データ</string>
+    <string name="manage_data_tasks_title">タスク定義</string>
+    <string name="manage_data_export_tsv_description">指定期間の記録をTSVファイルとして共有します。</string>
+    <string name="manage_data_import_tsv_description">TSVファイルから記録を読み込みます。</string>
+    <string name="manage_data_export_json_description">タスクの階層と色をJSON形式で共有します。</string>
+    <string name="manage_data_import_json_description">JSONファイルからタスク定義を読み込みます。</string>
+
     <!-- Task analysis -->
     <string name="analysis_all_items">全項目</string>
     <string name="analysis_selected_items">選択した%1$d項目</string>
     <string name="analysis_select_subtask">サブタスクを選択</string>
     <string name="analysis_no_subtasks">サブタスクはありません</string>
     <string name="analysis_analyze_checked">チェックした項目を解析</string>
+    <string name="analysis_analyze_all">すべての項目を解析</string>
     <string name="analysis_check_all">すべてチェック</string>
     <string name="analysis_uncheck_all">すべてチェック解除</string>
     <string name="analysis_show_subtasks">サブタスクを表示</string>
@@ -140,6 +154,8 @@
     <!-- Manual record editor -->
     <string name="record_add_title">タスク記録を追加</string>
     <string name="record_add_description">親タスク / タスク / サブタスク（任意）と、開始・終了の日時を指定して保存します。</string>
+    <string name="record_edit_title">タスク記録を編集</string>
+    <string name="record_edit_description">タスクと開始・終了の日時を変更できます。タスク名をタップすると選択画面を開きます。</string>
     <string name="record_parent_task">親タスク</string>
     <string name="record_task">タスク</string>
     <string name="record_optional_subtask">サブタスク（任意）</string>
@@ -268,6 +284,7 @@
     <string name="main_stop_active_task">実行中のタスクを停止</string>
     <string name="main_exit_sort_mode">並び替えモードを終了</string>
     <string name="main_split_unavailable">分割できない記録です</string>
+    <string name="main_edit_unavailable">タスクを変更できない記録です</string>
     <string name="main_split_out_of_range">分割時刻は選択中の区間内で指定してください</string>
     <string name="main_delete_unavailable">削除できない記録です</string>
     <string name="main_sort_ascending">A→Z（昇順）</string>
@@ -277,14 +294,14 @@
     <string name="export_tasks_chooser">Export tasks as JSON</string>
     <string name="export_failed">Export 失敗: %1$s</string>
     <string name="import_json_title">Import (JSON)</string>
-    <string name="import_json_description">エクスポートした JSON をここに貼り付けてください。</string>
-    <string name="import_json_placeholder">[\n  {\"name\":\"Project\",\"color\":16753928,\"children\":[{\"name\":\"Task\"}]}\n]</string>
+    <string name="import_json_description">Time RecorderでエクスポートしたJSONファイルを選択してください。</string>
     <string name="import_json_replace_all">既存を全て削除して置き換える</string>
     <string name="import_complete">Import 完了</string>
     <string name="import_failed">Import 失敗: %1$s</string>
+    <string name="import_select_file">ファイルを選択</string>
+    <string name="import_file_open_failed">選択したファイルを開けません。</string>
     <string name="import_tsv_title">Import (TSV)</string>
-    <string name="import_tsv_description">次の形式のTSVを貼り付けてください。\nevent_name\t task_name\t subtask_name\t start_epoch_ms\t end_epoch_ms\t duration_ms\t start_iso\t end_iso</string>
-    <string name="import_tsv_placeholder" translatable="false">WASTE\ttest\tda\t1757689200000\t1757692800000\t3600000\t2025-09-13T00:00:00+09:00\t2025-09-13T01:00:00+09:00</string>
+    <string name="import_tsv_description">Time RecorderでエクスポートしたTSVファイルを選択してください。</string>
     <string name="import_tsv_clear_existing">既存の記録を全て削除してから取り込み</string>
     <string name="import_tsv_create_missing">存在しないプロジェクト/タスク/サブタスクを自動作成</string>
     <string name="import_tsv_complete">TSV Import 完了（%1$d 件）</string>
