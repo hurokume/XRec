@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.Flow
  */
 @Dao
 interface SessionDao {
+    @Query("UPDATE task_sessions SET taskId = :taskId WHERE id = :sessionId AND endedAt IS NULL")
+    suspend fun changeActiveTask(sessionId: Long, taskId: Long): Int
 
     @Query("SELECT * FROM task_sessions WHERE endedAt IS NULL LIMIT 1")
     suspend fun getActive(): TaskSessionEntity?

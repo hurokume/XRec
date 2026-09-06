@@ -3,6 +3,7 @@ package com.example.timerecorder.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -192,7 +193,8 @@ private fun StatsFilterRootList(
                             checked = group.parent.id in selectedTaskIds,
                             hasChildren = group.children.isNotEmpty(),
                             titleStyle = true,
-                            onToggle = { onToggleTask(group.parent.id) }
+                            onToggle = { onToggleTask(group.parent.id) },
+                            onLongClick = { viewModel.requestTaskEdit(group.parent.id, group.parent.name) }
                         )
                         Spacer(Modifier.height(8.dp))
                         group.children.forEach { child ->
@@ -209,6 +211,7 @@ private fun StatsFilterRootList(
                                 checked = child.id in selectedTaskIds,
                                 hasChildren = hasChildren,
                                 onToggle = { onToggleTask(child.id) },
+                                onLongClick = { viewModel.requestTaskEdit(child.id, child.name) },
                                 onOpenChild = if (hasChildren) {
                                     { onOpenChild(choice) }
                                 } else {
@@ -295,6 +298,7 @@ private fun StatsFilterSubtaskList(
                         checked = child.id in selectedTaskIds,
                         hasChildren = hasChildren,
                         onToggle = { onToggleTask(child.id) },
+                                onLongClick = { viewModel.requestTaskEdit(child.id, child.name) },
                         onOpenChild = if (hasChildren) {
                             { onOpenChild(choice) }
                         } else {
@@ -313,6 +317,7 @@ private fun StatsFilterTaskRow(
     checked: Boolean,
     hasChildren: Boolean,
     onToggle: () -> Unit,
+    onLongClick: () -> Unit,
     onOpenChild: (() -> Unit)? = null,
     titleStyle: Boolean = false
 ) {
@@ -325,9 +330,10 @@ private fun StatsFilterTaskRow(
             } else {
                 Modifier
                     .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(2.dp))
-                    .clickable { onOpenChild?.invoke() ?: onToggle() }
+
             }
         )
+        .combinedClickable(onClick = { onOpenChild?.invoke() ?: onToggle() }, onLongClick = onLongClick)
         .padding(horizontal = if (titleStyle) 0.dp else 12.dp)
 
     Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) {

@@ -63,6 +63,9 @@ internal class AdvancedAnalysisPdfWriter(
     private val reportSubtitle: String,
     private val pageBreakBeforeProbability: Boolean = false
 ) {
+    private fun text(id: Int, vararg args: Any): String =
+        if (args.isEmpty()) stringResolver(id) else String.format(Locale.getDefault(), stringResolver(id), *args)
+
     private val pageWidth = A4_WIDTH_POINTS.toFloat()
     private val pageHeight = A4_HEIGHT_POINTS.toFloat()
     private val margin = 40f
@@ -170,42 +173,42 @@ internal class AdvancedAnalysisPdfWriter(
     }
 
     private fun drawReportSummary(result: AdvancedAnalysisResult) {
-        sectionTitle("分析概要")
+        sectionTitle(text(R.string.pdf_summary))
         val dateFormat = SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault())
         keyValue(
-            "分析期間",
+            text(R.string.pdf_analysis_period),
             "${dateFormat.format(Date(result.range.startMs))} - ${dateFormat.format(Date(result.range.endMs))}"
         )
-        keyValue("対象日", "${result.quality.analyzedDays}日（暦期間 ${result.quality.calendarDays}日）")
-        keyValue("日境界 / 時間枠", "${formatClock(result.timeProfile.boundaryMinutes)} / ${result.timeProfile.slotMinutes}分")
-        keyValue("レポート作成", generatedAt)
+        keyValue(text(R.string.advanced_analysis_target_days), text(R.string.advanced_analysis_target_days_value, result.quality.analyzedDays, result.quality.calendarDays))
+        keyValue(text(R.string.pdf_boundary_slots), text(R.string.pdf_boundary_value, formatClock(result.timeProfile.boundaryMinutes), result.timeProfile.slotMinutes))
+        keyValue(text(R.string.pdf_generated), generatedAt)
         y += 8f
     }
 
     private fun drawQualitySection(result: AdvancedAnalysisResult) {
-        sectionTitle("2. データ品質")
+        sectionTitle(text(R.string.advanced_analysis_section_data_quality))
         val quality = result.quality
-        keyValue("記録率", formatPercent(quality.coverageRate))
-        keyValue("記録時間", formatDuration(quality.recordedMs))
-        keyValue("未記録時間", formatDuration(quality.missingMs))
-        keyValue("重複時間", formatDuration(quality.overlapMs))
-        keyValue("分類未指定", formatDuration(quality.unspecifiedMs))
-        keyValue("60秒未満の記録", "${quality.shortEventCount}件")
-        keyValue("95%以上記録された日", "${quality.daysAtLeast95Percent}日")
+        keyValue(text(R.string.advanced_analysis_coverage_rate), formatPercent(quality.coverageRate))
+        keyValue(text(R.string.advanced_analysis_recorded_time), formatDuration(quality.recordedMs))
+        keyValue(text(R.string.advanced_analysis_missing_time), formatDuration(quality.missingMs))
+        keyValue(text(R.string.advanced_analysis_overlap_time), formatDuration(quality.overlapMs))
+        keyValue(text(R.string.advanced_analysis_unspecified), formatDuration(quality.unspecifiedMs))
+        keyValue(text(R.string.advanced_analysis_short_records), text(R.string.label_item_count, quality.shortEventCount))
+        keyValue(text(R.string.advanced_analysis_days_95), text(R.string.advanced_analysis_days, quality.daysAtLeast95Percent))
         y += 8f
     }
 
     private fun drawCategorySection(result: AdvancedAnalysisResult) {
-        sectionTitle("3. 階層別時間配分・Pareto")
+        sectionTitle(text(R.string.advanced_analysis_section_distribution))
         if (result.categoryMetrics.isEmpty()) {
-            paragraph("対象期間に記録がありません。")
+            paragraph(text(R.string.advanced_analysis_no_records))
             return
         }
         result.categoryMetrics.take(20).forEachIndexed { index, metric ->
             categoryMetric(index + 1, metric)
         }
         if (result.categoryMetrics.size > 20) {
-            paragraph("上位20件を掲載（全${result.categoryMetrics.size}件）", color = Color.DKGRAY)
+            paragraph(text(R.string.pdf_top_twenty, result.categoryMetrics.size), color = Color.DKGRAY)
         }
         y += 8f
     }
@@ -216,8 +219,8 @@ internal class AdvancedAnalysisPdfWriter(
         drawEllipsizedText(label, margin, y + 10f, contentWidth, 10f, Color.rgb(36, 48, 61), true)
         y += 15f
         drawText(
-            text = "総計 ${formatDuration(metric.totalMs)}  日平均 ${formatDuration(metric.averagePerDayMs)}  " +
-                    "構成比 ${formatPercent(metric.share)}  実施日 ${formatPercent(metric.activeDayRate)}",
+            text = text(R.string.pdf_metric_summary, formatDuration(metric.totalMs), formatDuration(metric.averagePerDayMs),
+                formatPercent(metric.share), formatPercent(metric.activeDayRate)),
             x = margin,
             baseline = y + 9f,
             size = 8f,
@@ -245,11 +248,11 @@ internal class AdvancedAnalysisPdfWriter(
         probabilityItemLimit: Int,
         paletteMask: Int
     ) {
-        sectionTitle("4. 24時間行動確率")
-        paragraph("色が濃いほど、その時刻に行っていた日の割合が高いことを示します。")
+        sectionTitle(text(R.string.advanced_analysis_section_probability))
+        paragraph(text(R.string.advanced_analysis_probability_description))
         val palettes = selectedAnalysisPalettes(paletteMask)
         paragraph(
-            "パレット: ${palettes.joinToString(" / ") { stringResolver(it.labelRes) }}",
+            text(R.string.pdf_palettes, palettes.joinToString(" / ") { stringResolver(it.labelRes) }),
             size = 8f,
             color = Color.rgb(82, 95, 109)
         )
@@ -259,7 +262,7 @@ internal class AdvancedAnalysisPdfWriter(
             result.timeProfile.categories.take(probabilityItemLimit)
         }
         if (categories.isEmpty()) {
-            paragraph("時刻別確率を計算できる記録がありません。")
+            paragraph(text(R.string.advanced_analysis_no_probability))
         } else {
             drawHeatmapAxis(result)
             categories.forEachIndexed { index, category ->
@@ -294,12 +297,12 @@ internal class AdvancedAnalysisPdfWriter(
             }
         }
         y += 5f
-        keyValue("規則性", formatPercent(result.timeProfile.regularity))
-        keyValue("平均エントロピー", String.format(Locale.getDefault(), "%.2f", result.timeProfile.averageEntropy))
+        keyValue(text(R.string.advanced_analysis_regularity), formatPercent(result.timeProfile.regularity))
+        keyValue(text(R.string.advanced_analysis_average_entropy), String.format(Locale.getDefault(), "%.2f", result.timeProfile.averageEntropy))
         val modal = modalDaySummaryForReport(result)
         if (modal.isNotEmpty()) {
             y += 4f
-            paragraph("最頻行動で合成した一日", medium = true)
+            paragraph(text(R.string.advanced_analysis_modal_day), medium = true)
             paragraph(modal, size = 8f, color = Color.rgb(82, 95, 109))
         }
         y += 8f
@@ -321,23 +324,22 @@ internal class AdvancedAnalysisPdfWriter(
     }
 
     private fun drawRepresentativeSection(result: AdvancedAnalysisResult) {
-        sectionTitle("5. 代表日・典型日")
+        sectionTitle(text(R.string.advanced_analysis_section_representative))
         val formatter = SimpleDateFormat("yyyy/MM/dd (EEE)", Locale.getDefault())
         result.representativeDay?.let { representative ->
-            paragraph("実在する代表日", medium = true)
-            keyValue("日付", formatter.format(Date(representative.dayStartMs)))
-            keyValue("平均距離", String.format(Locale.getDefault(), "%.2f", representative.meanDistance))
-            keyValue("記録率", formatPercent(representative.coverageRate))
-        } ?: paragraph("代表日を計算できる記録がありません。")
+            paragraph(text(R.string.advanced_analysis_representative_day), medium = true)
+            keyValue(text(R.string.advanced_analysis_date), formatter.format(Date(representative.dayStartMs)))
+            keyValue(text(R.string.advanced_analysis_mean_distance), String.format(Locale.getDefault(), "%.2f", representative.meanDistance))
+            keyValue(text(R.string.advanced_analysis_coverage_rate), formatPercent(representative.coverageRate))
+        } ?: paragraph(text(R.string.advanced_analysis_no_representative_day))
 
         if (result.typicalPatterns.isNotEmpty()) {
             y += 5f
-            paragraph("典型的な生活パターン", medium = true)
+            paragraph(text(R.string.advanced_analysis_typical_patterns), medium = true)
             result.typicalPatterns.forEachIndexed { index, pattern ->
                 paragraph(
-                    "型${index + 1}: ${formatter.format(Date(pattern.medoidDayStartMs))}  " +
-                            "${pattern.dayCount}日 (${formatPercent(pattern.share)})  " +
-                            "平日${pattern.weekdayCount} / 休日${pattern.weekendCount}",
+                    text(R.string.advanced_analysis_pattern_row, index + 1, formatter.format(Date(pattern.medoidDayStartMs)),
+                        pattern.dayCount, formatPercent(pattern.share), pattern.weekdayCount, pattern.weekendCount),
                     size = 8.5f
                 )
             }
@@ -346,21 +348,21 @@ internal class AdvancedAnalysisPdfWriter(
     }
 
     private fun drawAchievementSection(result: AdvancedAnalysisResult) {
-        sectionTitle("1. Daily plan 達成度")
+        sectionTitle(text(R.string.advanced_analysis_section_daily_plan))
         val achievements = result.dailyAchievements
         if (achievements.isEmpty()) {
-            paragraph("対象日に利用できるDaily planがありません。Settingsで予定を設定してください。")
+            paragraph(text(R.string.advanced_analysis_no_daily_plan))
             return
         }
         val totalPlanned = achievements.sumOf { it.plannedMs }
         val totalAchieved = achievements.sumOf { it.achievedMs }
         val overall = if (totalPlanned > 0L) totalAchieved.toDouble() / totalPlanned else 0.0
-        keyValue("期間全体", formatPercent(overall))
+        keyValue(text(R.string.advanced_analysis_entire_period), formatPercent(overall))
         val formatter = SimpleDateFormat("yyyy/MM/dd (EEE)", Locale.getDefault())
         achievements.forEach { achievement ->
             val type = when (achievement.planType) {
-                DailyPlanType.Weekday -> "平日"
-                DailyPlanType.Holiday -> "休日"
+                DailyPlanType.Weekday -> text(R.string.label_weekday)
+                DailyPlanType.Holiday -> text(R.string.label_holiday)
             }
             paragraph(
                 "${formatter.format(Date(achievement.dayStartMs))} [$type]  " +
@@ -373,15 +375,15 @@ internal class AdvancedAnalysisPdfWriter(
     }
 
     private fun drawTransitionSection(result: AdvancedAnalysisResult) {
-        sectionTitle("6. 行動遷移")
+        sectionTitle(text(R.string.advanced_analysis_section_transitions))
         if (result.transitions.isEmpty()) {
-            paragraph("連続する行動遷移がありません。")
+            paragraph(text(R.string.advanced_analysis_no_transitions))
             return
         }
         result.transitions.take(15).forEachIndexed { index, transition ->
             paragraph(
-                "${index + 1}. ${transition.fromName} → ${transition.toName}: " +
-                        "${transition.count}回 / ${formatPercent(transition.probability)}",
+                "${index + 1}. " + text(R.string.advanced_analysis_transition_row, transition.fromName,
+                    transition.toName, transition.count, formatPercent(transition.probability)),
                 size = 8.5f
             )
         }

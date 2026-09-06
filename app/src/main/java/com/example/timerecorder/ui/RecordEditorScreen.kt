@@ -60,6 +60,7 @@ fun AddTaskScreen(
 
     val parents by viewModel.parents.collectAsStateWithLifecycle()
     val isEditing = initialEventId != null
+    val isRunning = initialEventId == -1L
 
     var selectedParentId by rememberSaveable { mutableStateOf<Long?>(null) }
     var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -69,9 +70,8 @@ fun AddTaskScreen(
     var showTaskSelection by rememberSaveable { mutableStateOf(false) }
 
     // 編集対象の現在のタスク名は初回だけ解決し、選択画面から戻った値を上書きしない。
-    LaunchedEffect(initialTaskId) {
-        val target = initialTaskId ?: return@LaunchedEffect
-        editedTaskId = target
+    LaunchedEffect(editedTaskId) {
+        val target = editedTaskId ?: return@LaunchedEffect
         editedTaskPath = viewModel.taskPathLabel(target).orEmpty()
     }
 
@@ -242,12 +242,12 @@ fun AddTaskScreen(
                             ?: stringResource(R.string.record_not_selected)
                     },
                     enabled = selectedTaskId != null && subtasks.isNotEmpty(),
-                    items = subtasks.map { it.id to it.name },
-                    onSelect = { id -> selectedSubtaskId = id }
+                    items = if (subtasks.isEmpty()) emptyList() else listOf(0L to stringResource(R.string.subtask_none)) + subtasks.map { it.id to it.name },
+                    onSelect = { id -> selectedSubtaskId = id.takeUnless { it == 0L } }
                 )
             }
 
-            // 開始日時
+            if (!isRunning) {
             TimeField(
                 label = stringResource(R.string.label_start),
                 valueText = dfFull.format(java.util.Date(startMs)),
@@ -271,6 +271,10 @@ fun AddTaskScreen(
                 }
             )
 
+            } else {
+                Text(stringResource(R.string.record_running_description))
+                Text(dfFull.format(java.util.Date(startMs)))
+            }
             Spacer(Modifier.height(8.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -304,7 +308,13 @@ fun AddTaskScreen(
                         ).show()
 
                         else -> {
-                            if (isEditing) {
+                            if (isRunning) {
+                                scope.launch {
+                                    if (viewModel.changeRunningTask(requireNotNull(initialTaskId),
+                                            requireNotNull(initialStartMs), requireNotNull(finalTaskId))) onBack()
+                                    else Toast.makeText(ctx, ctx.getString(R.string.record_running_changed), Toast.LENGTH_LONG).show()
+                                }
+                            } else if (isEditing) {
                                 viewModel.editEventAbsorbNeighbors(
                                     eventId = requireNotNull(initialEventId),
                                     newTaskId = requireNotNull(finalTaskId),

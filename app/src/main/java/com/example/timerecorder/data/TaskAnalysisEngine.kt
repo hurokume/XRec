@@ -145,9 +145,9 @@ object TaskAnalysisEngine {
         customEndMs: Long? = null
     ): TaskAnalysisRange {
         if (period == TaskAnalysisPeriod.Custom) {
-            val startMs = requireNotNull(customStartMs) { "カスタム期間の開始日が必要です" }
-            val endMs = requireNotNull(customEndMs) { "カスタム期間の終了日が必要です" }
-            require(endMs > startMs) { "カスタム期間の終了日は開始日より後にしてください" }
+            val startMs = requireNotNull(customStartMs)
+            val endMs = requireNotNull(customEndMs)
+            require(endMs > startMs)
             return TaskAnalysisRange(startMs, endMs)
         }
         val timeZone = TimeZone.getTimeZone(timeZoneId)
@@ -381,10 +381,14 @@ object TaskAnalysisEngine {
             timeInMillis = startMs
         }
         return when (period) {
-            TaskAnalysisPeriod.Day -> String.format("%02d", calendar.get(Calendar.HOUR_OF_DAY))
-            TaskAnalysisPeriod.Week -> listOf("月", "火", "水", "木", "金", "土", "日")[index]
+            TaskAnalysisPeriod.Day -> String.format(java.util.Locale.getDefault(), "%02d", calendar.get(Calendar.HOUR_OF_DAY))
+            TaskAnalysisPeriod.Week -> java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()).apply {
+                timeZone = calendar.timeZone
+            }.format(calendar.time)
             TaskAnalysisPeriod.Month -> calendar.get(Calendar.DAY_OF_MONTH).toString()
-            TaskAnalysisPeriod.Year -> "${calendar.get(Calendar.MONTH) + 1}月"
+            TaskAnalysisPeriod.Year -> java.text.SimpleDateFormat("MMM", java.util.Locale.getDefault()).apply {
+                timeZone = calendar.timeZone
+            }.format(calendar.time)
             TaskAnalysisPeriod.Custom ->
                 "${calendar.get(Calendar.MONTH) + 1}/${calendar.get(Calendar.DAY_OF_MONTH)}"
         }

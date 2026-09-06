@@ -18,6 +18,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -136,6 +138,7 @@ import com.example.timerecorder.ui.AdvancedAnalysisScreen
 import com.example.timerecorder.ui.AddTaskScreen
 import com.example.timerecorder.ui.DailyPlanTaskOption
 import com.example.timerecorder.ui.ManageDataScreen
+import com.example.timerecorder.ui.TimelineRangeControls
 import com.example.timerecorder.ui.SettingsScreen
 import com.example.timerecorder.ui.StatsFilterSelectionScreen
 import com.example.timerecorder.ui.TaskDeletionDialog
@@ -203,6 +206,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             TimeRecorderTheme {
+                com.example.timerecorder.ui.TaskEditDialogs(taskViewModel)
                 Surface(color = MaterialTheme.colorScheme.background) {
                     // NavController を用意し、アプリ内の画面遷移を管理
                     val navController = rememberNavController()
@@ -233,7 +237,7 @@ class MainActivity : ComponentActivity() {
                             arguments = listOf(
                                 navArgument("initialEventId") {
                                     type = NavType.LongType
-                                    defaultValue = -1L
+                                    defaultValue = 0L
                                 },
                                 navArgument("initialTaskId") {
                                     type = NavType.LongType
@@ -250,7 +254,7 @@ class MainActivity : ComponentActivity() {
                             )
                         ) { backStackEntry ->
                             val initEvent = backStackEntry.arguments?.getLong("initialEventId")
-                                ?.takeIf { it > 0L }
+                                ?.takeIf { it != 0L }
                             val initTask = backStackEntry.arguments?.getLong("initialTaskId")
                                 ?.takeIf { it >= 0L }
                             val initStart = backStackEntry.arguments?.getLong("initialStartMs")
@@ -439,7 +443,7 @@ fun AppRoot(
         val d = (end - start).coerceAtLeast(0L)
         val h = (d / 3_600_000L).toInt()
         val m = ((d / 60_000L) % 60).toInt()
-        return String.format("%02d:%02d", h, m)
+        return String.format(java.util.Locale.getDefault(), "%02d:%02d", h, m)
     }
 
     fun hhmmssFromDuration(ms: Long): String {
@@ -447,13 +451,13 @@ fun AppRoot(
         val hh = s / 3600
         val mm = (s % 3600) / 60
         val ss = s % 60
-        return String.format("%02d:%02d:%02d", hh, mm, ss)
+        return String.format(java.util.Locale.getDefault(), "%02d:%02d:%02d", hh, mm, ss)
     }
 
     fun hhmmClock(ms: Long): String {
         val cal = java.util.Calendar.getInstance().apply { timeInMillis = ms }
         return String.format(
-            "%02d:%02d",
+            Locale.getDefault(), "%02d:%02d",
             cal.get(java.util.Calendar.HOUR_OF_DAY),
             cal.get(java.util.Calendar.MINUTE)
         )
@@ -534,6 +538,11 @@ fun AppRoot(
     LaunchedEffect(Unit) {
         taskVm.events.collectLatest { ev ->
             when (ev) {
+                UiEvent.TasksMerged -> {
+                    dailyPlans = DailyPlansCodec.decode(settingsPreferences.getString(KEY_DAILY_PLANS, null))
+                    statsIncludedTaskIds = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .getString(KEY_STATS_INCLUDED, null)?.split(',')?.mapNotNull { it.toLongOrNull() }?.toSet()
+                }
                 is UiEvent.ShowMessage -> snackbar.showSnackbar(ev.message)
             }
         }
@@ -850,16 +859,21 @@ fun AppRoot(
                                         val startMs = selectedTimelineStartMs
                                         val endMs = selectedTimelineEndMs
                                         if (
-                                            eventId != null && eventId > 0L &&
+                                            eventId != null && eventId != 0L &&
                                             taskId != null &&
                                             startMs >= 0L && endMs > startMs
                                         ) {
-                                            onNavigateEditTask(
-                                                eventId,
-                                                taskId,
-                                                startMs,
-                                                endMs
-                                            )
+                                            scope.launch {
+                                                val event = if (eventId > 0) taskVm.recordForEdit(eventId) else null
+                                                val running = taskVm.activeUi.value
+                                                if (event != null) {
+                                                    onNavigateEditTask(eventId, event.taskId,
+                                                        event.pressedAtEpochMs, event.pressedAtEpochMs + event.durationMillis)
+                                                } else if (eventId == -1L && running != null) {
+                                                    onNavigateEditTask(-1L, running.taskId,
+                                                        running.startEpochMs, System.currentTimeMillis())
+                                                }
+                                            }
                                             selectedTimelineEventId = null
                                             selectedTimelineTaskId = null
                                             selectedTimelineStartMs = -1L
@@ -1572,7 +1586,9 @@ fun DBTaskScreen(
                                         Text(
                                             p.parent.name,
                                             style = MaterialTheme.typography.titleMedium,
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier.weight(1f).combinedClickable(
+                                                onClick = {}, onLongClick = { menuForParentId = p.parent.id }
+                                            )
                                         )
                                         IconButton(onClick = {
                                             menuForParentId = p.parent.id
@@ -1743,7 +1759,9 @@ fun DBTaskScreen(
                                                                 )
                                                             }
                                                     else
-                                                        Modifier.clickable {
+                                                        Modifier.combinedClickable(
+                                                            onLongClick = { menuForChildTaskId = child.id },
+                                                            onClick = {
                                                             selectedTaskId = child.id
                                                             lastInteractionTime =
                                                                 System.currentTimeMillis()
@@ -1762,7 +1780,7 @@ fun DBTaskScreen(
                                                                     taskVm.onTaskPressed(child.id)
                                                                 }
                                                             }
-                                                        }
+                                                        })
                                                 ),
                                             colors = CardDefaults.cardColors(
                                                 containerColor = if (isDragging) MaterialTheme.colorScheme.surfaceVariant else bg
@@ -1990,8 +2008,6 @@ fun DBTaskScreen(
                                 val name = it.trim()
                                 addParentError = when {
                                     name.isEmpty() -> null
-                                    taskVm.hasDuplicateParentName(name) ->
-                                        duplicateParentErrorText
                                     else -> null
                                 }
                             }
@@ -2007,8 +2023,6 @@ fun DBTaskScreen(
                         val name = newTaskName.trim().take(128)
                         when {
                             name.isEmpty() -> addParentError = emptyNameErrorText
-                            taskVm.hasDuplicateParentName(name) -> addParentError =
-                                duplicateParentErrorText
 
                             else -> {
                                 taskVm.addParentTask(name)
@@ -2040,8 +2054,6 @@ fun DBTaskScreen(
                                 val name = it.trim()
                                 addChildError = when {
                                     name.isEmpty() -> null
-                                    pid != null && taskVm.hasDuplicateChildName(pid, name) ->
-                                        duplicateChildErrorText
 
                                     else -> null
                                 }
@@ -2060,8 +2072,6 @@ fun DBTaskScreen(
                         when {
                             pid == null -> {}
                             name.isEmpty() -> addChildError = emptyNameErrorText
-                            taskVm.hasDuplicateChildName(pid, name) ->
-                                addChildError = duplicateChildErrorText
 
                             else -> {
                                 taskVm.addChildTask(pid, name)
@@ -2227,20 +2237,7 @@ fun DBTaskScreen(
                             onValueChange = {
                                 if (it.length <= 128) {
                                     renameTaskText = it
-                                    // ★ライブ検証（親名のみ重複チェック）
-                                    val name = it.trim()
-                                    renameError = when {
-                                        name.isEmpty() -> null
-                                        renameIsParent &&
-                                                !name.equals(
-                                                    renameTaskCurrentName.trim(),
-                                                    ignoreCase = true
-                                                ) &&
-                                                taskVm.hasDuplicateParentName(name) ->
-                                            duplicateParentErrorText
-
-                                        else -> null
-                                    }
+                                    renameError = null
                                 }
                             },
                             singleLine = true,
@@ -2257,13 +2254,6 @@ fun DBTaskScreen(
                         when {
                             id == null -> Unit
                             name.isEmpty() -> renameError = emptyNameErrorText
-                            // ★親名の重複は禁止（ただし大文字小文字差だけの同名はOK）
-                            renameIsParent &&
-                                    !name.equals(renameTaskCurrentName.trim(), ignoreCase = true) &&
-                                    taskVm.hasDuplicateParentName(name) -> {
-                                renameError = duplicateParentErrorText
-                            }
-
                             else -> {
                                 taskVm.renameTask(id, name)
                                 renameTaskId = null
@@ -2401,6 +2391,13 @@ private fun SubtaskPicker(
                 .weight(1f)
                 .padding(top = 8.dp)
         ) {
+            if (subtasksForView.isNotEmpty()) {
+                item {
+                    TextButton(onClick = { selectedSubId = null; onPick(parentId) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.subtask_none))
+                    }
+                }
+            }
             items(subtasksForView.size) { i ->
                 val t = subtasksForView[i]
                 val isSelected = selectedSubId == t.id
@@ -2412,11 +2409,11 @@ private fun SubtaskPicker(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
-                        .border(1.dp, border, RoundedCornerShape(8.dp)),
-                    onClick = {
-                        selectedSubId = t.id
-                        onPick(t.id)
-                    },
+                        .border(1.dp, border, RoundedCornerShape(8.dp))
+                        .combinedClickable(
+                            onLongClick = { onRenameRequest(t.id, t.name) },
+                            onClick = { selectedSubId = t.id; onPick(t.id) }
+                        ),
                     colors = CardDefaults.cardColors(containerColor = bg),
                     shape = RoundedCornerShape(8.dp)
                 ) {
@@ -2501,36 +2498,14 @@ private fun TimelineScreen(
 
     val defaultProjectColor = MaterialTheme.colorScheme.onSurface
 
-    // 週間ビュー ON/OFF とオフセット
-    var weekMode by rememberSaveable { mutableStateOf(false) }   // 週間ビューON/OFF
-    var weekOffset by rememberSaveable { mutableIntStateOf(0) }  // 今週=0, 先週=-1, 来週=+1
-
-    val dayMs = 24L * 60L * 60L * 1000L
-    fun startOfWeekSunday(ms: Long): Long {
-        val cal = java.util.Calendar.getInstance().apply {
-            timeInMillis = midnightOf(ms) // その日の0:00
-        }
-        val dow = cal.get(java.util.Calendar.DAY_OF_WEEK) // SUNDAY=1
-        val backDays = (dow - java.util.Calendar.SUNDAY + 7) % 7
-        cal.timeInMillis -= backDays * dayMs
-        return cal.timeInMillis
-    }
-
-    // 「今日を右端」にするためのアンカー（非週間時のみ使用）
-    var dayCount by rememberSaveable { mutableIntStateOf(3) }
-    var anchorOffset by rememberSaveable { mutableIntStateOf(-2) } // start = today + offset * 1day
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(externalRefreshTick) { nowMs = System.currentTimeMillis() }
-
-    val startOfToday = remember(nowMs) { midnightOf(nowMs) }
-    val startMs = remember(startOfToday, anchorOffset, weekMode, weekOffset, dayCount) {
-        if (weekMode) {
-            startOfWeekSunday(startOfToday) + weekOffset * 7L * dayMs
-        } else {
-            startOfToday + anchorOffset * dayMs
-        }
+    LaunchedEffect(externalRefreshTick) {
+        while (true) { nowMs = System.currentTimeMillis(); delay(30_000) }
     }
-    val endMs = remember(startMs, dayCount) { startMs + dayCount * dayMs }
+    val range = com.example.timerecorder.ui.rememberTimelineRange(nowMs)
+    val startMs = range.startMs
+    val endMs = range.endMs
+    val dayCount = range.dayCount
 
     LaunchedEffect(startMs, endMs, history, isLoading, endReached) {
         // いま読み込めている最古の pressedAt（なければ MAX）
@@ -2541,13 +2516,6 @@ private fun TimelineScreen(
             // 1ページずつ追加ロード（Flow更新で再度この Effect が走り、必要分だけ繰り返す）
             viewModel.loadNextHistoryPage()
         }
-    }
-
-    val f = remember { SimpleDateFormat("yyyy/MM/dd (EEE)", Locale.getDefault()) }
-    val headerLabel = remember(startMs, endMs, dayCount) {
-        val first = f.format(Date(startMs))
-        val last = f.format(Date(endMs - 1))
-        if (dayCount == 1) first else "$first 〜 $last"
     }
 
     // taskId -> 現在のプロジェクト色
@@ -2591,74 +2559,7 @@ private fun TimelineScreen(
             .padding(12.dp)
     ) {
         Column(Modifier.fillMaxSize()) {
-            // ヘッダー（左右でページ送り＋同期）
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = {
-                    if (weekMode) weekOffset -= 1 else anchorOffset -= dayCount
-                    viewModel.reloadHistory() // スワイプ相当の移動で同期
-                }) {
-                    Icon(
-                        Icons.Filled.ChevronLeft,
-                        contentDescription = stringResource(R.string.timeline_previous)
-                    )
-                }
-                Text(
-                    headerLabel,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = {
-                    if (weekMode) weekOffset += 1 else anchorOffset += dayCount
-                    viewModel.reloadHistory() // スワイプ相当の移動で同期
-                }) {
-                    Icon(
-                        Icons.Filled.ChevronRight,
-                        contentDescription = stringResource(R.string.timeline_next)
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(6.dp))
-
-            // セグメント（3/5/7日 + 週間）
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                SegButton(
-                    stringResource(R.string.timeline_days, 3),
-                    active = !weekMode && dayCount == 3
-                ) {
-                    weekMode = false; dayCount = 3
-                    anchorOffset = -(dayCount - 1) // 今日を右端
-                    viewModel.reloadHistory()
-                }
-                SegButton(
-                    stringResource(R.string.timeline_days, 5),
-                    active = !weekMode && dayCount == 5
-                ) {
-                    weekMode = false; dayCount = 5
-                    anchorOffset = -(dayCount - 1)
-                    viewModel.reloadHistory()
-                }
-                SegButton(
-                    stringResource(R.string.timeline_days, 7),
-                    active = !weekMode && dayCount == 7
-                ) {
-                    weekMode = false; dayCount = 7
-                    anchorOffset = -(dayCount - 1)
-                    viewModel.reloadHistory()
-                }
-                SegButton(stringResource(R.string.timeline_week), active = weekMode) {
-                    weekMode = true
-                    dayCount = 7            // 週間は7固定
-                    weekOffset = 0          // 今週
-                    viewModel.reloadHistory()
-                }
-                Spacer(Modifier.weight(1f))
-                // ※「更新」ボタンは削除済み
-            }
-
+            TimelineRangeControls(range)
             Spacer(Modifier.height(8.dp))
 
             // 表示するブロックを分割生成
@@ -2683,8 +2584,8 @@ private fun TimelineScreen(
                     ) {
                         if (e <= startMs || s >= endMs) return
                         repeat(dayCount) { i ->
-                            val dStart = startMs + i * dayMs
-                            val dEnd = dStart + dayMs
+                            val dStart = range.dayStart(i)
+                            val dEnd = range.dayStart(i + 1)
                             val cs = maxOf(s, dStart)
                             val ce = minOf(e, dEnd)
                             if (ce > cs) days[i].add(
@@ -2807,7 +2708,7 @@ private fun MultiDayTimeline(
                 ) {
                     if (h in 0..23) {
                         Text(
-                            text = String.format("%02d", h),
+                            text = String.format(java.util.Locale.getDefault(), "%02d", h),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(end = 4.dp, top = 2.dp)
@@ -2821,6 +2722,7 @@ private fun MultiDayTimeline(
         Row(
             Modifier
                 .weight(1f)
+                .then(if (dayCount > 7) Modifier.horizontalScroll(rememberScrollState()).width(110.dp * dayCount) else Modifier)
                 .fillMaxHeight()
                 .pointerInput(dayCount, hourHeight) {
                     awaitEachGesture {
@@ -2863,7 +2765,7 @@ private fun MultiDayTimeline(
                 }
         ) {
             repeat(dayCount) { i ->
-                val dayStart = startMs + i * 24L * 60L * 60L * 1000L
+                val dayStart = com.example.timerecorder.ui.calendarDay(startMs, i)
                 val label = dateFmt.format(Date(dayStart))
                 DayColumn(
                     label = label,
@@ -3016,8 +2918,8 @@ private fun colorToHex(color: Color, withAlpha: Boolean = false): String {
     val g = (color.green * 255).roundToInt().coerceIn(0, 255)
     val b = (color.blue * 255).roundToInt().coerceIn(0, 255)
     val a = (color.alpha * 255).roundToInt().coerceIn(0, 255)
-    return if (withAlpha) String.format("#%02X%02X%02X%02X", a, r, g, b)
-    else String.format("#%02X%02X%02X", r, g, b)
+    return if (withAlpha) String.format(java.util.Locale.getDefault(), "#%02X%02X%02X%02X", a, r, g, b)
+    else String.format(java.util.Locale.getDefault(), "#%02X%02X%02X", r, g, b)
 }
 
 // ---------- カラーピッカー（RGB/Alphaスライダー） ----------
@@ -3287,7 +3189,7 @@ private fun StatsScreen(
         val totalMin = (ms / 60_000L).toInt()
         val hh = totalMin / 60
         val mm = totalMin % 60
-        return String.format("%02d:%02d", hh, mm)
+        return String.format(java.util.Locale.getDefault(), "%02d:%02d", hh, mm)
     }
 
     Column(
@@ -3378,7 +3280,7 @@ private fun BarChart(
         val totalSec = (ms / 1000f).toLong().coerceAtLeast(0)
         val h = totalSec / 3600
         val m = (totalSec % 3600) / 60
-        return String.format("%02d:%02d", h, m)
+        return String.format(java.util.Locale.getDefault(), "%02d:%02d", h, m)
     }
 
     Column(modifier = modifier.verticalScroll(scroll)) {
@@ -3526,7 +3428,7 @@ private fun HistoryRowCard(row: HistoryItemUi) {
             )
             Spacer(Modifier.width(12.dp))
             Text(
-                String.format("%d:%02d", minutes, seconds),
+                String.format(java.util.Locale.getDefault(), "%d:%02d", minutes, seconds),
                 style = MaterialTheme.typography.bodyLarge
             )
         }

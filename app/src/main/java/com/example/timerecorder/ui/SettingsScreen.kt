@@ -1,5 +1,8 @@
 package com.example.timerecorder.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.platform.LocalContext
+import android.content.Context
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -72,6 +75,13 @@ fun SettingsScreen(
     onManageDataClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var section by rememberSaveable { mutableStateOf<String?>(null) }
+    val ctx = LocalContext.current
+    val prefs = remember(ctx) { ctx.getSharedPreferences("app_settings", Context.MODE_PRIVATE) }
+    var defaultPeriod by rememberSaveable { mutableStateOf(runCatching {
+        TimelinePeriod.valueOf(prefs.getString("timeline_period", null).orEmpty())
+    }.getOrDefault(TimelinePeriod.ThreeDays)) }
+    BackHandler(enabled = section != null) { section = null }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -79,6 +89,20 @@ fun SettingsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        if (section == null) {
+            listOf("display" to R.string.settings_display_title, "plans" to R.string.daily_plan_title,
+                "data" to R.string.manage_data_title).forEach { (key, label) ->
+                Card(Modifier.fillMaxWidth().clickable { if (key == "data") onManageDataClick() else section = key }) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp)) {
+                        Text(stringResource(label), Modifier.weight(1f))
+                        Icon(Icons.Filled.ChevronRight, contentDescription = null)
+                    }
+                }
+            }
+        } else {
+            TextButton(onClick = { section = null }) { Text(stringResource(R.string.action_back)) }
+        }
+        if (section == "display") {
         Text(
             stringResource(R.string.settings_display_title),
             style = MaterialTheme.typography.titleMedium
@@ -109,43 +133,16 @@ fun SettingsScreen(
             }
         }
 
-        DailyPlansEditor(
-            dailyPlans = dailyPlans,
-            taskOptions = taskOptions,
-            onDailyPlansChange = onDailyPlansChange
-        )
-
-        Text(
-            stringResource(R.string.settings_data_title),
-            style = MaterialTheme.typography.titleMedium
-        )
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onManageDataClick)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        stringResource(R.string.manage_data_title),
-                        style = MaterialTheme.typography.titleSmall
-                    )
-                    Text(
-                        stringResource(R.string.settings_manage_data_description),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Icon(
-                    Icons.Filled.ChevronRight,
-                    contentDescription = stringResource(R.string.settings_open_manage_data)
-                )
-            }
+        Text(stringResource(R.string.settings_timeline_default))
+        TimelinePeriod.entries.forEach { period ->
+            FilterChip(selected = defaultPeriod == period, onClick = {
+                defaultPeriod = period
+                prefs.edit().putString("timeline_period", period.name).apply()
+            }, label = { Text(stringResource(period.label)) })
+        }
+        }
+        if (section == "plans") {
+            DailyPlansEditor(dailyPlans, taskOptions, onDailyPlansChange)
         }
     }
 }

@@ -33,7 +33,7 @@ fun createWeeklyReportPdf(
     val document = PdfDocument()
 
     try {
-        WeeklyTimelinePdfWriter(document).write(data)
+        WeeklyTimelinePdfWriter(document, context).write(data)
         AdvancedAnalysisPdfWriter(
             document = document,
             stringResolver = context::getString,
@@ -59,7 +59,8 @@ fun createWeeklyReportPdf(
 }
 
 private class WeeklyTimelinePdfWriter(
-    private val document: PdfDocument
+    private val document: PdfDocument,
+    private val context: Context
 ) {
     private val pageWidth = A4_PORTRAIT_WIDTH_POINTS.toFloat()
     private val pageHeight = A4_PORTRAIT_HEIGHT_POINTS.toFloat()
@@ -89,7 +90,7 @@ private class WeeklyTimelinePdfWriter(
         canvas.drawRect(0f, 0f, pageWidth, 58f, paint)
         drawText(
             canvas,
-            "TimeRecorder Weekly Report",
+            context.getString(R.string.weekly_report_share_subject),
             margin,
             28f,
             18f,
@@ -98,7 +99,7 @@ private class WeeklyTimelinePdfWriter(
         )
         drawText(
             canvas,
-            "7-day Timeline, Daily Plan Achievement and Analysis",
+            context.getString(R.string.pdf_weekly_subtitle),
             margin,
             46f,
             8.5f,
@@ -110,10 +111,9 @@ private class WeeklyTimelinePdfWriter(
         val rangeLabel = "${dateFormat.format(Date(timeline.range.startMs))} - " +
                 dateFormat.format(Date(timeline.range.endMs - 1L))
         drawText(canvas, rangeLabel, margin, 77f, 10f, Color.rgb(36, 48, 61), true)
-        val detail = "Timeline ${formatMinute(timeline.displayStartMinute)} - " +
-                "${formatMinute(timeline.displayEndMinute)}  |  " +
-                "記録 ${formatDurationForWeekly(data.analysis.quality.recordedMs)}  |  " +
-                "記録率 ${formatPercentForWeekly(data.analysis.quality.coverageRate)}"
+        val detail = context.getString(R.string.pdf_weekly_detail,
+            formatMinute(timeline.displayStartMinute), formatMinute(timeline.displayEndMinute),
+            formatDurationForWeekly(data.analysis.quality.recordedMs), formatPercentForWeekly(data.analysis.quality.coverageRate))
         drawText(canvas, detail, margin, 91f, 8f, Color.rgb(82, 95, 109))
     }
 
@@ -150,8 +150,8 @@ private class WeeklyTimelinePdfWriter(
                 paint
             )
             val achievementLabel = achievementsByDay[day.startMs]?.let { achievement ->
-                "達成 ${formatPercentForWeekly(achievement.achievementRate)}"
-            } ?: "達成 --"
+                context.getString(R.string.pdf_achievement, formatPercentForWeekly(achievement.achievementRate))
+            } ?: context.getString(R.string.pdf_achievement, "--")
             configurePaint(6.5f, Color.rgb(82, 95, 109), false)
             canvas.drawText(
                 achievementLabel,

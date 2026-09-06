@@ -4,6 +4,7 @@ import android.app.DatePickerDialog
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -299,7 +300,7 @@ private fun AnalysisTaskPicker(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = stringResource(R.string.label_select_task),
+                text = stringResource(R.string.comprehensive_analysis_title),
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f)
             )
@@ -342,6 +343,7 @@ private fun AnalysisTaskPicker(
                             titleStyle = true,
                             hasChildren = group.children.isNotEmpty(),
                             onClick = null,
+                            onLongClick = { viewModel.requestTaskEdit(group.parent.id, group.parent.name) },
                             onAnalyze = { onAnalyze(rootChoice) }
                         )
                         Spacer(Modifier.height(8.dp))
@@ -357,6 +359,7 @@ private fun AnalysisTaskPicker(
                             )
                             AnalysisTaskRow(
                                 name = child.name,
+                                onLongClick = { viewModel.requestTaskEdit(child.id, child.name) },
                                 color = choice.color,
                                 checked = child.id in checkedTaskIds,
                                 onCheckedChange = { onToggleChecked(child.id) },
@@ -448,6 +451,7 @@ private fun AnalysisSubtaskPicker(
                     )
                     AnalysisTaskRow(
                         name = child.name,
+                        onLongClick = { viewModel.requestTaskEdit(child.id, child.name) },
                         color = choice.color,
                         checked = child.id in checkedTaskIds,
                         onCheckedChange = { onToggleChecked(child.id) },
@@ -515,6 +519,7 @@ private fun AnalysisTaskRow(
     onCheckedChange: () -> Unit,
     hasChildren: Boolean,
     onClick: (() -> Unit)?,
+    onLongClick: () -> Unit = {},
     onAnalyze: () -> Unit,
     titleStyle: Boolean = false
 ) {
@@ -524,8 +529,9 @@ private fun AnalysisTaskRow(
         .then(
             if (titleStyle) Modifier else Modifier
                 .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(2.dp))
-                .clickable(enabled = onClick != null) { onClick?.invoke() }
+
         )
+        .combinedClickable(onClick = { onClick?.invoke() }, onLongClick = onLongClick)
         .padding(horizontal = if (titleStyle) 0.dp else 12.dp)
     Row(
         modifier = rowModifier,

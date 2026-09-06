@@ -172,7 +172,8 @@ object AdvancedAnalysisEngine {
         events: List<AnalysisEvent>,
         request: AnalysisRequest,
         dailyPlans: DailyPlans = DailyPlans(),
-        completedThroughMs: Long = Long.MAX_VALUE
+        completedThroughMs: Long = Long.MAX_VALUE,
+        unspecifiedLabel: String = ""
     ): AdvancedAnalysisResult {
         val range = rangeFor(request)
         val timeZone = TimeZone.getTimeZone(request.timeZoneId)
@@ -187,7 +188,7 @@ object AdvancedAnalysisEngine {
         val windowByStart = windows.associateBy { it.startMs }
         val targetCache = mutableMapOf<Long, Target>()
         fun targetFor(event: AnalysisEvent): Target = targetCache.getOrPut(event.taskId) {
-            resolveTarget(event.path, request.level)
+            resolveTarget(event.path, request.level, unspecifiedLabel)
         }
 
         val validEvents = events
@@ -663,7 +664,8 @@ object AdvancedAnalysisEngine {
 
     private fun resolveTarget(
         path: List<AnalysisCategoryNode>,
-        level: AnalysisLevel
+        level: AnalysisLevel,
+        unspecifiedLabel: String
     ): Target {
         require(path.isNotEmpty()) { "category path must not be empty" }
         return when (level) {
@@ -679,8 +681,8 @@ object AdvancedAnalysisEngine {
                 val node = path.getOrNull(1)
                 Target(
                     id = node?.id ?: syntheticId(parent.id, 2),
-                    name = node?.name ?: "未指定",
-                    pathLabel = listOf(parent.name, node?.name ?: "未指定").joinToString(" / "),
+                    name = node?.name ?: unspecifiedLabel,
+                    pathLabel = listOf(parent.name, node?.name ?: unspecifiedLabel).joinToString(" / "),
                     parentId = parent.id
                 )
             }
@@ -690,12 +692,12 @@ object AdvancedAnalysisEngine {
                 val node = path.getOrNull(2)
                 val names = buildList {
                     add(path.first().name)
-                    add(path.getOrNull(1)?.name ?: "未指定")
-                    add(node?.name ?: "未指定")
+                    add(path.getOrNull(1)?.name ?: unspecifiedLabel)
+                    add(node?.name ?: unspecifiedLabel)
                 }
                 Target(
                     id = node?.id ?: syntheticId(parent.id, 3),
-                    name = node?.name ?: "未指定",
+                    name = node?.name ?: unspecifiedLabel,
                     pathLabel = names.joinToString(" / "),
                     parentId = parent.id
                 )

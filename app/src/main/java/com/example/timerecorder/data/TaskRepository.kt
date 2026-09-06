@@ -1,6 +1,7 @@
 package com.example.timerecorder.data
 
 import androidx.room.withTransaction
+import com.example.timerecorder.R
 import com.example.timerecorder.NextTaskPredictor
 import com.example.timerecorder.data.db.ActiveTaskEntity
 import com.example.timerecorder.data.db.ActiveWithTask
@@ -51,7 +52,8 @@ enum class TaskDeletionMode {
 class TaskRepository(
     private val db: AppDatabase,
     private val sessionDao: SessionDao,
-    private val taskDao: TaskDao
+    private val taskDao: TaskDao,
+    private val stringResolver: (Int) -> String = { it.toString() }
 ) {
     // ---------------- 観測系 ----------------
     fun observeTree(): Flow<List<ParentWithChildren>> =
@@ -90,9 +92,9 @@ class TaskRepository(
         mergeThresholdSec: Long = 60
     ): SwitchResult = db.withTransaction {
         val newTask = requireNotNull(taskDao.getTaskById(newTaskId)) {
-            "開始するタスクが見つかりません"
+            stringResolver(R.string.error_task_missing)
         }
-        require(!newTask.isArchived) { "非表示のタスクは開始できません" }
+        require(!newTask.isArchived) { stringResolver(R.string.error_task_archived) }
         val active = sessionDao.getActive()
         val thresholdMs = mergeThresholdSec * 1000L
         val decision = TaskSwitchPolicy.decide(
@@ -186,7 +188,52 @@ class TaskRepository(
     }
 
     suspend fun changeColor(id: Long, colorInt: Int) = taskDao.updateTaskColor(id, colorInt)
-    suspend fun renameTask(taskId: Long, newName: String) = taskDao.updateTaskName(taskId, newName)
+    suspend fun changeRunningTask(expectedTaskId: Long, expectedStart: Long, newTaskId: Long): Boolean = db.withTransaction {
+        val active = sessionDao.getActive() ?: return@withTransaction false
+        if (active.taskId != expectedTaskId || active.startedAt != expectedStart) return@withTransaction false
+        val target = taskDao.getTaskById(newTaskId) ?: return@withTransaction false
+        if (target.isArchived) return@withTransaction false
+        sessionDao.changeActiveTask(active.id, newTaskId)
+        taskDao.upsertActive(ActiveTaskEntity(taskId = newTaskId, startedAtEpochMs = active.startedAt))
+        true
+    }
+
+    private suspend fun resolveTaskName(parentId: Long?, name: String, sourceId: Long?, decisions: Map<String, TaskNameDecision>): Pair<Long?, String> {
+        val siblings = taskDao.getChildrenOnce(parentId).filter { it.id != sourceId }
+        val duplicate = siblings.firstOrNull { sameTaskName(it.name, name) } ?: return null to name
+        val key = "$parentId/$sourceId/$name"
+        val choice = decisions[key] ?: decisions["*"]
+            ?: throw TaskNameConflict(key, name, parentId?.let { getTaskPathLabel(it) }.orEmpty())
+        if (choice.merge) return duplicate.id to name
+        val renamed = choice.newName.trim().take(128).takeIf { it.isNotEmpty() && siblings.none { t -> sameTaskName(t.name, it) } }
+            ?: uniqueTaskName(name, siblings.map { it.name })
+        return null to renamed
+    }
+
+    suspend fun addTaskResolving(name: String, parentId: Long?, decisions: Map<String, TaskNameDecision>): Long = db.withTransaction {
+        val (existing, resolved) = resolveTaskName(parentId, name, null, decisions)
+        existing ?: addTask(resolved, parentId)
+    }
+
+    suspend fun renameTask(taskId: Long, newName: String, decisions: Map<String, TaskNameDecision>): Map<Long, Long> = db.withTransaction {
+        val remapped = mutableMapOf<Long, Long>()
+        suspend fun merge(source: Long, target: Long) {
+            taskDao.getChildrenIncludingArchived(source).forEach { child ->
+                val (existing, resolved) = resolveTaskName(target, child.name, child.id, decisions)
+                if (existing != null) merge(child.id, existing)
+                else taskDao.updateTask(child.copy(parentId = target, name = resolved))
+            }
+            taskDao.replaceEventTask(source, target)
+            sessionDao.replaceTask(source, target)
+            taskDao.replaceActiveTask(source, target)
+            taskDao.deleteTaskById(source)
+            remapped[source] = target
+        }
+        val source = taskDao.getTaskById(taskId) ?: return@withTransaction emptyMap()
+        val (target, resolved) = resolveTaskName(source.parentId, newName, taskId, decisions)
+        if (target == null) taskDao.updateTaskName(taskId, resolved) else merge(taskId, target)
+        remapped
+    }
     suspend fun updateSortOrdersForParent(parentId: Long, idsInOrder: List<Long>) =
         taskDao.updateSortOrdersForParent(parentId, idsInOrder)
 
@@ -254,9 +301,9 @@ class TaskRepository(
         if (persistedIds.isEmpty()) return 0
         return db.withTransaction {
             val destination = requireNotNull(taskDao.getTaskById(newTaskId)) {
-                "変更先タスクが見つかりません"
+                stringResolver(R.string.error_destination_missing)
             }
-            require(!destination.isArchived) { "非表示のタスクには変更できません" }
+            require(!destination.isArchived) { stringResolver(R.string.error_destination_archived) }
             taskDao.updateEventTasks(persistedIds, newTaskId)
         }
     }
@@ -286,15 +333,15 @@ class TaskRepository(
         replacementTaskId: Long? = null,
         nowMs: Long = System.currentTimeMillis()
     ) = db.withTransaction {
-        val root = requireNotNull(taskDao.getTaskById(rootId)) { "削除対象が見つかりません" }
-        check(!root.isArchived) { "削除対象は既に非表示です" }
+        val root = requireNotNull(taskDao.getTaskById(rootId)) { stringResolver(R.string.error_delete_missing) }
+        check(!root.isArchived) { stringResolver(R.string.error_delete_archived) }
         val ids = getTaskTreeIds(rootId)
         if (ids.isEmpty()) return@withTransaction
 
         when (mode) {
             TaskDeletionMode.PromoteToParent -> {
                 val destinationId = requireNotNull(root.parentId) {
-                    "最上位の項目は1階層上へ変更できません"
+                    stringResolver(R.string.error_promote_root)
                 }
                 replaceTaskReferences(ids, destinationId)
                 deleteTaskTreeInCurrentTransaction(rootId)
@@ -302,13 +349,13 @@ class TaskRepository(
 
             TaskDeletionMode.Replace -> {
                 val destinationId = requireNotNull(replacementTaskId) {
-                    "置換先タスクを選択してください"
+                    stringResolver(R.string.error_replacement_required)
                 }
-                require(destinationId !in ids) { "削除対象の配下は置換先にできません" }
+                require(destinationId !in ids) { stringResolver(R.string.error_replacement_descendant) }
                 val destination = requireNotNull(taskDao.getTaskById(destinationId)) {
-                    "置換先タスクが見つかりません"
+                    stringResolver(R.string.error_replacement_missing)
                 }
-                require(!destination.isArchived) { "非表示のタスクは置換先にできません" }
+                require(!destination.isArchived) { stringResolver(R.string.error_replacement_archived) }
                 replaceTaskReferences(ids, destinationId)
                 deleteTaskTreeInCurrentTransaction(rootId)
             }
@@ -380,7 +427,7 @@ class TaskRepository(
         }.toString(2)
     }
 
-    suspend fun importTasksJson(json: String, replaceAll: Boolean) = db.withTransaction {
+    suspend fun importTasksJson(json: String, replaceAll: Boolean, decisions: Map<String, TaskNameDecision> = emptyMap()) = db.withTransaction {
         val current = observeTree().first()
 
         if (replaceAll) {
@@ -397,8 +444,8 @@ class TaskRepository(
             val name = node.optString("name", "").trim().take(128)
             if (name.isEmpty()) return
 
-            val taskId = taskDao.findTaskIdByNameInParent(parentId, name)
-                ?: addTask(name, parentId)
+            val (existing, resolved) = resolveTaskName(parentId, name, null, decisions)
+            val taskId = existing ?: addTask(resolved, parentId)
 
             if (node.has("color") && !node.isNull("color")) {
                 changeColor(taskId, node.getInt("color"))
@@ -640,13 +687,27 @@ class TaskRepository(
     suspend fun importEventsTsv(
         tsv: String,
         clearExistingEvents: Boolean = false,
-        createMissingTasks: Boolean = true
+        createMissingTasks: Boolean = true,
+        decisions: Map<String, TaskNameDecision> = emptyMap()
     ): Int = db.withTransaction {
         if (clearExistingEvents) {
             taskDao.clearAllEvents()
         }
 
         var imported = 0
+        // Repeated TSV rows for the same path reuse the decision and task ID.
+        val importedNames = mutableMapOf<Pair<Long?, String>, Long>()
+        suspend fun resolveImported(parent: Long?, name: String): Long {
+            val key = parent to name.trim().lowercase(java.util.Locale.ROOT)
+            importedNames[key]?.let { return it }
+            val (existing, resolved) = resolveTaskName(parent, name.trim().take(128), null, decisions)
+            val id = existing ?: run {
+                check(createMissingTasks) { "Task '$name' not found" }
+                addTask(resolved, parent)
+            }
+            importedNames[key] = id
+            return id
+        }
 
         fun parseLongOrNull(s: String?) = s?.trim()?.takeIf { it.isNotEmpty() }?.toLongOrNull()
 
@@ -656,31 +717,10 @@ class TaskRepository(
             taskName: String?,
             subtaskName: String?
         ): Long {
-            // 親（プロジェクト）
-            var projectId = taskDao.findTaskIdByNameInParent(null, eventName)
-            if (projectId == null) {
-                check(createMissingTasks) { "project '$eventName' not found" }
-                projectId = addTask(eventName, null)
-            }
-
-            // 子（タスク）
-            val taskBaseName = taskName ?: subtaskName ?: error("task/subtask name missing")
-            var childId = taskDao.findTaskIdByNameInParent(projectId, taskBaseName)
-            if (childId == null) {
-                check(createMissingTasks) { "task '$taskBaseName' under '$eventName' not found" }
-                childId = addTask(taskBaseName, projectId)
-            }
-
-            // サブタスク
-            if (!subtaskName.isNullOrBlank()) {
-                var subId = taskDao.findTaskIdByNameInParent(childId, subtaskName)
-                if (subId == null) {
-                    check(createMissingTasks) { "subtask '$subtaskName' under '$taskBaseName' not found" }
-                    subId = addTask(subtaskName, childId)
-                }
-                return subId
-            }
-            return childId
+            val projectId = resolveImported(null, eventName)
+            if (taskName.isNullOrBlank() && subtaskName.isNullOrBlank()) return projectId
+            val childId = resolveImported(projectId, taskName ?: requireNotNull(subtaskName))
+            return if (!subtaskName.isNullOrBlank()) resolveImported(childId, subtaskName) else childId
         }
 
         // 1行ずつ

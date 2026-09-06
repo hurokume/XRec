@@ -38,7 +38,7 @@ class ActiveTaskService : LifecycleService() {
 
         val database = AppDatabase.get(applicationContext, lifecycleScope)
         taskDao = database.taskDao()
-        repository = TaskRepository(database, database.sessionDao(), taskDao)
+        repository = TaskRepository(database, database.sessionDao(), taskDao, ::getString)
 
         startAsForeground()
         observeActiveTask()

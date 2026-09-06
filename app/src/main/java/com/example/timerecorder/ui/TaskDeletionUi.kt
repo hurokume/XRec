@@ -3,6 +3,7 @@ package com.example.timerecorder.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -279,6 +280,7 @@ private fun ReplacementTaskList(
                         children.forEach { child ->
                             SelectionCard(
                                 label = child.name,
+                                onLongClick = { viewModel.requestTaskEdit(child.id, child.name) },
                                 color = projectColor,
                                 cornerRadius = 2,
                                 onClick = {
@@ -338,15 +340,22 @@ private fun ReplacementSubtaskList(
             onBack = onBack
         )
 
-        if (availableSubtasks.isEmpty()) {
+        if (availableSubtasks.isEmpty() && (subtasks.isEmpty() || state.taskId in excludedTaskIds)) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(stringResource(R.string.replacement_no_subtasks))
             }
         } else {
             LazyColumn(modifier = Modifier.weight(1f)) {
+                if (subtasks.isNotEmpty() && state.taskId !in excludedTaskIds) {
+                    item {
+                        SelectionCard(label = stringResource(R.string.subtask_none), color = state.color, cornerRadius = 8,
+                            onClick = { onPick(state.taskId, "${state.projectName} / ${state.taskName}") })
+                    }
+                }
                 items(availableSubtasks, key = { it.id }) { subtask ->
                     SelectionCard(
                         label = subtask.name,
+                        onLongClick = { viewModel.requestTaskEdit(subtask.id, subtask.name) },
                         color = state.color,
                         cornerRadius = 8,
                         onClick = {
@@ -403,6 +412,7 @@ private fun SelectionCard(
     label: String,
     color: Color,
     cornerRadius: Int,
+    onLongClick: () -> Unit = {},
     onClick: () -> Unit
 ) {
     val shape = androidx.compose.foundation.shape.RoundedCornerShape(cornerRadius.dp)
@@ -410,8 +420,8 @@ private fun SelectionCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .border(1.dp, MaterialTheme.colorScheme.outline, shape),
-        onClick = onClick,
+            .border(1.dp, MaterialTheme.colorScheme.outline, shape)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = shape
     ) {

@@ -1,6 +1,11 @@
 package com.example.timerecorder.ui
 
 import android.app.Application
+import com.example.timerecorder.data.TaskNameConflict
+import com.example.timerecorder.data.TaskNameDecision
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -58,6 +63,7 @@ private const val DEFAULT_MERGE_THRESHOLD_SECONDS: Long = 60
 
 sealed interface UiEvent {
     data class ShowMessage(val message: String) : UiEvent
+    data object TasksMerged : UiEvent
 }
 
 data class AdvancedAnalysisUiState(
@@ -73,17 +79,44 @@ data class TaskAnalysisUiState(
     val errorMessage: String? = null
 )
 
-class TaskViewModel(app: Application) : AndroidViewModel(app) {
+class TaskViewModel @JvmOverloads constructor(app: Application, database: AppDatabase? = null) : AndroidViewModel(app) {
+    private val conflictMutex = Mutex()
+    val nameConflict = MutableStateFlow<TaskNameConflict?>(null)
+    val editingTask = MutableStateFlow<Pair<Long, String>?>(null)
+    private var conflictAnswer: CompletableDeferred<TaskNameDecision>? = null
+    fun requestTaskEdit(id: Long, name: String) { editingTask.value = id to name }
+    fun answerNameConflict(answer: TaskNameDecision?) {
+        if (answer == null) conflictAnswer?.cancel() else conflictAnswer?.complete(answer)
+    }
+    private suspend fun <T> resolveNames(action: suspend (Map<String, TaskNameDecision>) -> T): T = conflictMutex.withLock {
+        val decisions = mutableMapOf<String, TaskNameDecision>()
+        while (true) {
+            try { return@withLock action(decisions) }
+            catch (conflict: TaskNameConflict) {
+                // Transaction rolled back before the prompt; recording remains available.
+                val answer = CompletableDeferred<TaskNameDecision>()
+                conflictAnswer = answer
+                nameConflict.value = conflict
+                try {
+                    val choice = answer.await()
+                    decisions[conflict.key] = choice
+                    if (choice.applyAll) decisions["*"] = choice.copy(newName = "")
+                } finally { nameConflict.value = null; conflictAnswer = null }
+            }
+        }
+        @Suppress("UNREACHABLE_CODE") error("unreachable")
+    }
 
     private fun text(@StringRes resourceId: Int, vararg formatArgs: Any): String =
         getApplication<Application>().getString(resourceId, *formatArgs)
 
-    private val db = AppDatabase.get(app.applicationContext, viewModelScope)
+    private val db = database ?: AppDatabase.get(app.applicationContext, viewModelScope)
     private val taskDao: TaskDao = db.taskDao()
     private val repo: TaskRepository = TaskRepository(
         db = db,
         sessionDao = db.sessionDao(),
-        taskDao = taskDao
+        taskDao = taskDao,
+        stringResolver = { text(it) }
     )
 
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
@@ -136,6 +169,10 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun children(parentId: Long) = repo.observeChildren(parentId)
+    suspend fun recordForEdit(eventId: Long) = taskDao.getEventById(eventId)
+
+    suspend fun changeRunningTask(expectedTaskId: Long, expectedStart: Long, newTaskId: Long): Boolean =
+        repo.changeRunningTask(expectedTaskId, expectedStart, newTaskId)
     suspend fun hasChildren(taskId: Long) = repo.hasChildren(taskId)
 
     private val _historyItems = MutableStateFlow<List<HistoryItemUi>>(emptyList())
@@ -213,16 +250,33 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun addParentTask(name: String) = viewModelScope.launch { repo.addTask(name, null) }
+    fun addParentTask(name: String) = viewModelScope.launch { resolveNames { repo.addTaskResolving(name.trim().take(128), null, it) } }
     fun addChildTask(parentId: Long, name: String) =
-        viewModelScope.launch { repo.addTask(name, parentId) }
+        viewModelScope.launch { resolveNames { repo.addTaskResolving(name.trim().take(128), parentId, it) } }
 
     fun changeParentColor(parentId: Long, color: Color) =
         viewModelScope.launch { repo.changeColor(parentId, color.toArgb()) }
 
     fun renameTask(taskId: Long, newName: String) = viewModelScope.launch {
         val trimmed = newName.trim().take(128)
-        if (trimmed.isNotEmpty()) repo.renameTask(taskId, trimmed)
+        if (trimmed.isNotEmpty()) {
+            val mapping = resolveNames { repo.renameTask(taskId, trimmed, it) }
+            if (mapping.isNotEmpty()) {
+                val prefs = getApplication<Application>().getSharedPreferences("app_settings", 0)
+                val plans = com.example.timerecorder.data.DailyPlansCodec.decode(prefs.getString("daily_plans", null))
+                val updated = plans.copy(
+                    weekdays = plans.weekdays.map { it.copy(targetTaskId = mapping[it.targetTaskId] ?: it.targetTaskId) },
+                    holidays = plans.holidays.map { it.copy(targetTaskId = mapping[it.targetTaskId] ?: it.targetTaskId) })
+                prefs.edit().putString("daily_plans", com.example.timerecorder.data.DailyPlansCodec.encode(updated)).apply()
+                val stats = getApplication<Application>().getSharedPreferences("stats_prefs", 0)
+                stats.getString("stats_included_leaf_ids", null)?.let { csv ->
+                    stats.edit().putString("stats_included_leaf_ids", csv.split(',').mapNotNull { it.toLongOrNull() }
+                        .map { mapping[it] ?: it }.distinct().joinToString(",")).apply()
+                }
+                _events.emit(UiEvent.TasksMerged)
+            }
+            reloadHistory()
+        }
     }
 
     suspend fun taskTreeIds(taskId: Long): Set<Long> = repo.getTaskTreeIds(taskId).toSet()
@@ -322,7 +376,7 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
                     nowMs = request.nowMs
                 )
                 val result = withContext(Dispatchers.Default) {
-                    AdvancedAnalysisEngine.analyze(records, request, dailyPlans)
+                    AdvancedAnalysisEngine.analyze(records, request, dailyPlans, unspecifiedLabel = text(R.string.label_unspecified))
                 }
                 _advancedAnalysis.value = AdvancedAnalysisUiState(result = result)
             } catch (cancelled: CancellationException) {
@@ -408,7 +462,8 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
                     events = events,
                     request = request,
                     dailyPlans = dailyPlans,
-                    completedThroughMs = minOf(System.currentTimeMillis(), range.endMs)
+                    completedThroughMs = minOf(System.currentTimeMillis(), range.endMs),
+                    unspecifiedLabel = text(R.string.label_unspecified)
                 )
             )
         }
@@ -416,7 +471,7 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun exportTasksJson(): String = repo.exportTasksJson()
     suspend fun importTasksFromJson(json: String, replaceAll: Boolean) {
-        repo.importTasksJson(json, replaceAll)
+        resolveNames { repo.importTasksJson(json, replaceAll, it) }
     }
 
     suspend fun hasOverlap(startMs: Long, endMs: Long): Boolean = repo.hasOverlap(startMs, endMs)
@@ -651,5 +706,5 @@ class TaskViewModel(app: Application) : AndroidViewModel(app) {
         repo.getDaysWithData(startMs, endMs)
 
     suspend fun importEventsTsv(tsv: String, clearExisting: Boolean, createMissing: Boolean): Int =
-        repo.importEventsTsv(tsv, clearExisting, createMissing)
+        resolveNames { repo.importEventsTsv(tsv, clearExisting, createMissing, it) }
 }
