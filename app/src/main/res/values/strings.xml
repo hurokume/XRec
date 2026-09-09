@@ -411,7 +411,7 @@
     <string name="record_running_changed">The running task changed. Reopen the editor from Timeline.</string>
     <string name="timeline_three_days">3 days</string>
     <string name="timeline_five_days">5 days</string>
-    <string name="timeline_month">Monthly</string>
+    <string name="timeline_select_range">Select start and end dates</string>
     <string name="timeline_custom">Custom</string>
     <string name="settings_timeline_default">Default Timeline period</string>
     <string name="comprehensive_analysis_title">Comprehensive analysis</string>
@@ -446,4 +446,8 @@
     <string name="error_replacement_missing">Replacement task not found</string>
     <string name="error_replacement_archived">Hidden tasks cannot be replacements</string>
     <string name="duplicate_root">Projects</string>
+    <string name="timeline_select_year">Select year</string>
+    <string name="timeline_select_month">Select month</string>
+    <string name="timeline_range_start">Start: %1$s</string>
+    <string name="timeline_range_end">End: %1$s</string>
 </resources>

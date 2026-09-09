@@ -2593,6 +2593,8 @@ private fun TimelineScreen(
                                     eventId = eventId,
                                     startMs = cs,
                                     endMs = ce,
+                                    recordStartMs = s,
+                                    recordEndMs = e,
                                     name = name,
                                     color = colorFor(taskId),
                                     taskId = taskId
@@ -2655,7 +2657,10 @@ private data class TimelineBlock(
     val endMs: Long,
     val name: String,
     val color: Color,
-    val taskId: Long
+    val taskId: Long,
+    // Keep the full record bounds separate from the day-clipped drawing bounds.
+    val recordStartMs: Long = startMs,
+    val recordEndMs: Long = endMs
 )
 
 @Composable
@@ -2865,7 +2870,7 @@ private fun DayColumn(
                     .border(borderWidth, borderColor, RoundedCornerShape(0.dp))
                     .clickable {
                         onSelectEvent(b.eventId)
-                        onSelectBlock(b.eventId, b.taskId, b.startMs, b.endMs)
+                        onSelectBlock(b.eventId, b.taskId, b.recordStartMs, b.recordEndMs)
                     }
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {

@@ -18,10 +18,28 @@ class TimelineRangeTest {
             assertEquals(date(2026, 9, 7), end)
         }
     }
-    @Test fun monthlyPagingUsesCalendarMonthsAndLeapYears() {
-        val now = date(2024, 3, 31, 20)
-        assertEquals(date(2024, 2, 1) to date(2024, 3, 1), timelineBounds(TimelinePeriod.Monthly, now, -1, now, now))
-        assertEquals(date(2024, 4, 1) to date(2024, 5, 1), timelineBounds(TimelinePeriod.Monthly, now, 1, now, now))
+    @Test fun customRangeIncludesLeapDayAndCanCrossMonths() {
+        val now = date(2024, 3, 31)
+        assertEquals(date(2024, 2, 28) to date(2024, 3, 2),
+            timelineBounds(TimelinePeriod.Custom, now, 0, date(2024, 2, 28), date(2024, 3, 1)))
+    }
+    @Test fun retiredMonthlyPreferenceFallsBackToThreeDays() {
+        assertEquals(TimelinePeriod.ThreeDays, timelinePeriodFromPreference("Monthly"))
+        assertEquals(TimelinePeriod.Custom, timelinePeriodFromPreference("Custom"))
+    }
+    @Test fun pickerDatesKeepLocalCalendarDayInBothHemispheres() {
+        val previous = TimeZone.getDefault()
+        try {
+            for (zone in listOf("Asia/Tokyo", "America/Los_Angeles")) {
+                TimeZone.setDefault(TimeZone.getTimeZone(zone))
+                val local = date(2026, 3, 8)
+                val utc = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+                    clear(); set(2026, Calendar.MARCH, 8)
+                }.timeInMillis
+                assertEquals(utc, localDateToPickerMillis(local))
+                assertEquals(local, pickerMillisToLocalDate(utc))
+            }
+        } finally { TimeZone.setDefault(previous) }
     }
     @Test fun weeklyStartsOnSundayAndCustomIncludesLastDay() {
         val now = date(2026, 9, 9)

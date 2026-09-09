@@ -39,7 +39,11 @@ class EditingScreensTest {
         compose.onNodeWithText(text(R.string.settings_display_title)).assertIsDisplayed().performClick()
         compose.onNodeWithText(text(R.string.settings_stop_button_title)).assertIsDisplayed()
         compose.onNodeWithText(text(R.string.daily_plan_title)).assertDoesNotExist()
-        compose.onNodeWithText(text(R.string.timeline_month)).assertExists()
+        compose.onNodeWithText(text(R.string.timeline_custom)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.settings_timeline_default)).performClick()
+        compose.onNodeWithText(text(R.string.timeline_custom)).assertIsDisplayed()
+        compose.onNodeWithText("Monthly").assertDoesNotExist()
+        androidx.test.espresso.Espresso.pressBack()
         compose.onNodeWithText(text(R.string.action_back)).performClick()
         compose.onNodeWithText(text(R.string.daily_plan_title)).assertIsDisplayed()
     }
@@ -52,6 +56,50 @@ class EditingScreensTest {
         compose.onNodeWithText(text(R.string.record_running_description)).assertIsDisplayed()
         compose.onNodeWithText(text(R.string.label_end)).assertDoesNotExist()
         compose.onNodeWithText(text(R.string.action_save)).assertIsDisplayed()
+    }
+
+    @Test fun customTimelineSelectsAndAppliesBothDates() {
+        fun date(day: Int) = java.util.Calendar.getInstance().apply {
+            clear(); set(2026, java.util.Calendar.SEPTEMBER, day)
+        }.timeInMillis
+        val selected = java.util.concurrent.atomic.AtomicReference<Pair<Long, Long>?>(null)
+        val range = TimelineRange(TimelinePeriod.ThreeDays, date(1), date(4), {}, {}, { s, e -> selected.set(s to e) })
+        compose.setContent { MaterialTheme {
+            androidx.compose.foundation.layout.Column { TimelineRangeControls(range) }
+        } }
+        compose.onNodeWithContentDescription(text(R.string.timeline_previous)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.action_previous)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.timeline_custom)).performClick()
+        compose.onNodeWithText(text(R.string.timeline_select_range)).assertIsDisplayed()
+        val dateLabel = java.text.DateFormat.getDateInstance(
+            java.text.DateFormat.FULL, app.resources.configuration.locales[0]
+        )
+        compose.onNodeWithContentDescription(dateLabel.format(java.util.Date(date(10)))).performClick()
+        compose.onNodeWithText(text(R.string.action_apply)).assertIsNotEnabled()
+        compose.onNodeWithContentDescription(dateLabel.format(java.util.Date(date(12)))).performClick()
+        Assert.assertNull(selected.get())
+        compose.onNodeWithText(text(R.string.action_apply)).performClick()
+        Assert.assertEquals(date(10) to date(12), selected.get())
+
+        // Jump across years and months without typing, then select a cross-month range.
+        compose.onNodeWithText(text(R.string.timeline_custom)).performClick()
+        compose.onNodeWithText("2026").performClick()
+        compose.onNodeWithText(text(R.string.timeline_select_year)).assertIsDisplayed()
+        compose.onNodeWithText("2025").performClick()
+        val months = java.text.DateFormatSymbols(app.resources.configuration.locales[0]).months
+        compose.onNodeWithText(months[8]).performClick()
+        compose.onNodeWithText(text(R.string.timeline_select_month)).assertIsDisplayed()
+        compose.onNodeWithText(months[11]).performClick()
+        val start = java.util.Calendar.getInstance().apply { clear(); set(2025, 11, 31) }.timeInMillis
+        val end = java.util.Calendar.getInstance().apply { clear(); set(2026, 0, 2) }.timeInMillis
+        compose.onNodeWithContentDescription(dateLabel.format(java.util.Date(start))).performClick()
+        compose.onNodeWithText("2025").performClick()
+        compose.onNodeWithText("2026").performClick()
+        compose.onNodeWithText(months[11]).performClick()
+        compose.onNodeWithText(months[0]).performClick()
+        compose.onNodeWithContentDescription(dateLabel.format(java.util.Date(end))).performClick()
+        compose.onNodeWithText(text(R.string.action_apply)).performClick()
+        Assert.assertEquals(start to end, selected.get())
     }
 
     @Test fun selectingNoneRecordsTheTaskWithSubtasks() = runBlocking {
@@ -82,7 +130,7 @@ class EditingScreensTest {
             set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0)
             set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
         }.timeInMillis
-        val start = midnight - 3_600_000L
+        val start = midnight - 25 * 3_600_000L
         val end = midnight + 7_200_000L
         db.taskDao().insertEvent(com.example.timerecorder.data.db.TaskEventEntity(
             taskId = task, pressedAtEpochMs = start, durationMillis = end - start))
@@ -95,6 +143,11 @@ class EditingScreensTest {
         compose.onNodeWithText(text(R.string.action_today)).performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Night record").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Night record").performClick()
+        // Today's visible fragment is two hours, but the selected record spans 27 hours.
+        compose.onNodeWithText("(27:00)", substring = true).assertIsDisplayed()
+        val clock = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        compose.onNodeWithText("${clock.format(java.util.Date(start))} - ${clock.format(java.util.Date(end))}")
+            .assertIsDisplayed()
         compose.onNodeWithContentDescription(text(R.string.bottom_edit_record)).performClick()
         compose.waitUntil(10_000) { opened.get() != null }
         Assert.assertEquals(start to end, opened.get())

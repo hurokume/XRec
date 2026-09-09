@@ -409,7 +409,7 @@
     <string name="record_running_changed">実行中のタスクが変更されています。Timelineから編集画面を開き直してください。</string>
     <string name="timeline_three_days">3日間</string>
     <string name="timeline_five_days">5日間</string>
-    <string name="timeline_month">月間</string>
+    <string name="timeline_select_range">開始日と終了日を選択</string>
     <string name="timeline_custom">カスタム</string>
     <string name="settings_timeline_default">Timelineの既定表示期間</string>
     <string name="comprehensive_analysis_title">総合解析</string>
@@ -444,4 +444,8 @@
     <string name="error_replacement_missing">置換先タスクが見つかりません</string>
     <string name="error_replacement_archived">非表示のタスクは置換先にできません</string>
     <string name="duplicate_root">プロジェクト一覧</string>
+    <string name="timeline_select_year">年を選択</string>
+    <string name="timeline_select_month">月を選択</string>
+    <string name="timeline_range_start">開始日: %1$s</string>
+    <string name="timeline_range_end">終了日: %1$s</string>
 </resources>

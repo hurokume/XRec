@@ -30,6 +30,11 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,6 +70,7 @@ data class DailyPlanTaskOption(
     val colorInt: Int? = null
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     showStopButton: Boolean,
@@ -78,9 +84,8 @@ fun SettingsScreen(
     var section by rememberSaveable { mutableStateOf<String?>(null) }
     val ctx = LocalContext.current
     val prefs = remember(ctx) { ctx.getSharedPreferences("app_settings", Context.MODE_PRIVATE) }
-    var defaultPeriod by rememberSaveable { mutableStateOf(runCatching {
-        TimelinePeriod.valueOf(prefs.getString("timeline_period", null).orEmpty())
-    }.getOrDefault(TimelinePeriod.ThreeDays)) }
+    var defaultPeriod by rememberSaveable { mutableStateOf(timelinePeriodFromPreference(prefs.getString("timeline_period", null))) }
+    var periodMenuExpanded by remember { mutableStateOf(false) }
     BackHandler(enabled = section != null) { section = null }
     Column(
         modifier = modifier
@@ -133,12 +138,27 @@ fun SettingsScreen(
             }
         }
 
-        Text(stringResource(R.string.settings_timeline_default))
-        TimelinePeriod.entries.forEach { period ->
-            FilterChip(selected = defaultPeriod == period, onClick = {
-                defaultPeriod = period
-                prefs.edit().putString("timeline_period", period.name).apply()
-            }, label = { Text(stringResource(period.label)) })
+        ExposedDropdownMenuBox(
+            expanded = periodMenuExpanded,
+            onExpandedChange = { periodMenuExpanded = it }
+        ) {
+            OutlinedTextField(
+                value = stringResource(defaultPeriod.label),
+                onValueChange = {},
+                readOnly = true,
+                label = { Text(stringResource(R.string.settings_timeline_default)) },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = periodMenuExpanded) },
+                modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth()
+            )
+            ExposedDropdownMenu(expanded = periodMenuExpanded, onDismissRequest = { periodMenuExpanded = false }) {
+                TimelinePeriod.entries.forEach { period ->
+                    DropdownMenuItem(text = { Text(stringResource(period.label)) }, onClick = {
+                        defaultPeriod = period
+                        prefs.edit().putString("timeline_period", period.name).apply()
+                        periodMenuExpanded = false
+                    })
+                }
+            }
         }
         }
         if (section == "plans") {
