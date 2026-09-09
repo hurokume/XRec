@@ -450,4 +450,11 @@
     <string name="timeline_select_month">Select month</string>
     <string name="timeline_range_start">Start: %1$s</string>
     <string name="timeline_range_end">End: %1$s</string>
+    <string name="stats_yesterday">Yesterday</string>
+    <string name="stats_one_day">1 day</string>
+    <string name="stats_seven_days">7 days</string>
+    <string name="stats_thirty_days">30 days</string>
+    <string name="stats_ninety_days">90 days</string>
+    <string name="stats_one_year">1 year</string>
+    <string name="stats_selected_period_summary">Period: %1$s / Total %2$d min</string>
 </resources>

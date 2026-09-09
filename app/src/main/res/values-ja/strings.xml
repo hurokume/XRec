@@ -448,4 +448,11 @@
     <string name="timeline_select_month">月を選択</string>
     <string name="timeline_range_start">開始日: %1$s</string>
     <string name="timeline_range_end">終了日: %1$s</string>
+    <string name="stats_yesterday">昨日</string>
+    <string name="stats_one_day">1日</string>
+    <string name="stats_seven_days">7日</string>
+    <string name="stats_thirty_days">30日</string>
+    <string name="stats_ninety_days">90日</string>
+    <string name="stats_one_year">1年</string>
+    <string name="stats_selected_period_summary">期間: %1$s / 合計 %2$d 分</string>
 </resources>

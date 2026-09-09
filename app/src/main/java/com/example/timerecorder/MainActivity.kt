@@ -3018,15 +3018,15 @@ private fun StatsScreen(
     val activeUi by viewModel.activeUi.collectAsStateWithLifecycle()
     val parents by viewModel.parents.collectAsStateWithLifecycle()
 
-    var days by rememberSaveable { mutableIntStateOf(7) }
+    var period by rememberSaveable { mutableStateOf(com.example.timerecorder.ui.StatisticsPeriod.SevenDays) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-
-    val dayMs = 24L * 60L * 60L * 1000L
-    val startOfToday = remember(nowMs) { midnightOf(nowMs) }
-    val windowEnd = startOfToday                       // 集計の上端（当日0:00）＝当日は除外
-    val windowStart = remember(startOfToday, days) {   // 下端（昨日から n 日前まで）
-        startOfToday - days * dayMs
+    LaunchedEffect(period) {
+        while (true) {
+            nowMs = System.currentTimeMillis()
+            delay(30_000)
+        }
     }
+    val (windowStart, windowEnd) = com.example.timerecorder.ui.statisticsBounds(period, nowMs)
 
     LaunchedEffect(windowStart, windowEnd) {
         viewModel.loadStatsRange(windowStart, windowEnd)
@@ -3206,18 +3206,17 @@ private fun StatsScreen(
         Text(stringResource(R.string.stats_title), style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(12.dp))
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SegButton(stringResource(R.string.timeline_days, 7), active = days == 7) { days = 7 }
-            SegButton(stringResource(R.string.timeline_days, 30), active = days == 30) { days = 30 }
-            SegButton(stringResource(R.string.timeline_days, 90), active = days == 90) { days = 90 }
-            Spacer(Modifier.weight(1f))
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            com.example.timerecorder.ui.StatisticsPeriod.entries.forEach { option ->
+                SegButton(stringResource(option.label), active = period == option) { period = option }
+            }
         }
 
         Spacer(Modifier.height(8.dp))
         Text(
             stringResource(
-                R.string.stats_period_summary,
-                days,
+                R.string.stats_selected_period_summary,
+                stringResource(period.label),
                 totalAll / 1_000L / 60L
             ),
             style = MaterialTheme.typography.bodySmall,

@@ -32,6 +32,20 @@ class EditingScreensTest {
     }
     private fun text(id: Int) = app.getString(id)
 
+    @Test fun statisticsOffersNewPeriodsAndUpdatesSummary() {
+        compose.setContent { MaterialTheme { AppRoot(vm, {}, { _, _, _, _ -> }) } }
+        compose.onRoot().performTouchInput { swipeLeft() }
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText(text(R.string.stats_title)).fetchSemanticsNodes().isNotEmpty()
+        }
+        for (label in listOf(R.string.action_today, R.string.stats_yesterday,
+            R.string.stats_one_day, R.string.stats_one_year)) {
+            compose.onNodeWithText(text(label)).performScrollTo().performClick()
+            compose.onNodeWithText(app.getString(R.string.stats_selected_period_summary, text(label), 0L))
+                .assertIsDisplayed()
+        }
+    }
+
     @Test fun settingsOpensMenuThenSeparateDisplayPage() {
         compose.setContent { MaterialTheme {
             SettingsScreen(true, {}, DailyPlans(), emptyList(), {}, {})
