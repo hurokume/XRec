@@ -169,7 +169,7 @@ interface TaskDao {
     @Query(
         """
     SELECT
-      COALESCE(p.name, CASE WHEN c.parentId IS NULL THEN c.name ELSE t.name END) AS eventName,
+      COALESCE(p.name, c.name, t.name) AS eventName,
       CASE
          WHEN p.id IS NOT NULL THEN c.name
          WHEN c.id IS NOT NULL AND c.parentId IS NULL THEN t.name
@@ -218,7 +218,7 @@ interface TaskDao {
     @Query(
         """
     SELECT
-      COALESCE(p.name, CASE WHEN c.parentId IS NULL THEN c.name ELSE t.name END) AS eventName,
+      COALESCE(p.name, c.name, t.name) AS eventName,
       CASE
          WHEN p.id IS NOT NULL THEN c.name
          WHEN c.id IS NOT NULL AND c.parentId IS NULL THEN t.name

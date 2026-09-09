@@ -19,6 +19,34 @@ class TaskEditingIntegrationTest {
     }
     @After fun close() { db.close() }
 
+    @Test fun tsvExportSupportsEveryTaskLevelIncludingRootRecords() = runBlocking {
+        val project = repo.addTask("Project", null)
+        val task = repo.addTask("Task", project)
+        val subtask = repo.addTask("Subtask", task)
+        for (id in listOf(project, task, subtask)) {
+            db.taskDao().insertEvent(TaskEventEntity(
+                taskId = id, pressedAtEpochMs = 1_000L, durationMillis = 3_000L))
+        }
+        val expectedNames = listOf(
+            listOf("Project", null, null),
+            listOf("Project", "Task", null),
+            listOf("Project", "Task", "Subtask")
+        )
+        val ranged = db.taskDao().getEventsForTsvInRange(2_000L, 3_000L)
+        assertEquals(expectedNames, ranged.map { listOf(it.eventName, it.taskName, it.subtaskName) })
+        val all = db.taskDao().getAllEventsForTsv()
+        assertEquals(expectedNames, all.map { listOf(it.eventName, it.taskName, it.subtaskName) })
+        val exported = repo.exportEventsTsv(2_000L, 3_000L).trimEnd('\n').lines()
+        assertEquals(4, exported.size)
+        assertEquals(listOf(
+            listOf("Project", "", ""), listOf("Project", "Task", ""),
+            listOf("Project", "Task", "Subtask")
+        ), exported.drop(1).map { it.split('\t').take(3) })
+        exported.drop(1).forEach {
+            assertEquals(listOf("2000", "3000", "1000"), it.split('\t').subList(3, 6))
+        }
+    }
+
     @Test fun runningReclassificationPreservesStartAndRejectsStaleEditor() = runBlocking {
         val a = repo.addTask("A", null); val b = repo.addTask("B", null)
         repo.startOrSwitch(a, 1_000L)
