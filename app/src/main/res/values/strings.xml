@@ -1,23 +1,403 @@
 <resources>
     <string name="app_name">Time Recorder</string>
 
-    <!-- ヘッダー -->
+    <!-- Common actions and accessibility labels -->
+    <string name="action_add">Add</string>
+    <string name="action_apply">Apply</string>
+    <string name="action_back">Back</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_close">Close</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_edit">Edit</string>
+    <string name="action_execute">Run</string>
+    <string name="action_export">Export</string>
+    <string name="action_save">Save</string>
+    <string name="action_select">Select</string>
+    <string name="action_today">Today</string>
+    <string name="action_select_all">Select all</string>
+    <string name="action_clear_all">Clear all</string>
+    <string name="action_previous">Previous</string>
+    <string name="action_next">Next</string>
+    <string name="label_start">Start</string>
+    <string name="label_end">End</string>
+    <string name="label_weekday">Weekday</string>
+    <string name="label_holiday">Weekend</string>
+    <string name="label_item_count_selected">%1$d selected</string>
+    <string name="label_item_count">%1$d items</string>
+    <string name="label_minutes">%1$d min</string>
+    <string name="label_empty_duration">--:--:--</string>
+    <string name="range_separator_hyphen" translatable="false">-</string>
+
+    <!-- Header and main navigation -->
     <string name="header_title">Time Recorder App</string>
     <string name="header_subtitle">Lets record your tasks</string>
-
-    <!-- 画面テキスト -->
     <string name="label_select_task">Select a task</string>
     <string name="label_selected_prefix">Selected:</string>
     <string name="left_page_label">Left page (empty)</string>
     <string name="right_page_label">Right page (empty)</string>
-
-    <!-- ドロワー -->
     <string name="drawer_title">Menu</string>
     <string name="drawer_home">Home</string>
     <string name="drawer_settings">Settings</string>
+    <string name="drawer_history">History</string>
+    <string name="drawer_analysis">Analysis</string>
+    <string name="drawer_weekly_report">Weekly report (PDF)</string>
+    <string name="drawer_export_tsv">Export (TSV)</string>
+    <string name="drawer_import_tsv">Import (TSV)</string>
+    <string name="drawer_export_json">Export (JSON)</string>
+    <string name="drawer_import_json">Import (JSON)</string>
     <string name="drawer_help">Help</string>
 
-    <!-- タスク一覧 -->
+    <!-- Settings / data management -->
+    <string name="settings_data_title">Data</string>
+    <string name="manage_data_title">Manage Data</string>
+    <string name="settings_manage_data_description">Import and export records and task definitions</string>
+    <string name="settings_open_manage_data">Open Manage Data</string>
+    <string name="manage_data_description">Export Time Recorder data to files or import data from files.</string>
+    <string name="manage_data_records_title">Records</string>
+    <string name="manage_data_tasks_title">Task definitions</string>
+    <string name="manage_data_export_tsv_description">Share records for a selected period as a TSV file.</string>
+    <string name="manage_data_import_tsv_description">Import records from a TSV file.</string>
+    <string name="manage_data_export_json_description">Share the task hierarchy and colors as JSON.</string>
+    <string name="manage_data_import_json_description">Import task definitions from a JSON file.</string>
+
+    <!-- Task analysis -->
+    <string name="analysis_all_items">All items</string>
+    <string name="analysis_selected_items">%1$d selected items</string>
+    <string name="analysis_select_subtask">Select a subtask</string>
+    <string name="analysis_no_subtasks">No subtasks</string>
+    <string name="analysis_analyze_checked">Analyze checked items</string>
+    <string name="analysis_analyze_all">Analyze all items</string>
+    <string name="analysis_check_all">Check all</string>
+    <string name="analysis_uncheck_all">Uncheck all</string>
+    <string name="analysis_show_subtasks">Show subtasks</string>
+    <string name="analysis_analyze_task">Analyze %1$s</string>
+    <string name="analysis_loading">Calculating…</string>
+    <string name="analysis_custom_start">Start %1$s</string>
+    <string name="analysis_custom_end">End %1$s</string>
+    <string name="analysis_previous_period">Previous period</string>
+    <string name="analysis_next_period">Next period</string>
+    <string name="analysis_no_records">No records in this period</string>
+    <string name="analysis_record_start">Start %1$s</string>
+    <string name="analysis_record_end">End %1$s</string>
+    <string name="analysis_exit_edit_mode">Exit edit mode</string>
+    <string name="analysis_change_selected_records_task">Change the task for selected records</string>
+    <string name="analysis_edit_records">Edit records</string>
+    <string name="analysis_period_day">Day</string>
+    <string name="analysis_period_week">Week</string>
+    <string name="analysis_period_month">Month</string>
+    <string name="analysis_period_year">Year</string>
+    <string name="analysis_period_custom">Custom</string>
+    <string name="analysis_chart_period_total">By period</string>
+    <string name="analysis_chart_cumulative_stacked">Cumulative stacked</string>
+    <string name="analysis_chart_heatmap">24-hour heatmap</string>
+    <string name="analysis_average_hour">Hourly average</string>
+    <string name="analysis_average_day">Daily average</string>
+    <string name="analysis_average_month">Monthly average</string>
+    <string name="analysis_cumulative_total">Cumulative total</string>
+    <string name="analysis_chart_period_total_title">Totals by period</string>
+    <string name="analysis_chart_cumulative_title">Cumulative stacked</string>
+    <string name="analysis_chart_probability_title">24-hour recording probability</string>
+    <string name="analysis_chart_max_probability">Maximum %1$s</string>
+    <string name="analysis_chart_average">Period average</string>
+    <string name="analysis_chart_moving_average">Moving average (%1$d periods)</string>
+    <string name="analysis_moving_average_hours">%1$d-hour moving average</string>
+    <string name="analysis_moving_average_days">%1$d-day moving average</string>
+    <string name="analysis_moving_average_months">%1$d-month moving average</string>
+    <string name="analysis_heatmap_zero_percent">0%</string>
+    <string name="analysis_axis_zero" translatable="false">0</string>
+    <string name="analysis_axis_hours">%1$dh</string>
+    <string name="analysis_axis_hours_decimal">%1$.1fh</string>
+    <string name="analysis_axis_minutes">%1$dm</string>
+    <string name="analysis_axis_seconds">%1$ds</string>
+    <string-array name="weekday_short_labels">
+        <item>Mon</item>
+        <item>Tue</item>
+        <item>Wed</item>
+        <item>Thu</item>
+        <item>Fri</item>
+        <item>Sat</item>
+        <item>Sun</item>
+    </string-array>
+    <string-array name="analysis_heatmap_hour_labels">
+        <item>0</item>
+        <item>6</item>
+        <item>12</item>
+        <item>18</item>
+        <item>24h</item>
+    </string-array>
+
+    <!-- Task deletion and replacement -->
+    <string name="delete_task_title">Delete task</string>
+    <string name="delete_task_message">Delete “%1$s” and its subtasks. Choose how to handle existing records.</string>
+    <string name="delete_task_promote_title">Move records to the parent task</string>
+    <string name="delete_task_promote_description">Move all past records up one level.</string>
+    <string name="delete_task_replace_title">Replace with another task</string>
+    <string name="delete_task_replace_description">Move all past records to the selected task.</string>
+    <string name="delete_task_select_replacement">Select a replacement task</string>
+    <string name="delete_task_keep_history_title">Keep past records unchanged</string>
+    <string name="delete_task_keep_history_description">Keep records and hide the task from selection screens.</string>
+    <string name="replacement_no_tasks">No tasks available for replacement</string>
+    <string name="replacement_subtask_title">Subtasks of %1$s</string>
+    <string name="replacement_no_subtasks">No subtasks available for replacement</string>
+    <string name="action_back_with_marker">＜ Back</string>
+
+    <!-- Notifications -->
+    <string name="notification_channel_name">Running task</string>
+    <string name="notification_channel_description">Current task and predicted next tasks</string>
+    <string name="notification_starting">Starting…</string>
+    <string name="notification_running">Recording</string>
+    <string name="notification_next">Next</string>
+    <string name="notification_task_placeholder">Project / Task / SubTask</string>
+    <string name="notification_candidate_1">Suggestion 1</string>
+    <string name="notification_candidate_2">Suggestion 2</string>
+    <string name="notification_candidate_3">Suggestion 3</string>
+
+    <!-- Manual record editor -->
+    <string name="record_add_title">Add task record</string>
+    <string name="record_add_description">Select a parent task, task, optional subtask, and start and end times.</string>
+    <string name="record_edit_title">Edit task record</string>
+    <string name="record_edit_description">Change the task or start and end times. Tap the task name to select a task.</string>
+    <string name="record_parent_task">Parent task</string>
+    <string name="record_task">Task</string>
+    <string name="record_optional_subtask">Subtask (optional)</string>
+    <string name="record_select_prompt">Please select</string>
+    <string name="record_parent_not_selected">(No parent task selected)</string>
+    <string name="record_task_not_selected">(No task selected)</string>
+    <string name="record_no_subtasks">(No subtasks)</string>
+    <string name="record_not_selected">Not selected</string>
+    <string name="record_select_parent_error">Please select a parent task</string>
+    <string name="record_select_task_error">Please select a task</string>
+    <string name="record_end_after_start_error">End must be after start</string>
+    <string name="record_overwrite_title">Overwrite overlapping records</string>
+    <string name="record_overwrite_message">Records already exist in this period.\nThe new record takes priority; overlapping records will be removed or shortened. Continue?</string>
+    <string name="record_overwrite_confirm">Overwrite and add</string>
+
+    <!-- Settings and daily plans -->
+    <string name="settings_display_title">Display settings</string>
+    <string name="settings_stop_button_title">Task stop button</string>
+    <string name="settings_stop_button_description">Show the stop button in the top bar while a task is running.</string>
+    <string name="daily_plan_description">Define daily routines for weekdays and weekends. Achievement is calculated from time recorded for the planned task or its subtasks.</string>
+    <string name="daily_plan_title">Daily plans</string>
+    <string name="daily_plan_timeline_title">Timeline</string>
+    <string name="daily_plan_empty">No routine has been set for this day.</string>
+    <string name="daily_plan_deleted_task">Deleted task</string>
+    <string name="daily_plan_delete">Delete plan</string>
+    <string name="daily_plan_add_action">Add activity</string>
+    <string name="daily_plan_requires_task">Add a task before creating a daily plan.</string>
+    <string name="daily_plan_tap_to_edit">Tap a plan block to edit it.</string>
+    <string name="daily_plan_timeline_empty">Add a plan to show its timeline here.</string>
+    <string name="daily_plan_add_title">Add activity</string>
+    <string name="daily_plan_edit_title">Edit activity</string>
+    <string name="daily_plan_overlap_error">This time overlaps another plan on the same day.</string>
+    <string name="daily_plan_end_after_start_error">End must be after start.</string>
+
+    <!-- Weekly report -->
+    <string name="weekly_report_title">Weekly report</string>
+    <string name="weekly_report_description">Combine the seven-day timeline, daily plan achievement, and analysis for a selected week in one PDF.</string>
+    <string name="weekly_report_share_subject">TimeRecorder Weekly Report</string>
+    <string name="weekly_report_share_chooser">Share weekly report</string>
+    <string name="weekly_report_error">Could not create weekly report: %1$s</string>
+    <string name="weekly_report_target_week">Target week</string>
+    <string name="weekly_report_previous_week">Previous week</string>
+    <string name="weekly_report_next_week">Next week</string>
+    <string name="weekly_report_this_week">This week</string>
+    <string name="weekly_report_timeline_hours">Timeline hours</string>
+    <string name="weekly_report_timeline_hours_description">Choose the daily time range shown on the PDF timeline.</string>
+    <string name="weekly_report_analysis_level">Analysis grouping level</string>
+    <string name="analysis_level_large">Project</string>
+    <string name="analysis_level_middle">Task</string>
+    <string name="analysis_level_small">Subtask</string>
+    <string name="weekly_report_analysis_scope_description">Analysis covers the entire week. Only the timeline is cropped to the hours above.</string>
+    <string name="weekly_report_creating">Creating weekly report…</string>
+    <string name="weekly_report_create_pdf">Create weekly report PDF</string>
+    <string name="weekly_report_hour_value">%1$s %2$s</string>
+
+    <!-- Advanced analysis -->
+    <string name="advanced_analysis_title">Analysis</string>
+    <string name="advanced_analysis_description">Analyze time allocation, daily routines, and transitions for completed analysis days.</string>
+    <string name="advanced_analysis_refresh">Refresh analysis</string>
+    <string name="advanced_analysis_share_subject">TimeRecorder Analysis Report</string>
+    <string name="advanced_analysis_share_chooser">Share A4 PDF report</string>
+    <string name="advanced_analysis_pdf_error">Could not create PDF: %1$s</string>
+    <string name="advanced_analysis_pdf_creating">Creating PDF…</string>
+    <string name="advanced_analysis_pdf_create">Create A4 PDF report</string>
+    <string name="advanced_analysis_pdf_subtitle">A4 Analysis Report</string>
+    <string name="advanced_analysis_conditions">Analysis settings</string>
+    <string name="advanced_analysis_period">Period</string>
+    <string name="advanced_analysis_day_type">Day type</string>
+    <string name="advanced_analysis_level">Level</string>
+    <string name="advanced_analysis_day_boundary">Day boundary</string>
+    <string name="advanced_analysis_days">%1$d days</string>
+    <string name="advanced_analysis_all_days">All days</string>
+    <string name="advanced_analysis_level_large_short">Project</string>
+    <string name="advanced_analysis_level_middle_short">Task</string>
+    <string name="advanced_analysis_level_small_short">Subtask</string>
+    <string name="advanced_analysis_hour">%1$d:00</string>
+    <string name="advanced_analysis_section_daily_plan">1. Daily plan achievement</string>
+    <string name="advanced_analysis_no_daily_plan">No daily plans are available for these days. Set weekday and weekend plans in Settings.</string>
+    <string name="advanced_analysis_entire_period">Entire period</string>
+    <string name="advanced_analysis_achievement_row">%1$s [%2$s]  %3$s  %4$s / %5$s</string>
+    <string name="advanced_analysis_section_data_quality">2. Data quality</string>
+    <string name="advanced_analysis_target_days">Target days</string>
+    <string name="advanced_analysis_target_days_value">%1$d days (%2$d calendar days)</string>
+    <string name="advanced_analysis_coverage_rate">Recording coverage</string>
+    <string name="advanced_analysis_recorded_time">Recorded time</string>
+    <string name="advanced_analysis_missing_time">Unrecorded time</string>
+    <string name="advanced_analysis_overlap_time">Overlapping time</string>
+    <string name="advanced_analysis_unspecified">Unspecified category</string>
+    <string name="advanced_analysis_short_records">Records shorter than 60 seconds</string>
+    <string name="advanced_analysis_days_95" formatted="false">Days with at least 95% coverage</string>
+    <string name="advanced_analysis_section_distribution">3. Time distribution by level / Pareto</string>
+    <string name="advanced_analysis_no_records">No records in the selected period.</string>
+    <string name="advanced_analysis_section_probability">4. 24-hour activity probability</string>
+    <string name="advanced_analysis_probability_description">Darker colors indicate that the activity occurred at that time on a larger proportion of days.</string>
+    <string name="advanced_analysis_display">Display</string>
+    <string name="advanced_analysis_all_items">All</string>
+    <string name="advanced_analysis_palette_title">Color palettes (multiple selection)</string>
+    <string name="advanced_analysis_regularity">Regularity</string>
+    <string name="advanced_analysis_average_entropy">Average entropy</string>
+    <string name="advanced_analysis_modal_day">Day composed of the most frequent activities</string>
+    <string name="advanced_analysis_section_representative">5. Representative and typical days</string>
+    <string name="advanced_analysis_representative_day">Representative observed day</string>
+    <string name="advanced_analysis_date">Date</string>
+    <string name="advanced_analysis_mean_distance">Mean distance</string>
+    <string name="advanced_analysis_no_representative_day">No records available to calculate a representative day.</string>
+    <string name="advanced_analysis_typical_patterns">Typical daily routines</string>
+    <string name="advanced_analysis_pattern_row">Pattern %1$d: %2$s %3$d days (%4$s) Weekdays %5$d / Weekends %6$d</string>
+    <string name="advanced_analysis_section_transitions">6. Activity transitions</string>
+    <string name="advanced_analysis_no_transitions">No consecutive activity transitions.</string>
+    <string name="advanced_analysis_transition_row">%1$s → %2$s: %3$d times / %4$s</string>
+    <string name="advanced_analysis_collapse">Collapse</string>
+    <string name="advanced_analysis_expand">Expand</string>
+    <string name="advanced_analysis_metric_summary">Total %1$s / Daily average %2$s / Overall %3$s / Within parent %4$s</string>
+    <string name="advanced_analysis_metric_quartiles">Median %1$s [Q1 %2$s, Q3 %3$s]</string>
+    <string name="advanced_analysis_metric_sessions">%1$d sessions (%2$s/day) / Average %3$s / Longest %4$s / Active days %5$s</string>
+    <string name="advanced_analysis_metric_fragmentation">Fragmentation %1$s segments/hour / Cumulative %2$s</string>
+    <string name="advanced_analysis_no_probability">No records available to calculate hourly probabilities.</string>
+    <string name="analysis_palette_ocean">Ocean</string>
+    <string name="analysis_palette_sunset">Sunset</string>
+    <string name="analysis_palette_forest">Forest</string>
+    <string name="analysis_palette_violet">Violet</string>
+
+    <!-- Main screen, task management, import and export -->
+    <string name="main_selected_item">Selected</string>
+    <string name="main_sort_title">Reorder</string>
+    <string name="main_stop_active_task">Stop running task</string>
+    <string name="main_exit_sort_mode">Exit reorder mode</string>
+    <string name="main_split_unavailable">This record cannot be split</string>
+    <string name="main_edit_unavailable">This record cannot be edited</string>
+    <string name="main_split_out_of_range">Choose a split time within the selected interval</string>
+    <string name="main_delete_unavailable">This record cannot be deleted</string>
+    <string name="main_sort_ascending">A→Z (ascending)</string>
+    <string name="main_sort_descending">Z→A (descending)</string>
+    <string name="main_sort_manual">Manual order</string>
+    <string name="export_tasks_subject">TimeRecorder Tasks Export</string>
+    <string name="export_tasks_chooser">Export tasks as JSON</string>
+    <string name="export_failed">Export failed: %1$s</string>
+    <string name="import_json_title">Import (JSON)</string>
+    <string name="import_json_description">Select a JSON file exported by Time Recorder.</string>
+    <string name="import_json_replace_all">Delete all existing tasks and replace</string>
+    <string name="import_complete">Import complete</string>
+    <string name="import_failed">Import failed: %1$s</string>
+    <string name="import_select_file">Select file</string>
+    <string name="import_file_open_failed">Could not open the selected file.</string>
+    <string name="import_tsv_title">Import (TSV)</string>
+    <string name="import_tsv_description">Select a TSV file exported by Time Recorder.</string>
+    <string name="import_tsv_clear_existing">Delete all existing records before importing</string>
+    <string name="import_tsv_create_missing">Automatically create missing projects, tasks, and subtasks</string>
+    <string name="import_tsv_complete">TSV import complete (%1$d records)</string>
+    <string name="export_tsv_subject">TimeRecorder Events Export (TSV)</string>
+    <string name="export_tsv_clip_label">TimeRecorder TSV</string>
+    <string name="export_tsv_chooser">Export records as TSV</string>
+    <string name="export_tsv_failed">TSV export failed: %1$s</string>
+    <string name="delete_record_title">Delete record</string>
+    <string name="delete_record_confirmation">Delete the selected record?</string>
+
+    <!-- Task selection and editing -->
+    <string name="task_reorder_description">Touch and hold, then drag up or down to reorder</string>
+    <string name="task_parent_menu">Parent task menu</string>
+    <string name="task_menu">Task menu</string>
+    <string name="task_subtask_menu">Subtask menu</string>
+    <string name="task_add">Add task</string>
+    <string name="task_add_child">Add child task</string>
+    <string name="task_add_subtask">Add subtask</string>
+    <string name="task_edit_subtasks">Edit subtasks</string>
+    <string name="task_rename">Rename</string>
+    <string name="task_delete_parent">Delete parent task (project)</string>
+    <string name="task_delete">Delete task</string>
+    <string name="task_change_color">Change color</string>
+    <string name="task_name_label">Task name (1–128 characters)</string>
+    <string name="task_new_name_label">New name (1–128 characters)</string>
+    <string name="task_current_name">Current: %1$s</string>
+    <string name="task_subtask_title">Subtasks of %1$s</string>
+    <string name="task_duplicate_parent_error">A parent task with this name already exists</string>
+    <string name="task_duplicate_child_error">A task with this name already exists in this project</string>
+    <string name="task_empty_name_error">Enter at least one character</string>
+    <string name="task_add_accessibility">Add task</string>
+    <string name="task_color_preset">Presets</string>
+    <string name="task_color_hex_title">HEX value</string>
+    <string name="task_color_hex_label">HEX (#RRGGBB / #AARRGGBB)</string>
+    <string name="task_color_hex_error">Format: #RRGGBB or #AARRGGBB</string>
+    <string name="task_color_apply_hex">Apply HEX</string>
+    <string name="task_color_picker">Color picker…</string>
+    <string name="task_color_select">Choose color</string>
+
+    <!-- Timeline, statistics, history and bottom bar -->
+    <string name="timeline_previous">Previous period</string>
+    <string name="timeline_next">Next period</string>
+    <string name="timeline_days">%1$d days</string>
+    <string name="timeline_week">Weekly</string>
+    <string name="timeline_add_record">Add record</string>
+    <string name="stats_title">Statistics</string>
+    <string name="stats_period_summary">Period: Last %1$d days / Total %2$d min</string>
+    <string name="stats_no_data">No data. Records will appear here when you start recording.</string>
+    <string name="stats_filter_title">Statistics filter</string>
+    <string name="history_end">End of history</string>
+    <string name="bottom_split_record">Split record</string>
+    <string name="bottom_edit_record">Edit record</string>
+    <string name="bottom_delete_record">Delete record</string>
+    <string name="bottom_sort">Reorder</string>
+    <string name="bottom_sort_by_name">Sort by name</string>
+    <string name="bottom_filter">Filter</string>
+    <string name="bottom_aggregate_project">Group by: Project</string>
+    <string name="bottom_aggregate_task">Group by: Task</string>
+    <string name="bottom_aggregate_leaf">Group by: All items</string>
+    <string name="stats_bar_label">%1$s (%2$s, %3$d %%)</string>
+
+    <!-- TSV date range -->
+    <string name="export_tsv_title">Export (TSV)</string>
+    <string name="export_tsv_range_description">Select dates on the calendar. Dots indicate days with records.</string>
+    <string name="calendar_previous_month">Previous month</string>
+    <string name="calendar_next_month">Next month</string>
+
+    <!-- Localizable date formats -->
+    <string name="date_pattern_day_full">EEE, MMM d, yyyy</string>
+    <string name="date_pattern_day">MMM d, yyyy</string>
+    <string name="date_pattern_month_day">MMM d</string>
+    <string name="date_pattern_month">MMM yyyy</string>
+    <string name="date_pattern_year">yyyy</string>
+    <string name="date_range">%1$s ～ %2$s</string>
+
+    <!-- Snackbar, toast and analysis error messages -->
+    <string name="message_short_task_merged">The previous task lasted %1$d seconds, less than the %2$d-second threshold, and was merged</string>
+    <string name="message_task_deleted">Task deleted</string>
+    <string name="error_task_delete_failed">Could not delete task</string>
+    <string name="error_advanced_analysis_failed">Analysis failed</string>
+    <string name="error_task_analysis_failed">Task analysis failed</string>
+    <string name="message_records_reassigned">Changed %1$d records</string>
+    <string name="error_records_reassign_failed">Could not change records</string>
+    <string name="message_record_added">Record added</string>
+    <string name="error_record_add_failed">Could not add record: %1$s</string>
+    <string name="message_saved">Saved</string>
+    <string name="error_record_not_found">Record not found</string>
+    <string name="error_split_time_out_of_range">Choose a split time within the record</string>
+    <string name="message_record_split">Record split</string>
+    <string name="message_record_deleted">Record deleted</string>
+    <string name="error_record_delete_failed">Could not delete record: %1$s</string>
+    <string name="message_csv_import_complete">CSV import complete</string>
+    <string name="error_csv_import_failed">CSV import failed: %1$s</string>
+
+    <!-- Legacy sample task labels -->
     <string-array name="tasks">
         <item>Study</item>
         <item>Research</item>
@@ -27,4 +407,89 @@
         <item>Commute</item>
         <item>Sleep</item>
     </string-array>
+    <string name="subtask_none">None</string>
+    <string name="record_running_description">Recording continues. Changing the task preserves the original start time.</string>
+    <string name="record_running_changed">The running task changed. Reopen the editor from Timeline.</string>
+    <string name="timeline_three_days">3 days</string>
+    <string name="timeline_five_days">5 days</string>
+    <string name="timeline_select_range">Select start and end dates</string>
+    <string name="timeline_custom">Custom</string>
+    <string name="settings_timeline_default">Default Timeline period</string>
+    <string name="comprehensive_analysis_title">Comprehensive analysis</string>
+    <string name="duplicate_title">Duplicate task name</string>
+    <string name="duplicate_description">A task named “%2$s” already exists under “%1$s”. Merge its records and subtasks, or keep a separate task?</string>
+    <string name="duplicate_new_name">Separate task name (optional)</string>
+    <string name="duplicate_auto_name">If blank or already in use, a numbered name is assigned. Apply to all uses numbered names for later conflicts.</string>
+    <string name="duplicate_apply_all">Apply to all remaining conflicts</string>
+    <string name="duplicate_merge">Merge</string>
+    <string name="duplicate_keep_separate">Keep separate</string>
+    <string name="pdf_summary">Analysis summary</string>
+    <string name="pdf_analysis_period">Analysis period</string>
+    <string name="pdf_boundary_slots">Day boundary / Slot size</string>
+    <string name="pdf_boundary_value">%1$s / %2$d min</string>
+    <string name="pdf_generated">Report generated</string>
+    <string name="pdf_top_twenty">Top 20 items (%1$d total)</string>
+    <string name="pdf_metric_summary">Total %1$s / Daily average %2$s / Share %3$s / Active days %4$s</string>
+    <string name="pdf_palettes">Palettes: %1$s</string>
+    <string name="pdf_weekly_subtitle">7-day Timeline, Daily Plan Achievement and Analysis</string>
+    <string name="pdf_weekly_detail">Timeline %1$s – %2$s / Recorded %3$s / Coverage %4$s</string>
+    <string name="pdf_achievement">Achievement %1$s</string>
+    <string name="label_unspecified">Unspecified</string>
+    <string name="error_task_missing">Task not found</string>
+    <string name="error_task_archived">Hidden tasks cannot be started</string>
+    <string name="error_destination_missing">Destination task not found</string>
+    <string name="error_destination_archived">Cannot change to a hidden task</string>
+    <string name="error_delete_missing">Task to delete not found</string>
+    <string name="error_delete_archived">The task is already hidden</string>
+    <string name="error_promote_root">A top-level task has no parent</string>
+    <string name="error_replacement_required">Select a replacement task</string>
+    <string name="error_replacement_descendant">A descendant of the deleted task cannot be its replacement</string>
+    <string name="error_replacement_missing">Replacement task not found</string>
+    <string name="error_replacement_archived">Hidden tasks cannot be replacements</string>
+    <string name="duplicate_root">Projects</string>
+    <string name="timeline_select_year">Select year</string>
+    <string name="timeline_select_month">Select month</string>
+    <string name="timeline_range_start">Start: %1$s</string>
+    <string name="timeline_range_end">End: %1$s</string>
+    <string name="stats_yesterday">Yesterday</string>
+    <string name="stats_one_day">1 day</string>
+    <string name="stats_seven_days">7 days</string>
+    <string name="stats_thirty_days">30 days</string>
+    <string name="stats_ninety_days">90 days</string>
+    <string name="stats_one_year">1 year</string>
+    <string name="stats_custom">Custom</string>
+    <string name="stats_selected_period_summary">Period: %1$s / Total %2$d min</string>
+    <string name="work_history_add_record">Added time record</string>
+    <string name="work_history_add_task">Added task</string>
+    <string name="work_history_affected">Tasks: %1$d · Time records: %2$d</string>
+    <string name="work_history_change">Data changed</string>
+    <string name="work_history_change_color">Changed task color</string>
+    <string name="work_history_changed">Work history has changed. Review the latest list and select again.</string>
+    <string name="work_history_confirm_message">This will undo the selected change and all newer changes (%1$d total). Running timers will also return to their previous task and start time. This restoration will be saved in work history so you can undo it.</string>
+    <string name="work_history_confirm_title">Restore this state?</string>
+    <string name="work_history_count">%1$d / 100 changes (newest first)</string>
+    <string name="work_history_delete_record">Deleted time record</string>
+    <string name="work_history_delete_task">Deleted task</string>
+    <string name="work_history_description">Stores the latest 100 changes to tasks, time records, and running timers on this device. Restore to the state before a selected change. Display settings and daily plans are not included. Details show up to 20 affected items.</string>
+    <string name="work_history_details">Show changes</string>
+    <string name="work_history_edit_record">Edited time record</string>
+    <string name="work_history_empty">No changes yet. Changes made from now on will appear here.</string>
+    <string name="work_history_hide_details">Hide changes</string>
+    <string name="work_history_import_records">Imported time records</string>
+    <string name="work_history_import_tasks">Imported tasks</string>
+    <string name="work_history_reassign_records">Reassigned time records</string>
+    <string name="work_history_rename_task">Renamed or merged tasks</string>
+    <string name="work_history_reorder_tasks">Reordered tasks</string>
+    <string name="work_history_restore">Restored from work history</string>
+    <string name="work_history_restore_action">Restore</string>
+    <string name="work_history_restore_before">Restore before this change</string>
+    <string name="work_history_restore_failed">Could not restore. Your data has not been changed.</string>
+    <string name="work_history_restored">Restored. You can undo this restoration from work history.</string>
+    <string name="work_history_running_task">Changed running task</string>
+    <string name="work_history_split_record">Split time record</string>
+    <string name="work_history_start_switch">Started or switched timer</string>
+    <string name="work_history_stop">Stopped timer</string>
+    <string name="work_history_title">Work history</string>
+    <string name="work_history_color">Color</string>
+    <string name="work_history_order">Position</string>
 </resources>

@@ -1,0 +1,493 @@
+<resources>
+    <string name="app_name">Time Recorder</string>
+
+    <!-- Common actions and accessibility labels -->
+    <string name="action_add">追加</string>
+    <string name="action_apply">適用</string>
+    <string name="action_back">戻る</string>
+    <string name="action_cancel">キャンセル</string>
+    <string name="action_close">閉じる</string>
+    <string name="action_delete">削除</string>
+    <string name="action_edit">編集</string>
+    <string name="action_execute">実行</string>
+    <string name="action_export">エクスポート</string>
+    <string name="action_save">保存</string>
+    <string name="action_select">選択</string>
+    <string name="action_today">今日</string>
+    <string name="action_select_all">全選択</string>
+    <string name="action_clear_all">全解除</string>
+    <string name="action_previous">前へ</string>
+    <string name="action_next">次へ</string>
+    <string name="label_start">開始</string>
+    <string name="label_end">終了</string>
+    <string name="label_weekday">平日</string>
+    <string name="label_holiday">休日</string>
+    <string name="label_item_count_selected">%1$d件選択</string>
+    <string name="label_item_count">%1$d件</string>
+    <string name="label_minutes">%1$d 分</string>
+    <string name="label_empty_duration">--:--:--</string>
+
+    <!-- Header and main navigation -->
+    <string name="header_title">Time Recorder App</string>
+    <string name="header_subtitle">タスクを記録しましょう</string>
+    <string name="label_select_task">タスクを選択</string>
+    <string name="label_selected_prefix">選択中:</string>
+    <string name="left_page_label">Left page (empty)</string>
+    <string name="right_page_label">Right page (empty)</string>
+    <string name="drawer_title">メニュー</string>
+    <string name="drawer_home">ホーム</string>
+    <string name="drawer_settings">設定</string>
+    <string name="drawer_history">履歴</string>
+    <string name="drawer_analysis">解析</string>
+    <string name="drawer_weekly_report">週間レポート（PDF）</string>
+    <string name="drawer_export_tsv">エクスポート（TSV）</string>
+    <string name="drawer_import_tsv">インポート（TSV）</string>
+    <string name="drawer_export_json">エクスポート（JSON）</string>
+    <string name="drawer_import_json">インポート（JSON）</string>
+    <string name="drawer_help">ヘルプ</string>
+
+    <!-- Settings / data management -->
+    <string name="settings_data_title">データ</string>
+    <string name="manage_data_title">データ管理</string>
+    <string name="settings_manage_data_description">記録データとタスク定義のインポート・エクスポート</string>
+    <string name="settings_open_manage_data">Manage Dataを開く</string>
+    <string name="manage_data_description">Time Recorderのデータをファイルへ書き出したり、ファイルから読み込んだりできます。</string>
+    <string name="manage_data_records_title">記録データ</string>
+    <string name="manage_data_tasks_title">タスク定義</string>
+    <string name="manage_data_export_tsv_description">指定期間の記録をTSVファイルとして共有します。</string>
+    <string name="manage_data_import_tsv_description">TSVファイルから記録を読み込みます。</string>
+    <string name="manage_data_export_json_description">タスクの階層と色をJSON形式で共有します。</string>
+    <string name="manage_data_import_json_description">JSONファイルからタスク定義を読み込みます。</string>
+
+    <!-- Task analysis -->
+    <string name="analysis_all_items">全項目</string>
+    <string name="analysis_selected_items">選択した%1$d項目</string>
+    <string name="analysis_select_subtask">サブタスクを選択</string>
+    <string name="analysis_no_subtasks">サブタスクはありません</string>
+    <string name="analysis_analyze_checked">チェックした項目を解析</string>
+    <string name="analysis_analyze_all">すべての項目を解析</string>
+    <string name="analysis_check_all">すべてチェック</string>
+    <string name="analysis_uncheck_all">すべてチェック解除</string>
+    <string name="analysis_show_subtasks">サブタスクを表示</string>
+    <string name="analysis_analyze_task">%1$s を分析</string>
+    <string name="analysis_loading">集計中…</string>
+    <string name="analysis_custom_start">開始 %1$s</string>
+    <string name="analysis_custom_end">終了 %1$s</string>
+    <string name="analysis_previous_period">前の期間</string>
+    <string name="analysis_next_period">次の期間</string>
+    <string name="analysis_no_records">この期間の記録はありません</string>
+    <string name="analysis_record_start">開始 %1$s</string>
+    <string name="analysis_record_end">終了 %1$s</string>
+    <string name="analysis_exit_edit_mode">編集モードを終了</string>
+    <string name="analysis_change_selected_records_task">選択した記録のタスクを変更</string>
+    <string name="analysis_edit_records">記録を編集</string>
+    <string name="analysis_period_day">日</string>
+    <string name="analysis_period_week">週</string>
+    <string name="analysis_period_month">月</string>
+    <string name="analysis_period_year">年</string>
+    <string name="analysis_period_custom">カスタム</string>
+    <string name="analysis_chart_period_total">期間別</string>
+    <string name="analysis_chart_cumulative_stacked">累積積み上げ</string>
+    <string name="analysis_chart_heatmap">24時間ヒートマップ</string>
+    <string name="analysis_average_hour">1時間平均</string>
+    <string name="analysis_average_day">1日平均</string>
+    <string name="analysis_average_month">1か月平均</string>
+    <string name="analysis_cumulative_total">累積合計</string>
+    <string name="analysis_chart_period_total_title">期間別累計</string>
+    <string name="analysis_chart_cumulative_title">累積積み上げ</string>
+    <string name="analysis_chart_probability_title">24時間の記録確率</string>
+    <string name="analysis_chart_max_probability">最大 %1$s</string>
+    <string name="analysis_chart_average">期間平均</string>
+    <string name="analysis_chart_moving_average">移動平均（%1$d期間）</string>
+    <string name="analysis_moving_average_hours">%1$d時間移動平均</string>
+    <string name="analysis_moving_average_days">%1$d日移動平均</string>
+    <string name="analysis_moving_average_months">%1$dか月移動平均</string>
+    <string name="analysis_heatmap_zero_percent">0%</string>
+    <string name="analysis_axis_hours">%1$dh</string>
+    <string name="analysis_axis_hours_decimal">%1$.1fh</string>
+    <string name="analysis_axis_minutes">%1$dm</string>
+    <string name="analysis_axis_seconds">%1$ds</string>
+    <string-array name="weekday_short_labels">
+        <item>月</item>
+        <item>火</item>
+        <item>水</item>
+        <item>木</item>
+        <item>金</item>
+        <item>土</item>
+        <item>日</item>
+    </string-array>
+    <string-array name="analysis_heatmap_hour_labels">
+        <item>0</item>
+        <item>6</item>
+        <item>12</item>
+        <item>18</item>
+        <item>24時</item>
+    </string-array>
+
+    <!-- Task deletion and replacement -->
+    <string name="delete_task_title">タスクの削除</string>
+    <string name="delete_task_message">「%1$s」と配下のタスクを削除します。既存の記録をどう扱うか選択してください。</string>
+    <string name="delete_task_promote_title">1階層上のタスクとして記録</string>
+    <string name="delete_task_promote_description">過去の全記録を1階層上のタスクへ移します。</string>
+    <string name="delete_task_replace_title">別のタスクに置換</string>
+    <string name="delete_task_replace_description">過去の全記録を選択したタスクへ移します。</string>
+    <string name="delete_task_select_replacement">置換先タスクを選択</string>
+    <string name="delete_task_keep_history_title">過去の記録は変更しない</string>
+    <string name="delete_task_keep_history_description">記録はそのまま残し、タスクを選択画面からのみ隠します。</string>
+    <string name="replacement_no_tasks">置換先として選択できるタスクがありません</string>
+    <string name="replacement_subtask_title">%1$s のサブタスク</string>
+    <string name="replacement_no_subtasks">置換先として選択できるサブタスクがありません</string>
+    <string name="action_back_with_marker">＜ 戻る</string>
+
+    <!-- Notifications -->
+    <string name="notification_channel_name">実行中のタスク</string>
+    <string name="notification_channel_description">現在実行中のタスクと予測候補</string>
+    <string name="notification_starting">起動中…</string>
+    <string name="notification_running">計測中</string>
+    <string name="notification_next">次へ</string>
+    <string name="notification_task_placeholder">Project / Task / SubTask</string>
+    <string name="notification_candidate_1">候補1</string>
+    <string name="notification_candidate_2">候補2</string>
+    <string name="notification_candidate_3">候補3</string>
+
+    <!-- Manual record editor -->
+    <string name="record_add_title">タスク記録を追加</string>
+    <string name="record_add_description">親タスク / タスク / サブタスク（任意）と、開始・終了の日時を指定して保存します。</string>
+    <string name="record_edit_title">タスク記録を編集</string>
+    <string name="record_edit_description">タスクと開始・終了の日時を変更できます。タスク名をタップすると選択画面を開きます。</string>
+    <string name="record_parent_task">親タスク</string>
+    <string name="record_task">タスク</string>
+    <string name="record_optional_subtask">サブタスク（任意）</string>
+    <string name="record_select_prompt">選択してください</string>
+    <string name="record_parent_not_selected">（親タスク未選択）</string>
+    <string name="record_task_not_selected">（タスク未選択）</string>
+    <string name="record_no_subtasks">（サブタスクなし）</string>
+    <string name="record_not_selected">未選択</string>
+    <string name="record_select_parent_error">親タスクを選択してください</string>
+    <string name="record_select_task_error">タスクを選択してください</string>
+    <string name="record_end_after_start_error">終了は開始より後にしてください</string>
+    <string name="record_overwrite_title">重複する記録を上書きします</string>
+    <string name="record_overwrite_message">この期間には既存の記録が存在します。\n追加する記録を優先し、重複部分は削除または切り詰められます。続行しますか？</string>
+    <string name="record_overwrite_confirm">上書きして追加</string>
+
+    <!-- Settings and daily plans -->
+    <string name="settings_display_title">表示設定</string>
+    <string name="settings_stop_button_title">タスク停止ボタン</string>
+    <string name="settings_stop_button_description">タスク実行中に上部バーへ停止ボタンを表示します。</string>
+    <string name="daily_plan_description">平日と休日（土日）の基本パターンを時間帯ごとに定義します。予定タスクまたはその配下タスクの記録時間から、日ごとの達成度を算出します。</string>
+    <string name="daily_plan_title">日々の予定</string>
+    <string name="daily_plan_timeline_title">タイムライン</string>
+    <string name="daily_plan_empty">この日の行動パターンは未設定です。</string>
+    <string name="daily_plan_deleted_task">削除されたタスク</string>
+    <string name="daily_plan_delete">予定を削除</string>
+    <string name="daily_plan_add_action"> 行動を追加</string>
+    <string name="daily_plan_requires_task">Daily planを作成するには、先にタスクを追加してください。</string>
+    <string name="daily_plan_tap_to_edit">予定ブロックをタップすると編集できます。</string>
+    <string name="daily_plan_timeline_empty">予定を追加すると、ここにTimelineが表示されます。</string>
+    <string name="daily_plan_add_title">行動を追加</string>
+    <string name="daily_plan_edit_title">行動を編集</string>
+    <string name="daily_plan_overlap_error">同じ日の別の予定と時間帯が重複しています。</string>
+    <string name="daily_plan_end_after_start_error">終了は開始より後にしてください。</string>
+
+    <!-- Weekly report -->
+    <string name="weekly_report_title">週間レポート</string>
+    <string name="weekly_report_description">指定した週の7日Timeline、Daily plan達成度、Analysisを1つのPDFにまとめます。</string>
+    <string name="weekly_report_share_subject">TimeRecorder Weekly Report</string>
+    <string name="weekly_report_share_chooser">Weekly reportを共有</string>
+    <string name="weekly_report_error">Weekly reportの作成に失敗しました: %1$s</string>
+    <string name="weekly_report_target_week">対象週</string>
+    <string name="weekly_report_previous_week">前の週</string>
+    <string name="weekly_report_next_week">次の週</string>
+    <string name="weekly_report_this_week">今週</string>
+    <string name="weekly_report_timeline_hours">Timeline表示時間</string>
+    <string name="weekly_report_timeline_hours_description">PDFのTimelineページに掲載する1日あたりの時間帯を指定します。</string>
+    <string name="weekly_report_analysis_level">Analysisの分類階層</string>
+    <string name="analysis_level_large">大分類</string>
+    <string name="analysis_level_middle">中分類</string>
+    <string name="analysis_level_small">小分類</string>
+    <string name="weekly_report_analysis_scope_description">分析は選択した週の全時間を対象にし、Timelineのみ上の時間帯で切り抜きます。</string>
+    <string name="weekly_report_creating">Weekly reportを作成中...</string>
+    <string name="weekly_report_create_pdf">Weekly report PDFを作成</string>
+    <string name="weekly_report_hour_value">%1$s %2$s</string>
+
+    <!-- Advanced analysis -->
+    <string name="advanced_analysis_title">解析</string>
+    <string name="advanced_analysis_description">完了した解析日を対象に、時間配分・生活パターン・遷移を分析します。</string>
+    <string name="advanced_analysis_refresh">分析を更新</string>
+    <string name="advanced_analysis_share_subject">TimeRecorder Analysis レポート</string>
+    <string name="advanced_analysis_share_chooser">A4 PDFレポートを共有</string>
+    <string name="advanced_analysis_pdf_error">PDF作成に失敗しました: %1$s</string>
+    <string name="advanced_analysis_pdf_creating">PDFを作成中…</string>
+    <string name="advanced_analysis_pdf_create">A4 PDFレポートを作成</string>
+    <string name="advanced_analysis_pdf_subtitle">A4 Analysis Report</string>
+    <string name="advanced_analysis_conditions">分析条件</string>
+    <string name="advanced_analysis_period">期間</string>
+    <string name="advanced_analysis_day_type">日型</string>
+    <string name="advanced_analysis_level">階層</string>
+    <string name="advanced_analysis_day_boundary">日境界</string>
+    <string name="advanced_analysis_days">%1$d日</string>
+    <string name="advanced_analysis_all_days">全日</string>
+    <string name="advanced_analysis_level_large_short">大</string>
+    <string name="advanced_analysis_level_middle_short">中</string>
+    <string name="advanced_analysis_level_small_short">小</string>
+    <string name="advanced_analysis_hour">%1$d時</string>
+    <string name="advanced_analysis_section_daily_plan">1. Daily plan 達成度</string>
+    <string name="advanced_analysis_no_daily_plan">対象日に利用できるDaily planがありません。Settingsで平日・休日の予定を設定してください。</string>
+    <string name="advanced_analysis_entire_period">期間全体</string>
+    <string name="advanced_analysis_achievement_row">%1$s [%2$s]  %3$s  %4$s / %5$s</string>
+    <string name="advanced_analysis_section_data_quality">2. データ品質</string>
+    <string name="advanced_analysis_target_days">対象日</string>
+    <string name="advanced_analysis_target_days_value">%1$d日（暦期間 %2$d日）</string>
+    <string name="advanced_analysis_coverage_rate">記録率</string>
+    <string name="advanced_analysis_recorded_time">記録時間</string>
+    <string name="advanced_analysis_missing_time">未記録時間</string>
+    <string name="advanced_analysis_overlap_time">重複時間</string>
+    <string name="advanced_analysis_unspecified">分類未指定</string>
+    <string name="advanced_analysis_short_records">60秒未満の記録</string>
+    <string name="advanced_analysis_days_95" formatted="false">95%以上記録された日</string>
+    <string name="advanced_analysis_section_distribution">3. 階層別時間配分・Pareto</string>
+    <string name="advanced_analysis_no_records">対象期間に記録がありません。</string>
+    <string name="advanced_analysis_section_probability">4. 24時間行動確率</string>
+    <string name="advanced_analysis_probability_description">色が濃いほど、その時刻に行っていた日の割合が高いことを示します。</string>
+    <string name="advanced_analysis_display">表示</string>
+    <string name="advanced_analysis_all_items">全件</string>
+    <string name="advanced_analysis_palette_title">カラーパレット（複数選択可）</string>
+    <string name="advanced_analysis_regularity">規則性</string>
+    <string name="advanced_analysis_average_entropy">平均エントロピー</string>
+    <string name="advanced_analysis_modal_day">最頻行動で合成した一日</string>
+    <string name="advanced_analysis_section_representative">5. 代表日・典型日</string>
+    <string name="advanced_analysis_representative_day">実在する代表日</string>
+    <string name="advanced_analysis_date">日付</string>
+    <string name="advanced_analysis_mean_distance">平均距離</string>
+    <string name="advanced_analysis_no_representative_day">代表日を計算できる記録がありません。</string>
+    <string name="advanced_analysis_typical_patterns">典型的な生活パターン</string>
+    <string name="advanced_analysis_pattern_row">型%1$d: %2$s %3$d日 (%4$s) 平日%5$d/休日%6$d</string>
+    <string name="advanced_analysis_section_transitions">6. 行動遷移</string>
+    <string name="advanced_analysis_no_transitions">連続する行動遷移がありません。</string>
+    <string name="advanced_analysis_transition_row">%1$s → %2$s: %3$d回 / %4$s</string>
+    <string name="advanced_analysis_collapse">折り畳む</string>
+    <string name="advanced_analysis_expand">展開する</string>
+    <string name="advanced_analysis_metric_summary">総計 %1$s / 日平均 %2$s / 全体 %3$s / 親内 %4$s</string>
+    <string name="advanced_analysis_metric_quartiles">中央値 %1$s [Q1 %2$s, Q3 %3$s]</string>
+    <string name="advanced_analysis_metric_sessions">%1$d回 (%2$s回/日) / 平均 %3$s / 最長 %4$s / 実施日 %5$s</string>
+    <string name="advanced_analysis_metric_fragmentation">断片化 %1$s区間/時間 / 累積 %2$s</string>
+    <string name="advanced_analysis_no_probability">時刻別確率を計算できる記録がありません。</string>
+    <string name="analysis_palette_ocean">海</string>
+    <string name="analysis_palette_sunset">夕焼け</string>
+    <string name="analysis_palette_forest">森林</string>
+    <string name="analysis_palette_violet">紫</string>
+
+    <!-- Main screen, task management, import and export -->
+    <string name="main_selected_item">選択中</string>
+    <string name="main_sort_title">並び替え</string>
+    <string name="main_stop_active_task">実行中のタスクを停止</string>
+    <string name="main_exit_sort_mode">並び替えモードを終了</string>
+    <string name="main_split_unavailable">分割できない記録です</string>
+    <string name="main_edit_unavailable">タスクを変更できない記録です</string>
+    <string name="main_split_out_of_range">分割時刻は選択中の区間内で指定してください</string>
+    <string name="main_delete_unavailable">削除できない記録です</string>
+    <string name="main_sort_ascending">A→Z（昇順）</string>
+    <string name="main_sort_descending">Z→A（降順）</string>
+    <string name="main_sort_manual">任意順</string>
+    <string name="export_tasks_subject">TimeRecorder Tasks Export</string>
+    <string name="export_tasks_chooser">タスクをJSONで共有</string>
+    <string name="export_failed">Export 失敗: %1$s</string>
+    <string name="import_json_title">Import (JSON)</string>
+    <string name="import_json_description">Time RecorderでエクスポートしたJSONファイルを選択してください。</string>
+    <string name="import_json_replace_all">既存を全て削除して置き換える</string>
+    <string name="import_complete">Import 完了</string>
+    <string name="import_failed">Import 失敗: %1$s</string>
+    <string name="import_select_file">ファイルを選択</string>
+    <string name="import_file_open_failed">選択したファイルを開けません。</string>
+    <string name="import_tsv_title">Import (TSV)</string>
+    <string name="import_tsv_description">Time RecorderでエクスポートしたTSVファイルを選択してください。</string>
+    <string name="import_tsv_clear_existing">既存の記録を全て削除してから取り込み</string>
+    <string name="import_tsv_create_missing">存在しないプロジェクト/タスク/サブタスクを自動作成</string>
+    <string name="import_tsv_complete">TSV Import 完了（%1$d 件）</string>
+    <string name="export_tsv_subject">TimeRecorder Events Export (TSV)</string>
+    <string name="export_tsv_clip_label">TimeRecorder TSV</string>
+    <string name="export_tsv_chooser">記録をTSVで共有</string>
+    <string name="export_tsv_failed">Export TSV 失敗: %1$s</string>
+    <string name="delete_record_title">記録を削除</string>
+    <string name="delete_record_confirmation">選択中の記録を削除します。よろしいですか？</string>
+
+    <!-- Task selection and editing -->
+    <string name="task_reorder_description">長押しして上下にドラッグすると並び替えできます</string>
+    <string name="task_parent_menu">親タスクのメニュー</string>
+    <string name="task_menu">タスクのメニュー</string>
+    <string name="task_subtask_menu">サブタスクのメニュー</string>
+    <string name="task_add">タスクを追加</string>
+    <string name="task_add_child">子タスクを追加</string>
+    <string name="task_add_subtask">サブタスクを追加</string>
+    <string name="task_edit_subtasks">サブタスクを編集</string>
+    <string name="task_rename">名前を変更</string>
+    <string name="task_delete_parent">親タスク（プロジェクト）を削除</string>
+    <string name="task_delete">タスクを削除</string>
+    <string name="task_change_color">色の変更</string>
+    <string name="task_name_label">タスク名（1〜128文字）</string>
+    <string name="task_new_name_label">新しい名前（1〜128文字）</string>
+    <string name="task_current_name">現在: %1$s</string>
+    <string name="task_subtask_title">%1$s のサブタスク</string>
+    <string name="task_duplicate_parent_error">同名の親タスクが既に存在します</string>
+    <string name="task_duplicate_child_error">同名のタスクがこのプロジェクトに存在します</string>
+    <string name="task_empty_name_error">1文字以上で入力してください</string>
+    <string name="task_add_accessibility">タスクを追加</string>
+    <string name="task_color_preset">プリセット</string>
+    <string name="task_color_hex_title">HEX 指定</string>
+    <string name="task_color_hex_label">HEX (#RRGGBB / #AARRGGBB)</string>
+    <string name="task_color_hex_error">形式: #RRGGBB または #AARRGGBB</string>
+    <string name="task_color_apply_hex">HEXを適用</string>
+    <string name="task_color_picker">カラーピッカー…</string>
+    <string name="task_color_select">色を選択</string>
+
+    <!-- Timeline, statistics, history and bottom bar -->
+    <string name="timeline_previous">前の期間</string>
+    <string name="timeline_next">次の期間</string>
+    <string name="timeline_days">%1$d日</string>
+    <string name="timeline_week">週間</string>
+    <string name="timeline_add_record">記録を追加</string>
+    <string name="stats_title">集計</string>
+    <string name="stats_period_summary">期間: 過去%1$d日 / 合計 %2$d 分</string>
+    <string name="stats_no_data">データがありません。記録するとここに表示されます。</string>
+    <string name="stats_filter_title">統計フィルター</string>
+    <string name="history_end">以上です</string>
+    <string name="bottom_split_record">記録を分割</string>
+    <string name="bottom_edit_record">記録を編集</string>
+    <string name="bottom_delete_record">記録を削除</string>
+    <string name="bottom_sort">並び替え</string>
+    <string name="bottom_sort_by_name">名前順に並び替え</string>
+    <string name="bottom_filter">フィルター</string>
+    <string name="bottom_aggregate_project">集計単位: プロジェクト</string>
+    <string name="bottom_aggregate_task">集計単位: タスク</string>
+    <string name="bottom_aggregate_leaf">集計単位: 全項目</string>
+    <string name="stats_bar_label">%1$s (%2$s, %3$d %%)</string>
+
+    <!-- TSV date range -->
+    <string name="export_tsv_title">Export (TSV)</string>
+    <string name="export_tsv_range_description">期間をカレンダーから選択してください。点が付いた日には記録があります。</string>
+    <string name="calendar_previous_month">前の月</string>
+    <string name="calendar_next_month">次の月</string>
+
+    <!-- Localizable date formats -->
+    <string name="date_pattern_day_full">yyyy年M月d日（E）</string>
+    <string name="date_pattern_day">yyyy年M月d日</string>
+    <string name="date_pattern_month_day">M月d日</string>
+    <string name="date_pattern_month">yyyy年M月</string>
+    <string name="date_pattern_year">yyyy年</string>
+    <string name="date_range">%1$s ～ %2$s</string>
+
+    <!-- Snackbar, toast and analysis error messages -->
+    <string name="message_short_task_merged">直前のタスクが %1$d秒（しきい値 %2$d秒）未満だったため統合しました</string>
+    <string name="message_task_deleted">タスクを削除しました</string>
+    <string name="error_task_delete_failed">タスクを削除できませんでした</string>
+    <string name="error_advanced_analysis_failed">分析に失敗しました</string>
+    <string name="error_task_analysis_failed">タスク分析に失敗しました</string>
+    <string name="message_records_reassigned">%1$d件の記録を変更しました</string>
+    <string name="error_records_reassign_failed">記録を変更できませんでした</string>
+    <string name="message_record_added">記録を追加しました</string>
+    <string name="error_record_add_failed">追加に失敗: %1$s</string>
+    <string name="message_saved">保存しました</string>
+    <string name="error_record_not_found">対象の記録が見つかりません</string>
+    <string name="error_split_time_out_of_range">分割時刻は記録の範囲内で指定してください</string>
+    <string name="message_record_split">分割しました</string>
+    <string name="message_record_deleted">記録を削除しました</string>
+    <string name="error_record_delete_failed">削除に失敗しました: %1$s</string>
+    <string name="message_csv_import_complete">CSVインポート完了</string>
+    <string name="error_csv_import_failed">CSVインポート失敗: %1$s</string>
+
+    <!-- Legacy sample task labels -->
+    <string-array name="tasks">
+        <item>Study</item>
+        <item>Research</item>
+        <item>Workout</item>
+        <item>Break</item>
+        <item>Meal</item>
+        <item>Commute</item>
+        <item>Sleep</item>
+    </string-array>
+    <string name="subtask_none">選択しない</string>
+    <string name="record_running_description">記録を継続したままタスクを変更します。開始時刻は維持されます。</string>
+    <string name="record_running_changed">実行中のタスクが変更されています。Timelineから編集画面を開き直してください。</string>
+    <string name="timeline_three_days">3日間</string>
+    <string name="timeline_five_days">5日間</string>
+    <string name="timeline_select_range">開始日と終了日を選択</string>
+    <string name="timeline_custom">カスタム</string>
+    <string name="settings_timeline_default">Timelineの既定表示期間</string>
+    <string name="comprehensive_analysis_title">総合解析</string>
+    <string name="duplicate_title">タスク名の重複</string>
+    <string name="duplicate_description">「%1$s」内に「%2$s」が存在します。記録・サブタスクを統合するか、別名で定義してください。</string>
+    <string name="duplicate_new_name">別名（任意）</string>
+    <string name="duplicate_auto_name">空欄または使用中の名前の場合は連番を付けます。「以降すべてに適用」では以降の別名に連番を付けます。</string>
+    <string name="duplicate_apply_all">以降すべての重複に適用</string>
+    <string name="duplicate_merge">統合する</string>
+    <string name="duplicate_keep_separate">別名で定義</string>
+    <string name="pdf_summary">分析概要</string>
+    <string name="pdf_analysis_period">分析期間</string>
+    <string name="pdf_boundary_slots">日境界 / 時間枠</string>
+    <string name="pdf_boundary_value">%1$s / %2$d分</string>
+    <string name="pdf_generated">レポート作成</string>
+    <string name="pdf_top_twenty">上位20件を掲載（全%1$d件）</string>
+    <string name="pdf_metric_summary">総計 %1$s / 日平均 %2$s / 構成比 %3$s / 実施日 %4$s</string>
+    <string name="pdf_palettes">パレット: %1$s</string>
+    <string name="pdf_weekly_subtitle">7日間のTimeline・Daily plan達成度・解析</string>
+    <string name="pdf_weekly_detail">Timeline %1$s – %2$s / 記録 %3$s / 記録率 %4$s</string>
+    <string name="pdf_achievement">達成 %1$s</string>
+    <string name="label_unspecified">未指定</string>
+    <string name="error_task_missing">開始するタスクが見つかりません</string>
+    <string name="error_task_archived">非表示のタスクは開始できません</string>
+    <string name="error_destination_missing">変更先タスクが見つかりません</string>
+    <string name="error_destination_archived">非表示のタスクには変更できません</string>
+    <string name="error_delete_missing">削除対象が見つかりません</string>
+    <string name="error_delete_archived">削除対象は既に非表示です</string>
+    <string name="error_promote_root">最上位の項目は1階層上へ変更できません</string>
+    <string name="error_replacement_required">置換先タスクを選択してください</string>
+    <string name="error_replacement_descendant">削除対象の配下は置換先にできません</string>
+    <string name="error_replacement_missing">置換先タスクが見つかりません</string>
+    <string name="error_replacement_archived">非表示のタスクは置換先にできません</string>
+    <string name="duplicate_root">プロジェクト一覧</string>
+    <string name="timeline_select_year">年を選択</string>
+    <string name="timeline_select_month">月を選択</string>
+    <string name="timeline_range_start">開始日: %1$s</string>
+    <string name="timeline_range_end">終了日: %1$s</string>
+    <string name="stats_yesterday">昨日</string>
+    <string name="stats_one_day">1日</string>
+    <string name="stats_seven_days">7日</string>
+    <string name="stats_thirty_days">30日</string>
+    <string name="stats_ninety_days">90日</string>
+    <string name="stats_one_year">1年</string>
+    <string name="stats_custom">カスタム</string>
+    <string name="stats_selected_period_summary">期間: %1$s / 合計 %2$d 分</string>
+    <string name="work_history_add_record">時間記録の追加</string>
+    <string name="work_history_add_task">タスクの追加</string>
+    <string name="work_history_affected">タスク：%1$d件・時間記録：%2$d件</string>
+    <string name="work_history_change">データの変更</string>
+    <string name="work_history_change_color">タスクの色の変更</string>
+    <string name="work_history_changed">作業履歴が更新されました。最新の一覧を確認し、選び直してください。</string>
+    <string name="work_history_confirm_message">選んだ変更と、それ以降の変更（合計%1$d件）を取り消します。計測中のタスクと開始時刻も当時の状態に戻ります。復元操作も作業履歴に残るため、復元前の状態へ戻すことができます。</string>
+    <string name="work_history_confirm_title">この変更の前に戻しますか？</string>
+    <string name="work_history_count">%1$d / 100件（新しい順）</string>
+    <string name="work_history_delete_record">時間記録の削除</string>
+    <string name="work_history_delete_task">タスクの削除</string>
+    <string name="work_history_description">タスク・時間記録・計測状態の変更を、この端末に直近100件まで保存します。選んだ変更の直前の状態に戻せます。表示設定と1日の予定は対象外です。詳細には変更対象を最大20件表示します。</string>
+    <string name="work_history_details">変更内容を表示</string>
+    <string name="work_history_edit_record">時間記録の編集</string>
+    <string name="work_history_empty">作業履歴はまだありません。今後の変更がここに表示されます。</string>
+    <string name="work_history_hide_details">変更内容を閉じる</string>
+    <string name="work_history_import_records">時間記録のインポート</string>
+    <string name="work_history_import_tasks">タスクのインポート</string>
+    <string name="work_history_reassign_records">時間記録のタスク変更</string>
+    <string name="work_history_rename_task">タスク名の変更・統合</string>
+    <string name="work_history_reorder_tasks">タスクの並べ替え</string>
+    <string name="work_history_restore">作業履歴からの復元</string>
+    <string name="work_history_restore_action">復元する</string>
+    <string name="work_history_restore_before">この変更の前に戻す</string>
+    <string name="work_history_restore_failed">復元できませんでした。データは変更されていません。</string>
+    <string name="work_history_restored">復元しました。作業履歴から復元前の状態に戻せます。</string>
+    <string name="work_history_running_task">計測中タスクの変更</string>
+    <string name="work_history_split_record">時間記録の分割</string>
+    <string name="work_history_start_switch">計測の開始・切り替え</string>
+    <string name="work_history_stop">計測の停止</string>
+    <string name="work_history_title">作業履歴</string>
+    <string name="work_history_color">色</string>
+    <string name="work_history_order">表示順</string>
+</resources>

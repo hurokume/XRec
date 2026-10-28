@@ -53,16 +53,20 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.timerecorder.R
 import com.example.timerecorder.data.AdvancedAnalysisResult
 import com.example.timerecorder.data.AnalysisCategoryMetric
 import com.example.timerecorder.data.AnalysisDayType
 import com.example.timerecorder.data.AnalysisLevel
 import com.example.timerecorder.data.AnalysisRequest
 import com.example.timerecorder.data.AnalysisTimeProfile
+import com.example.timerecorder.data.DailyPlans
+import com.example.timerecorder.data.DailyPlanType
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -74,6 +78,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun AdvancedAnalysisScreen(
     viewModel: TaskViewModel,
+    dailyPlans: DailyPlans,
     modifier: Modifier = Modifier
 ) {
     var days by rememberSaveable { mutableIntStateOf(30) }
@@ -88,7 +93,7 @@ fun AdvancedAnalysisScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(days, boundaryMinutes, level, dayType, refreshAt) {
+    LaunchedEffect(days, boundaryMinutes, level, dayType, refreshAt, dailyPlans) {
         viewModel.runAdvancedAnalysis(
             AnalysisRequest(
                 nowMs = refreshAt,
@@ -98,7 +103,8 @@ fun AdvancedAnalysisScreen(
                 level = level,
                 dayType = dayType,
                 timeZoneId = TimeZone.getDefault().id
-            )
+            ),
+            dailyPlans = dailyPlans
         )
     }
 
@@ -119,13 +125,24 @@ fun AdvancedAnalysisScreen(
                     type = "application/pdf"
                     putExtra(Intent.EXTRA_STREAM, uri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    putExtra(Intent.EXTRA_SUBJECT, "TimeRecorder 高度分析レポート")
+                    putExtra(
+                        Intent.EXTRA_SUBJECT,
+                        context.getString(R.string.advanced_analysis_share_subject)
+                    )
                 }
-                context.startActivity(Intent.createChooser(share, "A4 PDFレポートを共有"))
+                context.startActivity(
+                    Intent.createChooser(
+                        share,
+                        context.getString(R.string.advanced_analysis_share_chooser)
+                    )
+                )
             } catch (error: Throwable) {
                 Toast.makeText(
                     context,
-                    "PDF作成に失敗しました: ${error.message}",
+                    context.getString(
+                        R.string.advanced_analysis_pdf_error,
+                        error.message.orEmpty()
+                    ),
                     Toast.LENGTH_LONG
                 ).show()
             } finally {
@@ -143,15 +160,21 @@ fun AdvancedAnalysisScreen(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("高度分析", style = MaterialTheme.typography.titleLarge)
                 Text(
-                    "完了した解析日を対象に、時間配分・生活パターン・遷移を分析します。",
+                    stringResource(R.string.advanced_analysis_title),
+                    style = MaterialTheme.typography.titleLarge
+                )
+                Text(
+                    stringResource(R.string.advanced_analysis_description),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             IconButton(onClick = { refreshAt = System.currentTimeMillis() }) {
-                Icon(Icons.Filled.Refresh, contentDescription = "Refresh analysis")
+                Icon(
+                    Icons.Filled.Refresh,
+                    contentDescription = stringResource(R.string.advanced_analysis_refresh)
+                )
             }
         }
 
@@ -177,7 +200,13 @@ fun AdvancedAnalysisScreen(
                 Icon(Icons.Filled.PictureAsPdf, contentDescription = null)
             }
             Spacer(Modifier.width(8.dp))
-            Text(if (isExportingPdf) "PDFを作成中…" else "A4 PDFレポートを作成")
+            Text(
+                if (isExportingPdf) {
+                    stringResource(R.string.advanced_analysis_pdf_creating)
+                } else {
+                    stringResource(R.string.advanced_analysis_pdf_create)
+                }
+            )
         }
 
         if (state.isLoading) {
@@ -222,37 +251,70 @@ private fun AnalysisFilters(
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("分析条件", style = MaterialTheme.typography.titleSmall)
-            ChoiceRow("期間") {
-                AnalysisChoice("7日", days == 7) { onDaysChange(7) }
-                AnalysisChoice("30日", days == 30) { onDaysChange(30) }
-                AnalysisChoice("90日", days == 90) { onDaysChange(90) }
+            Text(
+                stringResource(R.string.advanced_analysis_conditions),
+                style = MaterialTheme.typography.titleSmall
+            )
+            ChoiceRow(stringResource(R.string.advanced_analysis_period)) {
+                AnalysisChoice(stringResource(R.string.advanced_analysis_days, 7), days == 7) {
+                    onDaysChange(7)
+                }
+                AnalysisChoice(stringResource(R.string.advanced_analysis_days, 30), days == 30) {
+                    onDaysChange(30)
+                }
+                AnalysisChoice(stringResource(R.string.advanced_analysis_days, 90), days == 90) {
+                    onDaysChange(90)
+                }
             }
-            ChoiceRow("日型") {
-                AnalysisChoice("全日", dayType == AnalysisDayType.All) {
+            ChoiceRow(stringResource(R.string.advanced_analysis_day_type)) {
+                AnalysisChoice(
+                    stringResource(R.string.advanced_analysis_all_days),
+                    dayType == AnalysisDayType.All
+                ) {
                     onDayTypeChange(AnalysisDayType.All)
                 }
-                AnalysisChoice("平日", dayType == AnalysisDayType.Weekday) {
+                AnalysisChoice(
+                    stringResource(R.string.label_weekday),
+                    dayType == AnalysisDayType.Weekday
+                ) {
                     onDayTypeChange(AnalysisDayType.Weekday)
                 }
-                AnalysisChoice("休日", dayType == AnalysisDayType.Weekend) {
+                AnalysisChoice(
+                    stringResource(R.string.label_holiday),
+                    dayType == AnalysisDayType.Weekend
+                ) {
                     onDayTypeChange(AnalysisDayType.Weekend)
                 }
             }
-            ChoiceRow("階層") {
-                AnalysisChoice("大", level == AnalysisLevel.Large) {
+            ChoiceRow(stringResource(R.string.advanced_analysis_level)) {
+                AnalysisChoice(
+                    stringResource(R.string.advanced_analysis_level_large_short),
+                    level == AnalysisLevel.Large
+                ) {
                     onLevelChange(AnalysisLevel.Large)
                 }
-                AnalysisChoice("中", level == AnalysisLevel.Middle) {
+                AnalysisChoice(
+                    stringResource(R.string.advanced_analysis_level_middle_short),
+                    level == AnalysisLevel.Middle
+                ) {
                     onLevelChange(AnalysisLevel.Middle)
                 }
-                AnalysisChoice("小", level == AnalysisLevel.Small) {
+                AnalysisChoice(
+                    stringResource(R.string.advanced_analysis_level_small_short),
+                    level == AnalysisLevel.Small
+                ) {
                     onLevelChange(AnalysisLevel.Small)
                 }
             }
-            ChoiceRow("日境界") {
-                AnalysisChoice("0時", boundaryMinutes == 0) { onBoundaryChange(0) }
-                AnalysisChoice("4時", boundaryMinutes == 240) { onBoundaryChange(240) }
+            ChoiceRow(stringResource(R.string.advanced_analysis_day_boundary)) {
+                AnalysisChoice(
+                    stringResource(R.string.advanced_analysis_hour, 0),
+                    boundaryMinutes == 0
+                ) { onBoundaryChange(0) }
+                AnalysisChoice(
+                    stringResource(R.string.advanced_analysis_hour, 4),
+                    boundaryMinutes == 240
+                ) { onBoundaryChange(240) }
             }
         }
     }
@@ -291,21 +353,64 @@ private fun AnalysisResultContent(
     paletteMask: Int,
     onPaletteMaskChange: (Int) -> Unit
 ) {
-    AnalysisSection("1. データ品質") {
-        val q = result.quality
-        KeyValue("対象日", "${q.analyzedDays}日（暦期間 ${q.calendarDays}日）")
-        KeyValue("記録率", percent(q.coverageRate))
-        KeyValue("記録時間", formatDuration(q.recordedMs))
-        KeyValue("未記録時間", formatDuration(q.missingMs))
-        KeyValue("重複時間", formatDuration(q.overlapMs))
-        KeyValue("分類未指定", formatDuration(q.unspecifiedMs))
-        KeyValue("60秒未満の記録", "${q.shortEventCount}件")
-        KeyValue("95%以上記録された日", "${q.daysAtLeast95Percent}日")
+    AnalysisSection(stringResource(R.string.advanced_analysis_section_daily_plan)) {
+        val achievements = result.dailyAchievements
+        if (achievements.isEmpty()) {
+            Text(stringResource(R.string.advanced_analysis_no_daily_plan))
+        } else {
+            val totalPlanned = achievements.sumOf { it.plannedMs }
+            val totalAchieved = achievements.sumOf { it.achievedMs }
+            val overall = if (totalPlanned > 0L) totalAchieved.toDouble() / totalPlanned else 0.0
+            KeyValue(stringResource(R.string.advanced_analysis_entire_period), percent(overall))
+            val formatter = remember { SimpleDateFormat("yyyy/MM/dd (EEE)", Locale.getDefault()) }
+            achievements.forEach { achievement ->
+                val type = when (achievement.planType) {
+                    DailyPlanType.Weekday -> stringResource(R.string.label_weekday)
+                    DailyPlanType.Holiday -> stringResource(R.string.label_holiday)
+                }
+                Text(
+                    stringResource(
+                        R.string.advanced_analysis_achievement_row,
+                        formatter.format(Date(achievement.dayStartMs)),
+                        type,
+                        percent(achievement.achievementRate),
+                        formatDuration(achievement.achievedMs),
+                        formatDuration(achievement.plannedMs)
+                    ),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
     }
 
-    AnalysisSection("2. 階層別時間配分・Pareto") {
+    AnalysisSection(stringResource(R.string.advanced_analysis_section_data_quality)) {
+        val q = result.quality
+        KeyValue(
+            stringResource(R.string.advanced_analysis_target_days),
+            stringResource(
+                R.string.advanced_analysis_target_days_value,
+                q.analyzedDays,
+                q.calendarDays
+            )
+        )
+        KeyValue(stringResource(R.string.advanced_analysis_coverage_rate), percent(q.coverageRate))
+        KeyValue(stringResource(R.string.advanced_analysis_recorded_time), formatDuration(q.recordedMs))
+        KeyValue(stringResource(R.string.advanced_analysis_missing_time), formatDuration(q.missingMs))
+        KeyValue(stringResource(R.string.advanced_analysis_overlap_time), formatDuration(q.overlapMs))
+        KeyValue(stringResource(R.string.advanced_analysis_unspecified), formatDuration(q.unspecifiedMs))
+        KeyValue(
+            stringResource(R.string.advanced_analysis_short_records),
+            stringResource(R.string.label_item_count, q.shortEventCount)
+        )
+        KeyValue(
+            stringResource(R.string.advanced_analysis_days_95),
+            stringResource(R.string.advanced_analysis_days, q.daysAtLeast95Percent)
+        )
+    }
+
+    AnalysisSection(stringResource(R.string.advanced_analysis_section_distribution)) {
         if (result.categoryMetrics.isEmpty()) {
-            Text("対象期間に記録がありません。")
+            Text(stringResource(R.string.advanced_analysis_no_records))
         } else {
             result.categoryMetrics.take(20).forEach { metric ->
                 CategoryMetricCard(metric)
@@ -313,26 +418,29 @@ private fun AnalysisResultContent(
         }
     }
 
-    AnalysisSection("3. 24時間行動確率") {
+    AnalysisSection(stringResource(R.string.advanced_analysis_section_probability)) {
         Text(
-            "色が濃いほど、その時刻に行っていた日の割合が高いことを示します。",
+            stringResource(R.string.advanced_analysis_probability_description),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(8.dp))
-        ChoiceRow("表示") {
-            AnalysisChoice("10件", probabilityItemLimit == 10) {
+        ChoiceRow(stringResource(R.string.advanced_analysis_display)) {
+            AnalysisChoice(stringResource(R.string.label_item_count, 10), probabilityItemLimit == 10) {
                 onProbabilityItemLimitChange(10)
             }
-            AnalysisChoice("20件", probabilityItemLimit == 20) {
+            AnalysisChoice(stringResource(R.string.label_item_count, 20), probabilityItemLimit == 20) {
                 onProbabilityItemLimitChange(20)
             }
-            AnalysisChoice("全件", probabilityItemLimit == Int.MAX_VALUE) {
+            AnalysisChoice(
+                stringResource(R.string.advanced_analysis_all_items),
+                probabilityItemLimit == Int.MAX_VALUE
+            ) {
                 onProbabilityItemLimitChange(Int.MAX_VALUE)
             }
         }
         Text(
-            "カラーパレット（複数選択可）",
+            stringResource(R.string.advanced_analysis_palette_title),
             style = MaterialTheme.typography.labelLarge
         )
         ProbabilityPaletteSelector(
@@ -346,46 +454,81 @@ private fun AnalysisResultContent(
             paletteMask = paletteMask
         )
         Spacer(Modifier.height(8.dp))
-        KeyValue("規則性", percent(result.timeProfile.regularity))
-        KeyValue("平均エントロピー", formatDecimal(result.timeProfile.averageEntropy))
+        KeyValue(
+            stringResource(R.string.advanced_analysis_regularity),
+            percent(result.timeProfile.regularity)
+        )
+        KeyValue(
+            stringResource(R.string.advanced_analysis_average_entropy),
+            formatDecimal(result.timeProfile.averageEntropy)
+        )
         val modal = modalDaySummary(result.timeProfile)
         if (modal.isNotEmpty()) {
-            Text("最頻行動で合成した一日", fontWeight = FontWeight.SemiBold)
+            Text(
+                stringResource(R.string.advanced_analysis_modal_day),
+                fontWeight = FontWeight.SemiBold
+            )
             Text(modal, style = MaterialTheme.typography.bodySmall)
         }
     }
 
-    AnalysisSection("4. 代表日・典型日") {
+    AnalysisSection(stringResource(R.string.advanced_analysis_section_representative)) {
         val formatter = remember { SimpleDateFormat("yyyy/MM/dd (EEE)", Locale.getDefault()) }
         result.representativeDay?.let { representative ->
-            Text("実在する代表日", fontWeight = FontWeight.SemiBold)
-            KeyValue("日付", formatter.format(Date(representative.dayStartMs)))
-            KeyValue("平均距離", formatDecimal(representative.meanDistance))
-            KeyValue("記録率", percent(representative.coverageRate))
-        } ?: Text("代表日を計算できる記録がありません。")
+            Text(
+                stringResource(R.string.advanced_analysis_representative_day),
+                fontWeight = FontWeight.SemiBold
+            )
+            KeyValue(
+                stringResource(R.string.advanced_analysis_date),
+                formatter.format(Date(representative.dayStartMs))
+            )
+            KeyValue(
+                stringResource(R.string.advanced_analysis_mean_distance),
+                formatDecimal(representative.meanDistance)
+            )
+            KeyValue(
+                stringResource(R.string.advanced_analysis_coverage_rate),
+                percent(representative.coverageRate)
+            )
+        } ?: Text(stringResource(R.string.advanced_analysis_no_representative_day))
 
         if (result.typicalPatterns.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
-            Text("典型的な生活パターン", fontWeight = FontWeight.SemiBold)
+            Text(
+                stringResource(R.string.advanced_analysis_typical_patterns),
+                fontWeight = FontWeight.SemiBold
+            )
             result.typicalPatterns.forEachIndexed { index, pattern ->
                 Text(
-                    "型${index + 1}: ${formatter.format(Date(pattern.medoidDayStartMs))} " +
-                            "${pattern.dayCount}日 (${percent(pattern.share)}) " +
-                            "平日${pattern.weekdayCount}/休日${pattern.weekendCount}",
+                    stringResource(
+                        R.string.advanced_analysis_pattern_row,
+                        index + 1,
+                        formatter.format(Date(pattern.medoidDayStartMs)),
+                        pattern.dayCount,
+                        percent(pattern.share),
+                        pattern.weekdayCount,
+                        pattern.weekendCount
+                    ),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
         }
     }
 
-    AnalysisSection("5. 行動遷移") {
+    AnalysisSection(stringResource(R.string.advanced_analysis_section_transitions)) {
         if (result.transitions.isEmpty()) {
-            Text("連続する行動遷移がありません。")
+            Text(stringResource(R.string.advanced_analysis_no_transitions))
         } else {
             result.transitions.take(15).forEach { transition ->
                 Text(
-                    "${transition.fromName} → ${transition.toName}: " +
-                            "${transition.count}回 / ${percent(transition.probability)}",
+                    stringResource(
+                        R.string.advanced_analysis_transition_row,
+                        transition.fromName,
+                        transition.toName,
+                        transition.count,
+                        percent(transition.probability)
+                    ),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -395,7 +538,7 @@ private fun AnalysisResultContent(
 
 @Composable
 private fun AnalysisSection(title: String, content: @Composable ColumnScope.() -> Unit) {
-    var expanded by rememberSaveable(title) { mutableStateOf(true) }
+    var expanded by rememberSaveable(title) { mutableStateOf(false) }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -414,7 +557,11 @@ private fun AnalysisSection(title: String, content: @Composable ColumnScope.() -
                 )
                 Icon(
                     imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                    contentDescription = if (expanded) "折り畳む" else "展開する"
+                    contentDescription = if (expanded) {
+                        stringResource(R.string.advanced_analysis_collapse)
+                    } else {
+                        stringResource(R.string.advanced_analysis_expand)
+                    }
                 )
             }
             if (expanded) {
@@ -443,24 +590,41 @@ private fun CategoryMetricCard(metric: AnalysisCategoryMetric) {
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                "総計 ${formatDuration(metric.totalMs)} / 日平均 ${formatDuration(metric.averagePerDayMs)} " +
-                        "/ 全体 ${percent(metric.share)} / 親内 ${percent(metric.parentShare)}",
+                stringResource(
+                    R.string.advanced_analysis_metric_summary,
+                    formatDuration(metric.totalMs),
+                    formatDuration(metric.averagePerDayMs),
+                    percent(metric.share),
+                    percent(metric.parentShare)
+                ),
                 style = MaterialTheme.typography.bodySmall
             )
             Text(
-                "中央値 ${formatDuration(metric.medianPerDayMs)} " +
-                        "[Q1 ${formatDuration(metric.firstQuartileMs)}, Q3 ${formatDuration(metric.thirdQuartileMs)}]",
+                stringResource(
+                    R.string.advanced_analysis_metric_quartiles,
+                    formatDuration(metric.medianPerDayMs),
+                    formatDuration(metric.firstQuartileMs),
+                    formatDuration(metric.thirdQuartileMs)
+                ),
                 style = MaterialTheme.typography.bodySmall
             )
             Text(
-                "${metric.sessionCount}回 (${formatDecimal(metric.occurrencesPerDay)}回/日) / " +
-                        "平均 ${formatDuration(metric.averageSessionMs)} / 最長 ${formatDuration(metric.maxSessionMs)} / " +
-                        "実施日 ${percent(metric.activeDayRate)}",
+                stringResource(
+                    R.string.advanced_analysis_metric_sessions,
+                    metric.sessionCount,
+                    formatDecimal(metric.occurrencesPerDay),
+                    formatDuration(metric.averageSessionMs),
+                    formatDuration(metric.maxSessionMs),
+                    percent(metric.activeDayRate)
+                ),
                 style = MaterialTheme.typography.bodySmall
             )
             Text(
-                "断片化 ${formatDecimal(metric.fragmentationPerHour)}区間/時間 / " +
-                        "累積 ${percent(metric.cumulativeShare)}",
+                stringResource(
+                    R.string.advanced_analysis_metric_fragmentation,
+                    formatDecimal(metric.fragmentationPerHour),
+                    percent(metric.cumulativeShare)
+                ),
                 style = MaterialTheme.typography.bodySmall
             )
             Box(
@@ -504,7 +668,7 @@ private fun ProbabilityPaletteSelector(
                 },
                 label = {
                     Text(
-                        palette.label,
+                        stringResource(palette.labelRes),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -536,7 +700,7 @@ private fun ProbabilityHeatmap(
         profile.categories.take(itemLimit)
     }
     if (categories.isEmpty()) {
-        Text("時刻別確率を計算できる記録がありません。")
+        Text(stringResource(R.string.advanced_analysis_no_probability))
         return
     }
     val palettes = selectedAnalysisPalettes(paletteMask)

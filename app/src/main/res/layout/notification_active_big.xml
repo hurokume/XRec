@@ -10,7 +10,7 @@
         android:id="@+id/title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Project / Task / SubTask"
+        android:text="@string/notification_task_placeholder"
         android:textAppearance="@android:style/TextAppearance.Material.Medium"
         android:maxLines="2"
         android:ellipsize="end" />
@@ -27,26 +27,20 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:text="候補1" />
+        android:text="@string/notification_candidate_1" />
 
     <Button
         android:id="@+id/btn_candidate2"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:text="候補2" />
+        android:text="@string/notification_candidate_2" />
 
     <Button
         android:id="@+id/btn_candidate3"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:text="候補3" />
+        android:text="@string/notification_candidate_3" />
 
-    <Button
-        android:id="@+id/btn_stop"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="停止" />
 </LinearLayout>

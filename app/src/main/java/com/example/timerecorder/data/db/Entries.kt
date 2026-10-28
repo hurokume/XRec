@@ -1,6 +1,7 @@
 package com.example.timerecorder.data.db
 
 import androidx.room.Embedded
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -20,7 +21,9 @@ data class TaskEntity(
     val name: String,
     val parentId: Long? = null,      // 親なら null
     val colorInt: Int? = null,       // 親カテゴリ色（子にも入れておくとUIで便利）
-    val sortOrder: Int = 0
+    val sortOrder: Int = 0,
+    /** 過去の記録を残したまま、タスク選択 UI からだけ除外する。 */
+    @ColumnInfo(defaultValue = "0") val isArchived: Boolean = false
 )
 
 /** 親 → 直下の子 のリレーション */

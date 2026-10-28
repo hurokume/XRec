@@ -18,6 +18,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -33,7 +35,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -48,6 +49,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -94,7 +96,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -117,6 +118,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -133,19 +135,39 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.timerecorder.ui.HistoryItemUi
 import com.example.timerecorder.ui.AdvancedAnalysisScreen
+import com.example.timerecorder.ui.AddTaskScreen
+import com.example.timerecorder.ui.DailyPlanTaskOption
+import com.example.timerecorder.ui.ManageDataScreen
+import com.example.timerecorder.ui.TimelineRangeControls
+import com.example.timerecorder.ui.CalendarDateRangeDialog
+import com.example.timerecorder.ui.StatisticsPeriod
+import com.example.timerecorder.ui.calendarDay
+import com.example.timerecorder.ui.statisticsBounds
 import com.example.timerecorder.ui.SettingsScreen
+import com.example.timerecorder.ui.WorkHistoryScreen
+import com.example.timerecorder.ui.StatsFilterSelectionScreen
+import com.example.timerecorder.ui.TaskDeletionDialog
+import com.example.timerecorder.ui.TaskDeletionUiState
+import com.example.timerecorder.ui.TaskAnalysisScreen
 import com.example.timerecorder.ui.TaskViewModel
 import com.example.timerecorder.ui.UiEvent
 import com.example.timerecorder.ui.WeeklyReportScreen
+import com.example.timerecorder.ui.ReplacementTaskSelectionScreen
+import com.example.timerecorder.ui.showRecordDateTimePicker
 import com.example.timerecorder.data.StatsAggregator
 import com.example.timerecorder.data.StatsRecord
 import com.example.timerecorder.data.StatsTarget
+import com.example.timerecorder.data.DailyPlans
+import com.example.timerecorder.data.DailyPlansCodec
+import com.example.timerecorder.data.TaskDeletionMode
 import com.example.timerecorder.ui.theme.TimeRecorderTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -156,7 +178,7 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /** 画面モード（メイン/履歴） */
-private enum class AppScreen { Main, History, Analysis, WeeklyReport, Settings }
+private enum class AppScreen { Main, History, Analysis, WeeklyReport, Settings, ManageData, WorkHistory }
 
 /** 名前ソートモード */
 enum class NameSort { None, Asc, Desc }
@@ -173,6 +195,7 @@ private const val PREFS_NAME = "stats_prefs"
 private const val KEY_STATS_INCLUDED = "stats_included_leaf_ids" // CSVのLong ID群
 private const val SETTINGS_PREFS_NAME = "app_settings"
 private const val KEY_SHOW_STOP_BUTTON = "show_stop_button"
+private const val KEY_DAILY_PLANS = "daily_plans"
 
 /**
  * エントリポイント Activity。
@@ -189,6 +212,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             TimeRecorderTheme {
+                com.example.timerecorder.ui.TaskEditDialogs(taskViewModel)
                 Surface(color = MaterialTheme.colorScheme.background) {
                     // NavController を用意し、アプリ内の画面遷移を管理
                     val navController = rememberNavController()
@@ -200,15 +224,27 @@ class MainActivity : ComponentActivity() {
                             AppRoot(
                                 taskVm = taskViewModel,
                                 onNavigateAddTask = { navController.navigate(Routes.AddTask) },
-                                onNavigateEditTask = { id, s, e ->
-                                    navController.navigate("${Routes.AddTask}?initialTaskId=$id&initialStartMs=$s&initialEndMs=$e")
+                                onNavigateEditTask = { eventId, taskId, startMs, endMs ->
+                                    navController.navigate(
+                                        "${Routes.AddTask}?initialEventId=$eventId" +
+                                            "&initialTaskId=$taskId" +
+                                            "&initialStartMs=$startMs" +
+                                            "&initialEndMs=$endMs"
+                                    )
                                 }
                             )
                         }
 
                         composable(
-                            route = "${Routes.AddTask}?initialTaskId={initialTaskId}&initialStartMs={initialStartMs}&initialEndMs={initialEndMs}",
+                            route = "${Routes.AddTask}?initialEventId={initialEventId}" +
+                                "&initialTaskId={initialTaskId}" +
+                                "&initialStartMs={initialStartMs}" +
+                                "&initialEndMs={initialEndMs}",
                             arguments = listOf(
+                                navArgument("initialEventId") {
+                                    type = NavType.LongType
+                                    defaultValue = 0L
+                                },
                                 navArgument("initialTaskId") {
                                     type = NavType.LongType
                                     defaultValue = -1L
@@ -223,6 +259,8 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         ) { backStackEntry ->
+                            val initEvent = backStackEntry.arguments?.getLong("initialEventId")
+                                ?.takeIf { it != 0L }
                             val initTask = backStackEntry.arguments?.getLong("initialTaskId")
                                 ?.takeIf { it >= 0L }
                             val initStart = backStackEntry.arguments?.getLong("initialStartMs")
@@ -232,6 +270,7 @@ class MainActivity : ComponentActivity() {
                             AddTaskScreen(
                                 viewModel = taskViewModel,
                                 onBack = { navController.popBackStack() },
+                                initialEventId = initEvent,
                                 initialTaskId = initTask,
                                 initialStartMs = initStart,
                                 initialEndMs = initEnd
@@ -253,7 +292,7 @@ class MainActivity : ComponentActivity() {
 fun AppRoot(
     taskVm: TaskViewModel,
     onNavigateAddTask: () -> Unit,
-    onNavigateEditTask: (Long, Long, Long) -> Unit
+    onNavigateEditTask: (Long, Long, Long, Long) -> Unit
 ) {
 
     val snackbar = remember { SnackbarHostState() }
@@ -265,22 +304,51 @@ fun AppRoot(
     val parents by taskVm.parents.collectAsStateWithLifecycle()
 
     // 中央ページ（タスク一覧）を起点に、左右へページング
-    val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
+    val pagerState = rememberPagerState(initialPage = 1, pageCount = { 4 })
 
     val ctx = LocalContext.current
     val active by taskVm.active.collectAsStateWithLifecycle()
+    val settingsPreferences = remember(ctx) {
+        ctx.getSharedPreferences(SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
+    }
     var showStopButton by rememberSaveable {
         mutableStateOf(
-            ctx.getSharedPreferences(SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
-                .getBoolean(KEY_SHOW_STOP_BUTTON, true)
+            settingsPreferences.getBoolean(KEY_SHOW_STOP_BUTTON, true)
         )
+    }
+    var dailyPlans by remember {
+        mutableStateOf(DailyPlansCodec.decode(settingsPreferences.getString(KEY_DAILY_PLANS, null)))
+    }
+    val dailyPlanTaskOptions = remember(parents) {
+        parents.flatMap { group ->
+            listOf(
+                DailyPlanTaskOption(
+                    id = group.parent.id,
+                    label = group.parent.name,
+                    colorInt = group.parent.colorInt
+                )
+            ) +
+                    group.children.map { child ->
+                        DailyPlanTaskOption(
+                            id = child.id,
+                            label = "${group.parent.name} / ${child.name}",
+                            colorInt = child.colorInt ?: group.parent.colorInt
+                        )
+                    }
+        }
     }
 
     fun updateShowStopButton(show: Boolean) {
         showStopButton = show
-        ctx.getSharedPreferences(SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
+        settingsPreferences.edit()
             .putBoolean(KEY_SHOW_STOP_BUTTON, show)
+            .apply()
+    }
+
+    fun updateDailyPlans(updated: DailyPlans) {
+        dailyPlans = updated
+        settingsPreferences.edit()
+            .putString(KEY_DAILY_PLANS, DailyPlansCodec.encode(updated))
             .apply()
     }
 
@@ -325,7 +393,6 @@ fun AppRoot(
     var pendingDeleteEventId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     var showImportTsvDialog by rememberSaveable { mutableStateOf(false) }
-    var importTsvText by rememberSaveable { mutableStateOf("") }
     var clearExistingEvents by rememberSaveable { mutableStateOf(false) }
     var createMissing by rememberSaveable { mutableStateOf(true) }
 
@@ -335,9 +402,8 @@ fun AppRoot(
 
     val activeUi by taskVm.activeUi.collectAsStateWithLifecycle()
 
-    // フィルターダイアログ表示フラグ
-    var showStatsFilterDialog by remember { mutableStateOf(false) }
-    var statsIncludedLeafIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var showStatsFilterScreen by rememberSaveable { mutableStateOf(false) }
+    var statsIncludedTaskIds by remember { mutableStateOf<Set<Long>?>(null) }
 
     var statsAggMode by rememberSaveable { mutableStateOf(StatsAggMode.Leaf) }
 
@@ -354,16 +420,15 @@ fun AppRoot(
     LaunchedEffect(Unit) {
         val sp = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val csv = sp.getString(KEY_STATS_INCLUDED, null)
-        statsIncludedLeafIds = csv
+        statsIncludedTaskIds = csv
             ?.split(',')
             ?.mapNotNull { it.toLongOrNull() }
             ?.toSet()
-            ?: emptySet()
     }
 
     // 保存ヘルパ
     fun saveStatsFilter(ids: Set<Long>) {
-        statsIncludedLeafIds = ids
+        statsIncludedTaskIds = ids
         val sp = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         sp.edit().putString(KEY_STATS_INCLUDED, ids.joinToString(",")).apply()
     }
@@ -384,7 +449,7 @@ fun AppRoot(
         val d = (end - start).coerceAtLeast(0L)
         val h = (d / 3_600_000L).toInt()
         val m = ((d / 60_000L) % 60).toInt()
-        return String.format("%02d:%02d", h, m)
+        return String.format(java.util.Locale.getDefault(), "%02d:%02d", h, m)
     }
 
     fun hhmmssFromDuration(ms: Long): String {
@@ -392,13 +457,13 @@ fun AppRoot(
         val hh = s / 3600
         val mm = (s % 3600) / 60
         val ss = s % 60
-        return String.format("%02d:%02d:%02d", hh, mm, ss)
+        return String.format(java.util.Locale.getDefault(), "%02d:%02d:%02d", hh, mm, ss)
     }
 
     fun hhmmClock(ms: Long): String {
         val cal = java.util.Calendar.getInstance().apply { timeInMillis = ms }
         return String.format(
-            "%02d:%02d",
+            Locale.getDefault(), "%02d:%02d",
             cal.get(java.util.Calendar.HOUR_OF_DAY),
             cal.get(java.util.Calendar.MINUTE)
         )
@@ -475,21 +540,82 @@ fun AppRoot(
         }
     }
 
+    var timelineRefreshTick by remember { mutableLongStateOf(0L) }
+
     // ViewModel のワンショット UI イベントを収集して Snackbar を表示
     LaunchedEffect(Unit) {
         taskVm.events.collectLatest { ev ->
             when (ev) {
+                UiEvent.DataRestored -> {
+                    timelineRefreshTick++
+                    selectedTimelineTaskId = null
+                    selectedTimelineStartMs = -1L
+                    selectedTimelineEndMs = -1L
+                }
+                UiEvent.TasksMerged -> {
+                    dailyPlans = DailyPlansCodec.decode(settingsPreferences.getString(KEY_DAILY_PLANS, null))
+                    statsIncludedTaskIds = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .getString(KEY_STATS_INCLUDED, null)?.split(',')?.mapNotNull { it.toLongOrNull() }?.toSet()
+                }
                 is UiEvent.ShowMessage -> snackbar.showSnackbar(ev.message)
             }
         }
     }
 
-    var timelineRefreshTick by remember { mutableLongStateOf(0L) }
-
     // Import ダイアログの状態
     var showImportDialog by rememberSaveable { mutableStateOf(false) }
-    var importText by rememberSaveable { mutableStateOf("") }
     var replaceAll by rememberSaveable { mutableStateOf(false) }
+
+    val importJsonFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val json = readImportFile(ctx, uri)
+                    taskVm.importTasksFromJson(json, replaceAll)
+                    replaceAll = false
+                    showImportDialog = false
+                    snackbar.showSnackbar(ctx.getString(R.string.import_complete))
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        ctx,
+                        ctx.getString(R.string.import_failed, e.message.orEmpty()),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    val importTsvFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val tsv = readImportFile(ctx, uri)
+                    val count = taskVm.importEventsTsv(
+                        tsv = tsv,
+                        clearExisting = clearExistingEvents,
+                        createMissing = createMissing
+                    )
+                    clearExistingEvents = false
+                    createMissing = true
+                    showImportTsvDialog = false
+                    taskVm.reloadHistory()
+                    timelineRefreshTick = System.currentTimeMillis()
+                    snackbar.showSnackbar(ctx.getString(R.string.import_tsv_complete, count))
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        ctx,
+                        ctx.getString(R.string.import_failed, e.message.orEmpty()),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
 
     // 現在表示中のページインデックス（BottomBar の表示切替に利用）
     var currentPage by remember { mutableIntStateOf(pagerState.currentPage) }
@@ -511,6 +637,8 @@ fun AppRoot(
                     2 -> { // 統計
                         taskVm.reloadHistory()                   // ★追加
                     }
+
+                    3 -> { /* 分析画面は選択した期間を都度読み込む */ }
                 }
             }
     }
@@ -518,11 +646,17 @@ fun AppRoot(
     // 画面モード（メイン / 履歴）
     var screen by remember { mutableStateOf(AppScreen.Main) }
 
-    // Home 以外では、システムの戻る操作で Activity を終了せず Home に戻す
-    BackHandler(enabled = screen != AppScreen.Main) {
+    // Manage Data は Settings の子画面として一段ずつ戻る。
+    BackHandler(enabled = screen == AppScreen.ManageData || screen == AppScreen.WorkHistory) {
+        screen = AppScreen.Settings
+    }
+    // その他の Home 以外の画面では、Activity を終了せず Home に戻す。
+    BackHandler(enabled = screen != AppScreen.Main && screen != AppScreen.ManageData && screen != AppScreen.WorkHistory) {
         screen = AppScreen.Main
     }
-
+    BackHandler(enabled = screen == AppScreen.Main && showStatsFilterScreen) {
+        showStatsFilterScreen = false
+    }
     // 並び替えモード（タスクの上下入れ替え）
     var sortMode by rememberSaveable { mutableStateOf(false) }
 
@@ -551,48 +685,6 @@ fun AppRoot(
 
                                 "weekly_report" -> screen = AppScreen.WeeklyReport
 
-                                "export_tsv" -> {
-                                    showExportTsvDialog = true
-                                }
-
-                                "import_tsv" -> {
-                                    showImportTsvDialog = true
-                                }
-
-                                "export" -> {
-                                    // タスク定義を JSON で共有
-                                    scope.launch {
-                                        try {
-                                            val text = taskVm.exportTasksJson()
-                                            val send = Intent(Intent.ACTION_SEND).apply {
-                                                type = "text/plain"
-                                                putExtra(Intent.EXTRA_TEXT, text)
-                                                putExtra(
-                                                    Intent.EXTRA_SUBJECT,
-                                                    "TimeRecorder Tasks Export"
-                                                )
-                                            }
-                                            ctx.startActivity(
-                                                Intent.createChooser(
-                                                    send,
-                                                    "Export tasks as JSON"
-                                                )
-                                            )
-                                        } catch (e: Exception) {
-                                            Toast.makeText(
-                                                ctx,
-                                                "Export 失敗: ${e.message}",
-                                                Toast.LENGTH_LONG
-                                            ).show()
-                                        }
-                                    }
-                                }
-
-                                "import" -> {
-                                    // JSON テキスト貼り付けで Import するためのダイアログ
-                                    showImportDialog = true
-                                }
-
                                 "settings" -> screen = AppScreen.Settings
 
                                 "help" -> { /* ヘルプ（今後実装） */
@@ -612,7 +704,18 @@ fun AppRoot(
                     snackbarHost = { SnackbarHost(hostState = snackbar) },
                     topBar = {
                         TopAppBar(
-                            navigationIcon = {},
+                            navigationIcon = {
+                                if (screen == AppScreen.ManageData || screen == AppScreen.WorkHistory) {
+                                    IconButton(onClick = { screen = AppScreen.Settings }) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.ArrowBack,
+                                            contentDescription = stringResource(
+                                                R.string.action_back
+                                            )
+                                        )
+                                    }
+                                }
+                            },
                             title = {
                                 val showTimelineTitle =
                                     screen == AppScreen.Main &&
@@ -622,9 +725,14 @@ fun AppRoot(
                                             selectedTimelineEndMs > selectedTimelineStartMs
 
                                 val titleText =
-                                    if (showTimelineTitle) {
+                                    if (screen == AppScreen.WorkHistory) {
+                                        stringResource(R.string.work_history_title)
+                                    } else if (showStatsFilterScreen) {
+                                        stringResource(R.string.stats_filter_title)
+                                    } else if (showTimelineTitle) {
                                         // ① 選択中ブロックを最優先（タスク / サブタスク + HH:MM）
-                                        val core = selectedTimelineTitleCore ?: "選択中"
+                                        val core = selectedTimelineTitleCore
+                                            ?: stringResource(R.string.main_selected_item)
                                         val dur =
                                             hhmm(selectedTimelineStartMs, selectedTimelineEndMs)
                                         "$core ($dur)"
@@ -637,14 +745,22 @@ fun AppRoot(
                                     } else {
                                         // ③ どちらも無ければ既存タイトル
                                         when (screen) {
-                                            AppScreen.Main -> if (sortMode) "並び替え" else stringResource(
-                                                R.string.header_title
-                                            )
+                                            AppScreen.Main -> if (sortMode) {
+                                                stringResource(R.string.main_sort_title)
+                                            } else {
+                                                stringResource(R.string.header_title)
+                                            }
 
-                                            AppScreen.History -> "History"
-                                            AppScreen.Analysis -> "高度分析"
-                                            AppScreen.WeeklyReport -> "Weekly report"
-                                            AppScreen.Settings -> "Settings"
+                                            AppScreen.History -> stringResource(R.string.drawer_history)
+                                            AppScreen.Analysis -> stringResource(R.string.drawer_analysis)
+                                            AppScreen.WeeklyReport -> stringResource(
+                                                R.string.weekly_report_title
+                                            )
+                                            AppScreen.Settings -> stringResource(R.string.drawer_settings)
+                                            AppScreen.WorkHistory -> stringResource(R.string.work_history_title)
+                                            AppScreen.ManageData -> stringResource(
+                                                R.string.manage_data_title
+                                            )
                                         }
                                     }
 
@@ -656,34 +772,42 @@ fun AppRoot(
                                 )
                             },
                             actions = {
-                                if (activeUi != null && showStopButton) {
-                                    IconButton(onClick = { taskVm.onStopPressed() }) {
-                                        Icon(
-                                            Icons.Filled.StopCircle,
-                                            contentDescription = "Stop active task"
-                                        )
+                                if (!showStatsFilterScreen) {
+                                    if (activeUi != null && showStopButton) {
+                                        IconButton(onClick = { taskVm.onStopPressed() }) {
+                                            Icon(
+                                                Icons.Filled.StopCircle,
+                                                contentDescription = stringResource(
+                                                    R.string.main_stop_active_task
+                                                )
+                                            )
+                                        }
                                     }
-                                }
-                                if (screen == AppScreen.Main && sortMode) {
-                                    IconButton(onClick = { sortMode = false }) {
-                                        Icon(
-                                            Icons.Filled.Close,
-                                            contentDescription = "Exit sort mode"
-                                        )
-                                    }
-                                } else {
-                                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Menu,
-                                            contentDescription = stringResource(R.string.drawer_title)
-                                        )
+                                    if (screen == AppScreen.Main && sortMode) {
+                                        IconButton(onClick = { sortMode = false }) {
+                                            Icon(
+                                                Icons.Filled.Close,
+                                                contentDescription = stringResource(
+                                                    R.string.main_exit_sort_mode
+                                                )
+                                            )
+                                        }
+                                    } else {
+                                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Menu,
+                                                contentDescription = stringResource(
+                                                    R.string.drawer_title
+                                                )
+                                            )
+                                        }
                                     }
                                 }
                             }
                         )
                     },
                     bottomBar = {
-                        if (screen == AppScreen.Main) {
+                        if (screen == AppScreen.Main && !showStatsFilterScreen) {
                             // 左ページでは選択時のみ、他ページは常に表示
                             val showBar = when (currentPage) {
                                 0 -> selectedTimelineTaskId != null
@@ -699,60 +823,84 @@ fun AppRoot(
                                         val e = selectedTimelineEndMs
                                         if (eid == null || eid <= 0L || s < 0L || e <= s) {
                                             // active中など eventIdが無い/不正なら何もしない
-                                            scope.launch { snackbar.showSnackbar("分割できない記録です") }
+                                            scope.launch {
+                                                snackbar.showSnackbar(
+                                                    ctx.getString(R.string.main_split_unavailable)
+                                                )
+                                            }
                                             return@AdaptiveBottomBar
                                         }
 
-                                        // 初期値: ブロック中央
-                                        val mid = (s + e) / 2
-                                        val calInit =
-                                            Calendar.getInstance().apply { timeInMillis = mid }
-                                        val initHour = calInit.get(Calendar.HOUR_OF_DAY)
-                                        val initMin = calInit.get(Calendar.MINUTE)
-
-                                        android.app.TimePickerDialog(
-                                            ctx,
-                                            { _, hh, mm ->
-                                                // 分割日は選択ブロックの開始日（ブロックは1日内にクランプ済み）
-                                                val base = Calendar.getInstance().apply {
-                                                    timeInMillis = s
-                                                    set(Calendar.HOUR_OF_DAY, hh)
-                                                    set(Calendar.MINUTE, mm)
-                                                    set(Calendar.SECOND, 0)
-                                                    set(Calendar.MILLISECOND, 0)
-                                                }.timeInMillis
-
-                                                if (base <= s || base >= e) {
-                                                    scope.launch { snackbar.showSnackbar("分割時刻は選択中の区間内で指定してください") }
+                                        scope.launch(Dispatchers.Main.immediate) {
+                                            val event = taskVm.recordForEdit(eid)
+                                            if (event == null || event.durationMillis <= 0L) {
+                                                snackbar.showSnackbar(ctx.getString(R.string.main_split_unavailable))
+                                                return@launch
+                                            }
+                                            // Use the whole record, regardless of which day's fragment was selected.
+                                            val mid = event.pressedAtEpochMs + event.durationMillis / 2
+                                            showRecordDateTimePicker(ctx, mid) { splitAtMs ->
+                                                val recordEnd = event.pressedAtEpochMs + event.durationMillis
+                                                if (splitAtMs <= event.pressedAtEpochMs || splitAtMs >= recordEnd) {
+                                                    scope.launch {
+                                                        snackbar.showSnackbar(ctx.getString(R.string.error_split_time_out_of_range))
+                                                    }
                                                 } else {
-                                                    taskVm.splitEventAt(eid, base)
-                                                    // 選択は一旦クリア
+                                                    taskVm.splitEventAt(eid, splitAtMs)
                                                     selectedTimelineEventId = null
                                                     selectedTimelineTaskId = null
+                                                    selectedTimelineStartMs = -1L
+                                                    selectedTimelineEndMs = -1L
                                                 }
-                                            },
-                                            initHour, initMin, true
-                                        ).show()
+                                            }
+                                        }
                                     },
                                     onActionB = {
-                                        val id = selectedTimelineTaskId
-                                        if (id != null && selectedTimelineStartMs >= 0 && selectedTimelineEndMs >= 0) {
-                                            onNavigateEditTask(
-                                                id,
-                                                selectedTimelineStartMs,
-                                                selectedTimelineEndMs
-                                            )
+                                        val eventId = selectedTimelineEventId
+                                        val taskId = selectedTimelineTaskId
+                                        val startMs = selectedTimelineStartMs
+                                        val endMs = selectedTimelineEndMs
+                                        if (
+                                            eventId != null && eventId != 0L &&
+                                            taskId != null &&
+                                            startMs >= 0L && endMs > startMs
+                                        ) {
+                                            scope.launch {
+                                                val event = if (eventId > 0) taskVm.recordForEdit(eventId) else null
+                                                val running = taskVm.activeUi.value
+                                                if (event != null) {
+                                                    onNavigateEditTask(eventId, event.taskId,
+                                                        event.pressedAtEpochMs, event.pressedAtEpochMs + event.durationMillis)
+                                                } else if (eventId == -1L && running != null) {
+                                                    onNavigateEditTask(-1L, running.taskId,
+                                                        running.startEpochMs, System.currentTimeMillis())
+                                                }
+                                            }
+                                            selectedTimelineEventId = null
+                                            selectedTimelineTaskId = null
+                                            selectedTimelineStartMs = -1L
+                                            selectedTimelineEndMs = -1L
+                                        } else {
+                                            scope.launch {
+                                                snackbar.showSnackbar(
+                                                    ctx.getString(R.string.main_edit_unavailable)
+                                                )
+                                            }
                                         }
                                     },
                                     onLeftAction = { /* 予備 */ },
                                     onSortAction = { sortMode = true },
-                                    onRightAction = { showStatsFilterDialog = true },
+                                    onRightAction = { showStatsFilterScreen = true },
                                     onDeleteAction = {
                                         val eid = selectedTimelineEventId
                                         val s = selectedTimelineStartMs
                                         val e = selectedTimelineEndMs
                                         if (eid == null || eid <= 0L || s < 0L || e <= s) {
-                                            scope.launch { snackbar.showSnackbar("削除できない記録です") }
+                                            scope.launch {
+                                                snackbar.showSnackbar(
+                                                    ctx.getString(R.string.main_delete_unavailable)
+                                                )
+                                            }
                                             return@AdaptiveBottomBar
                                         }
                                         pendingDeleteEventId = eid
@@ -768,16 +916,20 @@ fun AppRoot(
                                         scope.launch {
                                             snackbar.showSnackbar(
                                                 when (nameSort) {
-                                                    NameSort.Asc -> "A→Z（昇順）"
-                                                    NameSort.Desc -> "Z→A（降順）"
-                                                    else -> "任意順"
+                                                    NameSort.Asc -> ctx.getString(
+                                                        R.string.main_sort_ascending
+                                                    )
+                                                    NameSort.Desc -> ctx.getString(
+                                                        R.string.main_sort_descending
+                                                    )
+                                                    else -> ctx.getString(R.string.main_sort_manual)
                                                 }
                                             )
                                         }
                                     },
                                     timelineSpanText = spanText,
                                     onFilterAction = {
-                                        if (currentPage == 2) showStatsFilterDialog = true
+                                        if (currentPage == 2) showStatsFilterScreen = true
                                     },
                                     onAggCycleAction = { if (currentPage == 2) cycleStatsAgg() },
                                     aggMode = statsAggMode
@@ -788,41 +940,53 @@ fun AppRoot(
                 ) { innerPadding ->
                     // ページ本体
                     when (screen) {
-                        AppScreen.Main -> MainPager(
-                            modifier = Modifier.padding(innerPadding),
-                            pagerState = pagerState,
-                            taskVm = taskVm,
-                            sortMode = sortMode,
-                            onNavigateAddTask = onNavigateAddTask,
-                            selectedTimelineTaskId = selectedTimelineTaskId,
-                            selectedTimelineEventId = selectedTimelineEventId,
-                            onTimelineTaskSelected = { tid ->
-                                selectedTimelineTaskId = tid
-                                if (tid == null) {
-                                    selectedTimelineEventId = null
-                                    selectedTimelineStartMs = -1L
-                                    selectedTimelineEndMs = -1L
-                                }
-                            },
-                            onTimelineEventSelected = { eid ->                                  // ★ 追加
-                                selectedTimelineEventId = eid
-                                if (eid == null) {
-                                    selectedTimelineTaskId = null
-                                    selectedTimelineStartMs = -1L
-                                    selectedTimelineEndMs = -1L
-                                }
-                            },
-                            onTimelineBlockSelected = { eid, tid, s, e ->
-                                selectedTimelineEventId = eid
-                                selectedTimelineTaskId = tid
-                                selectedTimelineStartMs = s
-                                selectedTimelineEndMs = e
-                            },
-                            nameSort = nameSort,
-                            timelineRefreshTick = timelineRefreshTick,
-                            statsIncludedLeafIds = statsIncludedLeafIds,
-                            aggMode = statsAggMode
-                        )
+                        AppScreen.Main -> {
+                            if (showStatsFilterScreen) {
+                                StatsFilterSelectionScreen(
+                                    modifier = Modifier.padding(innerPadding),
+                                    viewModel = taskVm,
+                                    selectedTaskIds = statsIncludedTaskIds,
+                                    onSelectionChange = ::saveStatsFilter,
+                                    onBack = { showStatsFilterScreen = false }
+                                )
+                            } else {
+                                MainPager(
+                                    modifier = Modifier.padding(innerPadding),
+                                    pagerState = pagerState,
+                                    taskVm = taskVm,
+                                    sortMode = sortMode,
+                                    onNavigateAddTask = onNavigateAddTask,
+                                    selectedTimelineTaskId = selectedTimelineTaskId,
+                                    selectedTimelineEventId = selectedTimelineEventId,
+                                    onTimelineTaskSelected = { tid ->
+                                        selectedTimelineTaskId = tid
+                                        if (tid == null) {
+                                            selectedTimelineEventId = null
+                                            selectedTimelineStartMs = -1L
+                                            selectedTimelineEndMs = -1L
+                                        }
+                                    },
+                                    onTimelineEventSelected = { eid ->
+                                        selectedTimelineEventId = eid
+                                        if (eid == null) {
+                                            selectedTimelineTaskId = null
+                                            selectedTimelineStartMs = -1L
+                                            selectedTimelineEndMs = -1L
+                                        }
+                                    },
+                                    onTimelineBlockSelected = { eid, tid, s, e ->
+                                        selectedTimelineEventId = eid
+                                        selectedTimelineTaskId = tid
+                                        selectedTimelineStartMs = s
+                                        selectedTimelineEndMs = e
+                                    },
+                                    nameSort = nameSort,
+                                    timelineRefreshTick = timelineRefreshTick,
+                                    statsIncludedTaskIds = statsIncludedTaskIds,
+                                    aggMode = statsAggMode
+                                )
+                            }
+                        }
 
                         AppScreen.History -> HistoryScreen(
                             modifier = Modifier
@@ -835,14 +999,16 @@ fun AppRoot(
                             modifier = Modifier
                                 .padding(innerPadding)
                                 .fillMaxSize(),
-                            viewModel = taskVm
+                            viewModel = taskVm,
+                            dailyPlans = dailyPlans
                         )
 
                         AppScreen.WeeklyReport -> WeeklyReportScreen(
                             modifier = Modifier
                                 .padding(innerPadding)
                                 .fillMaxSize(),
-                            viewModel = taskVm
+                            viewModel = taskVm,
+                            dailyPlans = dailyPlans
                         )
 
                         AppScreen.Settings -> SettingsScreen(
@@ -850,7 +1016,62 @@ fun AppRoot(
                                 .padding(innerPadding)
                                 .fillMaxSize(),
                             showStopButton = showStopButton,
-                            onShowStopButtonChange = ::updateShowStopButton
+                            onShowStopButtonChange = ::updateShowStopButton,
+                            dailyPlans = dailyPlans,
+                            taskOptions = dailyPlanTaskOptions,
+                            onDailyPlansChange = ::updateDailyPlans,
+                            onManageDataClick = { screen = AppScreen.ManageData },
+                            onWorkHistoryClick = { screen = AppScreen.WorkHistory }
+                        )
+
+                        AppScreen.WorkHistory -> {
+                            val entries by taskVm.workHistory.collectAsStateWithLifecycle()
+                            val restoring by taskVm.workHistoryRestoring.collectAsStateWithLifecycle()
+                            WorkHistoryScreen(
+                                entries = entries,
+                                restoring = restoring,
+                                onRestore = { id, latestId -> taskVm.restoreWorkHistory(id, latestId) },
+                                modifier = Modifier.padding(innerPadding).fillMaxSize()
+                            )
+                        }
+
+                        AppScreen.ManageData -> ManageDataScreen(
+                            modifier = Modifier
+                                .padding(innerPadding)
+                                .fillMaxSize(),
+                            onExportTsv = { showExportTsvDialog = true },
+                            onImportTsv = { showImportTsvDialog = true },
+                            onExportJson = {
+                                scope.launch {
+                                    try {
+                                        val text = taskVm.exportTasksJson()
+                                        val send = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, text)
+                                            putExtra(
+                                                Intent.EXTRA_SUBJECT,
+                                                ctx.getString(R.string.export_tasks_subject)
+                                            )
+                                        }
+                                        ctx.startActivity(
+                                            Intent.createChooser(
+                                                send,
+                                                ctx.getString(R.string.export_tasks_chooser)
+                                            )
+                                        )
+                                    } catch (e: Exception) {
+                                        Toast.makeText(
+                                            ctx,
+                                            ctx.getString(
+                                                R.string.export_failed,
+                                                e.message.orEmpty()
+                                            ),
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                }
+                            },
+                            onImportJson = { showImportDialog = true }
                         )
                     }
 
@@ -858,26 +1079,12 @@ fun AppRoot(
                     if (showImportDialog) {
                         AlertDialog(
                             onDismissRequest = { showImportDialog = false },
-                            title = { Text("Import (JSON)") },
+                            title = { Text(stringResource(R.string.import_json_title)) },
                             text = {
                                 Column {
                                     Text(
-                                        "エクスポートした JSON をここに貼り付けてください。",
+                                        stringResource(R.string.import_json_description),
                                         style = MaterialTheme.typography.bodySmall
-                                    )
-                                    Spacer(Modifier.height(8.dp))
-                                    // JSON 入力欄
-                                    OutlinedTextField(
-                                        value = importText,
-                                        onValueChange = { importText = it },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(160.dp),
-                                        placeholder = {
-                                            Text(
-                                                "[\n  {\"name\":\"Project\",\"color\":16753928,\"children\":[{\"name\":\"Task\"}]}\n]"
-                                            )
-                                        }
                                     )
                                     Spacer(Modifier.height(8.dp))
                                     // 既存を全削除して置換するかどうか
@@ -886,37 +1093,20 @@ fun AppRoot(
                                             checked = replaceAll,
                                             onCheckedChange = { replaceAll = it }
                                         )
-                                        Text("既存を全て削除して置き換える")
+                                        Text(stringResource(R.string.import_json_replace_all))
                                     }
                                 }
                             },
                             confirmButton = {
                                 TextButton(onClick = {
-                                    // Import 実行
-                                    scope.launch {
-                                        try {
-                                            taskVm.importTasksFromJson(
-                                                importText,
-                                                replaceAll
-                                            )
-                                            // 後片付け
-                                            importText = ""
-                                            replaceAll = false
-                                            showImportDialog = false
-                                            snackbar.showSnackbar("Import 完了")
-                                        } catch (e: Exception) {
-                                            Toast.makeText(
-                                                ctx,
-                                                "Import 失敗: ${e.message}",
-                                                Toast.LENGTH_LONG
-                                            ).show()
-                                        }
-                                    }
-                                }) { Text("実行") }
+                                    importJsonFileLauncher.launch(
+                                        arrayOf("application/json", "text/json", "text/plain")
+                                    )
+                                }) { Text(stringResource(R.string.import_select_file)) }
                             },
                             dismissButton = {
                                 TextButton(onClick = { showImportDialog = false }) {
-                                    Text("キャンセル")
+                                    Text(stringResource(R.string.action_cancel))
                                 }
                             }
                         )
@@ -924,67 +1114,42 @@ fun AppRoot(
                     if (showImportTsvDialog) {
                         AlertDialog(
                             onDismissRequest = { showImportTsvDialog = false },
-                            title = { Text("Import (TSV)") },
+                            title = { Text(stringResource(R.string.import_tsv_title)) },
                             text = {
                                 Column {
                                     Text(
-                                        "次の形式のTSVを貼り付けてください。\n" +
-                                                "event_name\t task_name\t subtask_name\t start_epoch_ms\t end_epoch_ms\t duration_ms\t start_iso\t end_iso",
+                                        stringResource(R.string.import_tsv_description),
                                         style = MaterialTheme.typography.bodySmall
-                                    )
-                                    Spacer(Modifier.height(8.dp))
-                                    OutlinedTextField(
-                                        value = importTsvText,
-                                        onValueChange = { importTsvText = it },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(160.dp),
-                                        placeholder = {
-                                            Text(
-                                                "WASTE\ttest\tda\t1757689200000\t1757692800000\t3600000\t2025-09-13T00:00:00+09:00\t2025-09-13T01:00:00+09:00"
-                                            )
-                                        }
                                     )
                                     Spacer(Modifier.height(8.dp))
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Checkbox(
                                             checked = clearExistingEvents,
                                             onCheckedChange = { clearExistingEvents = it })
-                                        Text("既存の記録を全て削除してから取り込み")
+                                        Text(stringResource(R.string.import_tsv_clear_existing))
                                     }
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Checkbox(
                                             checked = createMissing,
                                             onCheckedChange = { createMissing = it })
-                                        Text("存在しないプロジェクト/タスク/サブタスクを自動作成")
+                                        Text(stringResource(R.string.import_tsv_create_missing))
                                     }
                                 }
                             },
                             confirmButton = {
                                 TextButton(onClick = {
-                                    scope.launch {
-                                        try {
-                                            val count = taskVm.importEventsTsv(
-                                                tsv = importTsvText,
-                                                clearExisting = clearExistingEvents,
-                                                createMissing = createMissing
-                                            )
-                                            showImportTsvDialog = false
-                                            importTsvText = ""
-                                            snackbar.showSnackbar("TSV Import 完了（$count 件）")
-                                        } catch (e: Exception) {
-                                            Toast.makeText(
-                                                ctx,
-                                                "Import 失敗: ${e.message}",
-                                                Toast.LENGTH_LONG
-                                            ).show()
-                                        }
-                                    }
-                                }) { Text("実行") }
+                                    importTsvFileLauncher.launch(
+                                        arrayOf(
+                                            "text/tab-separated-values",
+                                            "text/tsv",
+                                            "text/plain"
+                                        )
+                                    )
+                                }) { Text(stringResource(R.string.import_select_file)) }
                             },
                             dismissButton = {
                                 TextButton(onClick = { showImportTsvDialog = false }) {
-                                    Text("キャンセル")
+                                    Text(stringResource(R.string.action_cancel))
                                 }
                             }
                         )
@@ -1008,23 +1173,29 @@ fun AppRoot(
                                             putExtra(Intent.EXTRA_STREAM, uri)
                                             putExtra(
                                                 Intent.EXTRA_SUBJECT,
-                                                "TimeRecorder Events Export (TSV)"
+                                                ctx.getString(R.string.export_tsv_subject)
                                             )
                                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                             clipData = android.content.ClipData.newUri(
                                                 ctx.contentResolver,
-                                                "TimeRecorder TSV",
+                                                ctx.getString(R.string.export_tsv_clip_label),
                                                 uri
                                             )
                                         }
                                         ctx.startActivity(
-                                            Intent.createChooser(send, "Export records as TSV")
+                                            Intent.createChooser(
+                                                send,
+                                                ctx.getString(R.string.export_tsv_chooser)
+                                            )
                                         )
                                         showExportTsvDialog = false
                                     } catch (e: Exception) {
                                         Toast.makeText(
                                             ctx,
-                                            "Export TSV 失敗: ${e.message}",
+                                            ctx.getString(
+                                                R.string.export_tsv_failed,
+                                                e.message.orEmpty()
+                                            ),
                                             Toast.LENGTH_LONG
                                         ).show()
                                     }
@@ -1038,8 +1209,10 @@ fun AppRoot(
                                 pendingDeleteEventId = null
                                 showDeleteEventDialog = false
                             },
-                            title = { Text("記録を削除") },
-                            text = { Text("選択中の記録を削除します。よろしいですか？") },
+                            title = { Text(stringResource(R.string.delete_record_title)) },
+                            text = {
+                                Text(stringResource(R.string.delete_record_confirmation))
+                            },
                             confirmButton = {
                                 TextButton(onClick = {
                                     pendingDeleteEventId?.let { eid ->
@@ -1053,25 +1226,14 @@ fun AppRoot(
                                     selectedTimelineEndMs = -1L
                                     pendingDeleteEventId = null
                                     showDeleteEventDialog = false
-                                }) { Text("削除") }
+                                }) { Text(stringResource(R.string.action_delete)) }
                             },
                             dismissButton = {
                                 TextButton(onClick = {
                                     pendingDeleteEventId = null
                                     showDeleteEventDialog = false
-                                }) { Text("キャンセル") }
+                                }) { Text(stringResource(R.string.action_cancel)) }
                             }
-                        )
-                    }
-                    if (showStatsFilterDialog && currentPage == 2) {
-                        StatsFilterDialog(
-                            taskVm = taskVm,
-                            currentIncluded = statsIncludedLeafIds,
-                            onApply = { ids ->
-                                saveStatsFilter(ids)
-                                showStatsFilterDialog = false
-                            },
-                            onDismiss = { showStatsFilterDialog = false }
                         )
                     }
                 }
@@ -1106,52 +1268,21 @@ fun DrawerSheet(onItemSelected: (String) -> Unit) {
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
         NavigationDrawerItem(
-            label = { Text("History") },
+            label = { Text(stringResource(R.string.drawer_history)) },
             selected = false,
             onClick = { onItemSelected("history") },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
         NavigationDrawerItem(
-            label = { Text("高度分析") },
+            label = { Text(stringResource(R.string.drawer_analysis)) },
             selected = false,
             onClick = { onItemSelected("analysis") },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
         NavigationDrawerItem(
-            label = { Text("Weekly report (PDF)") },
+            label = { Text(stringResource(R.string.drawer_weekly_report)) },
             selected = false,
             onClick = { onItemSelected("weekly_report") },
-            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Manage Data",
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-        )
-        NavigationDrawerItem(
-            label = { Text("Export (TSV)") },
-            selected = false,
-            onClick = { onItemSelected("export_tsv") },
-            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-        )
-        NavigationDrawerItem(
-            label = { Text("Import (TSV)") },
-            selected = false,
-            onClick = { onItemSelected("import_tsv") },
-            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-        )
-        // Export / Import
-        NavigationDrawerItem(
-            label = { Text("Export (JSON)") },
-            selected = false,
-            onClick = { onItemSelected("export") },
-            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-        )
-        NavigationDrawerItem(
-            label = { Text("Import (JSON)") },
-            selected = false,
-            onClick = { onItemSelected("import") },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
         NavigationDrawerItem(
@@ -1165,7 +1296,7 @@ fun DrawerSheet(onItemSelected: (String) -> Unit) {
 }
 
 /**
- * 3ページ（左：タイムライン / 中央：タスク / 右：集計）を横スワイプで切替。
+ * 4ページ（タイムライン / タスク / 集計 / 分析）を横スワイプで切替。
  */
 @Composable
 fun MainPager(
@@ -1181,7 +1312,7 @@ fun MainPager(
     onTimelineBlockSelected: (Long, Long, Long, Long) -> Unit,
     nameSort: NameSort,
     timelineRefreshTick: Long,
-    statsIncludedLeafIds: Set<Long>,
+    statsIncludedTaskIds: Set<Long>?,
     aggMode: StatsAggMode
 ) {
     HorizontalPager(state = pagerState, modifier = modifier.fillMaxSize()) { page ->
@@ -1200,9 +1331,11 @@ fun MainPager(
             1 -> DBTaskScreen(taskVm = taskVm, sortMode = sortMode, nameSort = nameSort)
             2 -> StatsScreen(
                 viewModel = taskVm,
-                includedLeafIds = statsIncludedLeafIds,
+                includedTaskIds = statsIncludedTaskIds,
                 aggMode = aggMode
             )
+
+            3 -> TaskAnalysisScreen(viewModel = taskVm)
         }
     }
 }
@@ -1233,6 +1366,9 @@ fun DBTaskScreen(
     val parents by taskVm.parents.collectAsStateWithLifecycle()
     val activeUi by taskVm.activeUi.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val duplicateParentErrorText = stringResource(R.string.task_duplicate_parent_error)
+    val duplicateChildErrorText = stringResource(R.string.task_duplicate_child_error)
+    val emptyNameErrorText = stringResource(R.string.task_empty_name_error)
 
     var ui by remember { mutableStateOf<TaskCenterUiState>(TaskCenterUiState.List) }
     var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -1250,12 +1386,25 @@ fun DBTaskScreen(
     var renameTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var renameTaskCurrentName by rememberSaveable { mutableStateOf("") }
     var renameTaskText by rememberSaveable { mutableStateOf("") }
-    var confirmDeleteTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var confirmDeleteTaskName by rememberSaveable { mutableStateOf("") }
+    var taskDeletion by remember { mutableStateOf<TaskDeletionUiState?>(null) }
 
     var colorPickForParentId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var confirmDeleteParentId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var confirmDeleteParentName by rememberSaveable { mutableStateOf("") }
+
+    fun requestTaskDeletion(id: Long, name: String, isRoot: Boolean) {
+        taskDeletion = TaskDeletionUiState(
+            taskId = id,
+            taskName = name,
+            isRootTask = isRoot
+        )
+    }
+
+    LaunchedEffect(taskDeletion?.taskId) {
+        val taskId = taskDeletion?.taskId ?: return@LaunchedEffect
+        val excludedIds = taskVm.taskTreeIds(taskId)
+        taskDeletion = taskDeletion
+            ?.takeIf { it.taskId == taskId }
+            ?.copy(excludedTaskIds = excludedIds)
+    }
 
     val presetColors =
         listOf(0xFFEF9A9A, 0xFFA5D6A7, 0xFF90CAF9, 0xFFFFF59D, 0xFFCE93D8).map { Color(it) }
@@ -1392,7 +1541,7 @@ fun DBTaskScreen(
             when (val s = ui) {
                 TaskCenterUiState.List -> {
                     Text(
-                        text = if (sortMode) "長押しして上下にドラッグすると並び替えできます"
+                        text = if (sortMode) stringResource(R.string.task_reorder_description)
                         else stringResource(R.string.label_select_task),
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(bottom = 16.dp),
@@ -1451,7 +1600,9 @@ fun DBTaskScreen(
                                         Text(
                                             p.parent.name,
                                             style = MaterialTheme.typography.titleMedium,
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier.weight(1f).combinedClickable(
+                                                onClick = {}, onLongClick = { menuForParentId = p.parent.id }
+                                            )
                                         )
                                         IconButton(onClick = {
                                             menuForParentId = p.parent.id
@@ -1459,7 +1610,9 @@ fun DBTaskScreen(
                                         }) {
                                             Icon(
                                                 Icons.Filled.Menu,
-                                                contentDescription = "Parent task menu"
+                                                contentDescription = stringResource(
+                                                    R.string.task_parent_menu
+                                                )
                                             )
                                         }
                                         DropdownMenu(
@@ -1470,7 +1623,7 @@ fun DBTaskScreen(
                                             }
                                         ) {
                                             DropdownMenuItem(
-                                                text = { Text("タスクを追加") },
+                                                text = { Text(stringResource(R.string.task_add)) },
                                                 onClick = {
                                                     menuForParentId = null
                                                     newChildName = ""
@@ -1480,7 +1633,7 @@ fun DBTaskScreen(
                                                 }
                                             )
                                             DropdownMenuItem(
-                                                text = { Text("名前を変更") },       // ★追加
+                                                text = { Text(stringResource(R.string.task_rename)) },
                                                 onClick = {
                                                     menuForParentId = null
                                                     renameIsParent = true           // ★親の改名フラグをON
@@ -1492,16 +1645,25 @@ fun DBTaskScreen(
                                                 }
                                             )
                                             DropdownMenuItem(
-                                                text = { Text("親タスク（プロジェクト）を削除") },
+                                                text = {
+                                                    Text(
+                                                        stringResource(R.string.task_delete_parent)
+                                                    )
+                                                },
                                                 onClick = {
                                                     menuForParentId = null
-                                                    confirmDeleteParentId = p.parent.id
-                                                    confirmDeleteParentName = p.parent.name
+                                                    requestTaskDeletion(
+                                                        p.parent.id,
+                                                        p.parent.name,
+                                                        isRoot = true
+                                                    )
                                                     lastInteractionTime = System.currentTimeMillis()
                                                 }
                                             )
                                             DropdownMenuItem(
-                                                text = { Text("色の変更") },
+                                                text = {
+                                                    Text(stringResource(R.string.task_change_color))
+                                                },
                                                 onClick = {
                                                     menuForParentId = null
                                                     colorPickForParentId = p.parent.id
@@ -1611,7 +1773,9 @@ fun DBTaskScreen(
                                                                 )
                                                             }
                                                     else
-                                                        Modifier.clickable {
+                                                        Modifier.combinedClickable(
+                                                            onLongClick = { menuForChildTaskId = child.id },
+                                                            onClick = {
                                                             selectedTaskId = child.id
                                                             lastInteractionTime =
                                                                 System.currentTimeMillis()
@@ -1630,7 +1794,7 @@ fun DBTaskScreen(
                                                                     taskVm.onTaskPressed(child.id)
                                                                 }
                                                             }
-                                                        }
+                                                        })
                                                 ),
                                             colors = CardDefaults.cardColors(
                                                 containerColor = if (isDragging) MaterialTheme.colorScheme.surfaceVariant else bg
@@ -1675,7 +1839,9 @@ fun DBTaskScreen(
                                                     }) {
                                                         Icon(
                                                             Icons.Filled.Menu,
-                                                            contentDescription = "Task menu"
+                                                            contentDescription = stringResource(
+                                                                R.string.task_menu
+                                                            )
                                                         )
                                                     }
                                                     DropdownMenu(
@@ -1687,7 +1853,13 @@ fun DBTaskScreen(
                                                         }
                                                     ) {
                                                         DropdownMenuItem(
-                                                            text = { Text("サブタスクを編集") },
+                                                            text = {
+                                                                Text(
+                                                                    stringResource(
+                                                                        R.string.task_edit_subtasks
+                                                                    )
+                                                                )
+                                                            },
                                                             onClick = {
                                                                 menuForChildTaskId = null
                                                                 ui =
@@ -1703,7 +1875,13 @@ fun DBTaskScreen(
 
                                                         // サブタスク追加
                                                         DropdownMenuItem(
-                                                            text = { Text("サブタスクを追加") },
+                                                            text = {
+                                                                Text(
+                                                                    stringResource(
+                                                                        R.string.task_add_subtask
+                                                                    )
+                                                                )
+                                                            },
                                                             onClick = {
                                                                 menuForChildTaskId = null
                                                                 newChildName = ""
@@ -1714,7 +1892,9 @@ fun DBTaskScreen(
                                                             }
                                                         )
                                                         DropdownMenuItem(
-                                                            text = { Text("名前を変更") },
+                                                            text = {
+                                                                Text(stringResource(R.string.task_rename))
+                                                            },
                                                             onClick = {
                                                                 menuForChildTaskId = null
                                                                 renameIsParent = false
@@ -1727,11 +1907,16 @@ fun DBTaskScreen(
                                                             }
                                                         )
                                                         DropdownMenuItem(
-                                                            text = { Text("タスクを削除") },
+                                                            text = {
+                                                                Text(stringResource(R.string.task_delete))
+                                                            },
                                                             onClick = {
                                                                 menuForChildTaskId = null
-                                                                confirmDeleteTaskId = child.id
-                                                                confirmDeleteTaskName = child.name
+                                                                requestTaskDeletion(
+                                                                    child.id,
+                                                                    child.name,
+                                                                    isRoot = false
+                                                                )
                                                                 lastInteractionTime =
                                                                     System.currentTimeMillis()
                                                             }
@@ -1758,7 +1943,10 @@ fun DBTaskScreen(
                         parents.firstOrNull { g -> g.children.any { it.id == s.parentId } }
                             ?.parent?.colorInt?.let { Color(it) }
                     }
-                    val liveTitle = "${liveChild?.name ?: s.parentTitle} のサブタスク"
+                    val liveTitle = stringResource(
+                        R.string.task_subtask_title,
+                        liveChild?.name ?: s.parentTitle
+                    )
                     val colorForUi = liveParentColor ?: s.color
 
                     SubtaskPicker(
@@ -1783,8 +1971,7 @@ fun DBTaskScreen(
                             lastInteractionTime = System.currentTimeMillis()
                         },
                         onDeleteRequest = { taskId, name ->
-                            confirmDeleteTaskId = taskId
-                            confirmDeleteTaskName = name
+                            requestTaskDeletion(taskId, name, isRoot = false)
                             lastInteractionTime = System.currentTimeMillis()
                         },
                         taskVm = taskVm,
@@ -1795,11 +1982,37 @@ fun DBTaskScreen(
             }
         }
 
+        taskDeletion?.takeIf { it.isSelectingReplacement }?.let { deletion ->
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(10f),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                ReplacementTaskSelectionScreen(
+                    viewModel = taskVm,
+                    parents = parents,
+                    excludedTaskIds = deletion.excludedTaskIds,
+                    nameSort = effectiveNameSort,
+                    onBack = {
+                        taskDeletion = taskDeletion?.copy(isSelectingReplacement = false)
+                    },
+                    onPick = { taskId, label ->
+                        taskDeletion = taskDeletion?.copy(
+                            replacementTaskId = taskId,
+                            replacementTaskLabel = label,
+                            isSelectingReplacement = false
+                        )
+                    }
+                )
+            }
+        }
+
         // ====== 各種ダイアログ ======
         if (showAddDialog) {
             AlertDialog(
                 onDismissRequest = { showAddDialog = false },
-                title = { Text("タスクを追加") },
+                title = { Text(stringResource(R.string.task_add)) },
                 text = {
                     OutlinedTextField(
                         value = newTaskName,
@@ -1809,14 +2022,13 @@ fun DBTaskScreen(
                                 val name = it.trim()
                                 addParentError = when {
                                     name.isEmpty() -> null
-                                    taskVm.hasDuplicateParentName(name) -> "同名の親タスクが既に存在します"
                                     else -> null
                                 }
                             }
                         },
                         singleLine = true,
                         isError = addParentError != null,
-                        label = { Text("タスク名（1〜128文字）") },
+                        label = { Text(stringResource(R.string.task_name_label)) },
                         supportingText = { if (addParentError != null) Text(addParentError!!) }
                     )
                 },
@@ -1824,9 +2036,7 @@ fun DBTaskScreen(
                     TextButton(onClick = {
                         val name = newTaskName.trim().take(128)
                         when {
-                            name.isEmpty() -> addParentError = "1文字以上で入力してください"
-                            taskVm.hasDuplicateParentName(name) -> addParentError =
-                                "同名の親タスクが既に存在します"
+                            name.isEmpty() -> addParentError = emptyNameErrorText
 
                             else -> {
                                 taskVm.addParentTask(name)
@@ -1834,10 +2044,12 @@ fun DBTaskScreen(
                                 addParentError = null
                             }
                         }
-                    }) { Text("追加") }
+                    }) { Text(stringResource(R.string.action_add)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showAddDialog = false }) { Text("キャンセル") }
+                    TextButton(onClick = { showAddDialog = false }) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
                 }
             )
         }
@@ -1845,7 +2057,7 @@ fun DBTaskScreen(
         if (showAddChildDialogFor != null) {
             AlertDialog(
                 onDismissRequest = { showAddChildDialogFor = null },
-                title = { Text("子タスクを追加") },
+                title = { Text(stringResource(R.string.task_add_child)) },
                 text = {
                     OutlinedTextField(
                         value = newChildName,
@@ -1856,8 +2068,6 @@ fun DBTaskScreen(
                                 val name = it.trim()
                                 addChildError = when {
                                     name.isEmpty() -> null
-                                    pid != null && taskVm.hasDuplicateChildName(pid, name) ->
-                                        "同名のタスクがこのプロジェクトに存在します"
 
                                     else -> null
                                 }
@@ -1865,7 +2075,7 @@ fun DBTaskScreen(
                         },
                         singleLine = true,
                         isError = addChildError != null,
-                        label = { Text("タスク名（1〜128文字）") },
+                        label = { Text(stringResource(R.string.task_name_label)) },
                         supportingText = { if (addChildError != null) Text(addChildError!!) }
                     )
                 },
@@ -1875,9 +2085,7 @@ fun DBTaskScreen(
                         val name = newChildName.trim().take(128)
                         when {
                             pid == null -> {}
-                            name.isEmpty() -> addChildError = "1文字以上で入力してください"
-                            taskVm.hasDuplicateChildName(pid, name) ->
-                                addChildError = "同名のタスクがこのプロジェクトに存在します"
+                            name.isEmpty() -> addChildError = emptyNameErrorText
 
                             else -> {
                                 taskVm.addChildTask(pid, name)
@@ -1885,10 +2093,12 @@ fun DBTaskScreen(
                                 addChildError = null
                             }
                         }
-                    }) { Text("追加") }
+                    }) { Text(stringResource(R.string.action_add)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showAddChildDialogFor = null }) { Text("キャンセル") }
+                    TextButton(onClick = { showAddChildDialogFor = null }) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
                 }
             )
         }
@@ -1907,19 +2117,23 @@ fun DBTaskScreen(
                 hexInput = colorToHex(initColor, withAlpha = false)
             }
             val parsedHex = remember(hexInput) { parseHexColor(hexInput) }
-            val hexError = remember(parsedHex, hexInput) {
+            val hexFormatError = stringResource(R.string.task_color_hex_error)
+            val hexError = remember(parsedHex, hexInput, hexFormatError) {
                 if (hexInput.isBlank()) null
-                else if (parsedHex == null) "形式: #RRGGBB または #AARRGGBB"
+                else if (parsedHex == null) hexFormatError
                 else null
             }
 
             AlertDialog(
                 onDismissRequest = { colorPickForParentId = null },
-                title = { Text("色の変更") },
+                title = { Text(stringResource(R.string.task_change_color)) },
                 text = {
                     Column {
                         // 1) プリセット
-                        Text("プリセット", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            stringResource(R.string.task_color_preset),
+                            style = MaterialTheme.typography.labelMedium
+                        )
                         Spacer(Modifier.height(8.dp))
                         Row {
                             presetColors.forEach { c ->
@@ -1947,7 +2161,10 @@ fun DBTaskScreen(
                         Spacer(Modifier.height(16.dp))
 
                         // 2) HEX入力
-                        Text("HEX 指定", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            stringResource(R.string.task_color_hex_title),
+                            style = MaterialTheme.typography.labelMedium
+                        )
                         Spacer(Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             OutlinedTextField(
@@ -1955,7 +2172,9 @@ fun DBTaskScreen(
                                 onValueChange = { hexInput = it.uppercase() },
                                 singleLine = true,
                                 isError = hexError != null,
-                                label = { Text("HEX (#RRGGBB / #AARRGGBB)") },
+                                label = {
+                                    Text(stringResource(R.string.task_color_hex_label))
+                                },
                                 supportingText = { if (hexError != null) Text(hexError!!) },
                                 modifier = Modifier.weight(1f)
                             )
@@ -1983,17 +2202,19 @@ fun DBTaskScreen(
                                     colorPickForParentId = null
                                 },
                                 enabled = parsedHex != null
-                            ) { Text("HEXを適用") }
+                            ) { Text(stringResource(R.string.task_color_apply_hex)) }
 
                             FilledTonalButton(onClick = { showRgbPicker = true }) {
-                                Text("カラーピッカー…")
+                                Text(stringResource(R.string.task_color_picker))
                             }
                         }
                     }
                 },
                 confirmButton = {},
                 dismissButton = {
-                    TextButton(onClick = { colorPickForParentId = null }) { Text("閉じる") }
+                    TextButton(onClick = { colorPickForParentId = null }) {
+                        Text(stringResource(R.string.action_close))
+                    }
                 }
             )
 
@@ -2014,34 +2235,14 @@ fun DBTaskScreen(
             }
         }
 
-        if (confirmDeleteParentId != null) {
-            AlertDialog(
-                onDismissRequest = { confirmDeleteParentId = null },
-                title = { Text("削除の確認") },
-                text = {
-                    Text("親タスク（プロジェクト）「$confirmDeleteParentName」を削除します。子タスクも削除されます。よろしいですか？")
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val id = confirmDeleteParentId
-                        if (id != null) taskVm.deleteParent(id)
-                        confirmDeleteParentId = null
-                    }) { Text("削除") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { confirmDeleteParentId = null }) { Text("キャンセル") }
-                }
-            )
-        }
-
         if (renameTaskId != null) {
             AlertDialog(
                 onDismissRequest = { renameTaskId = null },
-                title = { Text("名前を変更") },
+                title = { Text(stringResource(R.string.task_rename)) },
                 text = {
                     Column {
                         Text(
-                            "現在: $renameTaskCurrentName",
+                            stringResource(R.string.task_current_name, renameTaskCurrentName),
                             style = MaterialTheme.typography.bodySmall
                         )
                         Spacer(Modifier.height(8.dp))
@@ -2050,25 +2251,12 @@ fun DBTaskScreen(
                             onValueChange = {
                                 if (it.length <= 128) {
                                     renameTaskText = it
-                                    // ★ライブ検証（親名のみ重複チェック）
-                                    val name = it.trim()
-                                    renameError = when {
-                                        name.isEmpty() -> null
-                                        renameIsParent &&
-                                                !name.equals(
-                                                    renameTaskCurrentName.trim(),
-                                                    ignoreCase = true
-                                                ) &&
-                                                taskVm.hasDuplicateParentName(name) ->
-                                            "同名の親タスクが既に存在します"
-
-                                        else -> null
-                                    }
+                                    renameError = null
                                 }
                             },
                             singleLine = true,
                             isError = renameError != null,   // ★エラー表示
-                            label = { Text("新しい名前（1〜128文字）") },
+                            label = { Text(stringResource(R.string.task_new_name_label)) },
                             supportingText = { if (renameError != null) Text(renameError!!) }
                         )
                     }
@@ -2079,48 +2267,57 @@ fun DBTaskScreen(
                         val name = renameTaskText.trim().take(128)
                         when {
                             id == null -> Unit
-                            name.isEmpty() -> renameError = "1文字以上で入力してください"
-                            // ★親名の重複は禁止（ただし大文字小文字差だけの同名はOK）
-                            renameIsParent &&
-                                    !name.equals(renameTaskCurrentName.trim(), ignoreCase = true) &&
-                                    taskVm.hasDuplicateParentName(name) -> {
-                                renameError = "同名の親タスクが既に存在します"
-                            }
-
+                            name.isEmpty() -> renameError = emptyNameErrorText
                             else -> {
                                 taskVm.renameTask(id, name)
                                 renameTaskId = null
                                 renameError = null
                             }
                         }
-                    }) { Text("保存") }
+                    }) { Text(stringResource(R.string.action_save)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { renameTaskId = null }) { Text("キャンセル") }
+                    TextButton(onClick = { renameTaskId = null }) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
                 }
             )
         }
 
 
-        if (confirmDeleteTaskId != null) {
-            AlertDialog(
-                onDismissRequest = { confirmDeleteTaskId = null },
-                title = { Text("削除の確認") },
-                text = { Text("タスク「$confirmDeleteTaskName」を削除します。よろしいですか？") },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val id = confirmDeleteTaskId
-                        if (id != null) taskVm.deleteTask(id)
-                        confirmDeleteTaskId = null
-                    }) { Text("削除") }
+        taskDeletion?.takeIf { !it.isSelectingReplacement }?.let { deletion ->
+            TaskDeletionDialog(
+                taskName = deletion.taskName,
+                isRootTask = deletion.isRootTask,
+                mode = deletion.mode,
+                replacementTaskId = deletion.replacementTaskId,
+                replacementTaskLabel = deletion.replacementTaskLabel,
+                onModeChange = { newMode ->
+                    taskDeletion = taskDeletion?.copy(
+                        mode = newMode,
+                        replacementTaskId = null,
+                        replacementTaskLabel = null,
+                        isSelectingReplacement = newMode == TaskDeletionMode.Replace
+                    )
                 },
-                dismissButton = {
-                    TextButton(onClick = { confirmDeleteTaskId = null }) { Text("キャンセル") }
+                onSelectReplacement = {
+                    taskDeletion = taskDeletion?.copy(isSelectingReplacement = true)
+                },
+                onConfirm = {
+                    taskVm.deleteTask(
+                        deletion.taskId,
+                        deletion.mode,
+                        deletion.replacementTaskId
+                    )
+                    taskDeletion = null
+                },
+                onDismiss = {
+                    taskDeletion = null
                 }
             )
         }
 
-        if (fabVisible) {
+        if (fabVisible && taskDeletion?.isSelectingReplacement != true) {
             FloatingActionButton(
                 onClick = {
                     when (val s = ui) {
@@ -2142,152 +2339,13 @@ fun DBTaskScreen(
                     .align(Alignment.BottomEnd)
                     .padding(16.dp)
             ) {
-                Icon(Icons.Filled.AddCircle, contentDescription = "Add task")
+                Icon(
+                    Icons.Filled.AddCircle,
+                    contentDescription = stringResource(R.string.task_add_accessibility)
+                )
             }
         }
     }
-}
-
-@Composable
-private fun StatsFilterDialog(
-    taskVm: TaskViewModel,
-    currentIncluded: Set<Long>,
-    onApply: (Set<Long>) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val parents by taskVm.parents.collectAsStateWithLifecycle()
-
-    // ✅ leaf（統計対象の粒度）と選択状態を“状態コレクション”で管理
-    val leafIds = remember { mutableStateListOf<Long>() }
-    val selected = remember { mutableStateListOf<Long>() }
-
-    // 親/子の変更に合わせて leaf を初期化（まずは子タスクを leaf 候補に）
-    LaunchedEffect(parents) {
-        leafIds.clear()
-        parents.forEach { g -> g.children.forEach { child -> leafIds.add(child.id) } }
-        // 初回選択：currentIncluded が空なら leaf 全選択、指定があればそれを反映
-        if (selected.isEmpty()) {
-            selected.clear()
-            if (currentIncluded.isEmpty()) selected.addAll(leafIds) else selected.addAll(
-                currentIncluded
-            )
-        }
-    }
-
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("統計フィルター") },
-        text = {
-            Column {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        selected.clear(); selected.addAll(leafIds)
-                    }) { Text("全選択") }
-                    OutlinedButton(onClick = { selected.clear() }) { Text("全解除") }
-                }
-                Spacer(Modifier.height(8.dp))
-
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 420.dp)
-                ) {
-                    parents.forEach { group ->
-                        item {
-                            Text(
-                                text = group.parent.name,
-                                style = MaterialTheme.typography.labelLarge,
-                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
-                            )
-                        }
-                        items(group.children.size) { idx ->
-                            val child = group.children[idx]
-
-                            // サブタスク監視
-                            val subs by taskVm.children(child.id)
-                                .collectAsStateWithLifecycle(initialValue = emptyList())
-
-                            // subs の有無に応じて leafIds / selected の“既定”を動的更新
-                            LaunchedEffect(subs) {
-                                // child は一度外す（あれば）
-                                leafIds.remove(child.id)
-                                if (subs.isNotEmpty()) {
-                                    // サブタスクを leaf に
-                                    subs.forEach { if (!leafIds.contains(it.id)) leafIds.add(it.id) }
-                                    if (currentIncluded.isEmpty()) {
-                                        // 既定（初回のみ）: child → subs に置き換え
-                                        selected.remove(child.id)
-                                        subs.forEach {
-                                            if (!selected.contains(it.id)) selected.add(
-                                                it.id
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    // サブタスク無し：child を leaf に戻す
-                                    if (!leafIds.contains(child.id)) leafIds.add(child.id)
-                                    if (currentIncluded.isEmpty() && !selected.contains(child.id)) {
-                                        selected.add(child.id)
-                                    }
-                                }
-                            }
-
-                            if (subs.isEmpty()) {
-                                // child を leaf として表示
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp)
-                                ) {
-                                    Checkbox(
-                                        checked = selected.contains(child.id),
-                                        onCheckedChange = { on ->
-                                            if (on) {
-                                                if (!selected.contains(child.id)) selected.add(child.id)
-                                            } else {
-                                                selected.remove(child.id)
-                                            }
-                                        }
-                                    )
-                                    Text(child.name, modifier = Modifier.padding(start = 4.dp))
-                                }
-                            } else {
-                                // サブタスクを leaf として表示（インデント）
-                                subs.forEach { sub ->
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(start = 24.dp, top = 2.dp, bottom = 2.dp)
-                                    ) {
-                                        Checkbox(
-                                            checked = selected.contains(sub.id),
-                                            onCheckedChange = { on ->
-                                                if (on) {
-                                                    if (!selected.contains(sub.id)) selected.add(sub.id)
-                                                } else {
-                                                    selected.remove(sub.id)
-                                                }
-                                            }
-                                        )
-                                        Text(sub.name, modifier = Modifier.padding(start = 4.dp))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    item { Spacer(Modifier.height(4.dp)) }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onApply(selected.toSet()) }) { Text("適用") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("キャンセル") }
-        }
-    )
 }
 
 /**
@@ -2335,7 +2393,9 @@ private fun SubtaskPicker(
                 .padding(bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TextButton(onClick = onBack) { Text("＜ 戻る") }
+            TextButton(onClick = onBack) {
+                Text(stringResource(R.string.action_back_with_marker))
+            }
             Spacer(Modifier.width(8.dp))
             Text(text = title, style = MaterialTheme.typography.titleMedium)
         }
@@ -2345,6 +2405,13 @@ private fun SubtaskPicker(
                 .weight(1f)
                 .padding(top = 8.dp)
         ) {
+            if (subtasksForView.isNotEmpty()) {
+                item {
+                    TextButton(onClick = { selectedSubId = null; onPick(parentId) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.subtask_none))
+                    }
+                }
+            }
             items(subtasksForView.size) { i ->
                 val t = subtasksForView[i]
                 val isSelected = selectedSubId == t.id
@@ -2356,11 +2423,11 @@ private fun SubtaskPicker(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
-                        .border(1.dp, border, RoundedCornerShape(8.dp)),
-                    onClick = {
-                        selectedSubId = t.id
-                        onPick(t.id)
-                    },
+                        .border(1.dp, border, RoundedCornerShape(8.dp))
+                        .combinedClickable(
+                            onLongClick = { onRenameRequest(t.id, t.name) },
+                            onClick = { selectedSubId = t.id; onPick(t.id) }
+                        ),
                     colors = CardDefaults.cardColors(containerColor = bg),
                     shape = RoundedCornerShape(8.dp)
                 ) {
@@ -2388,21 +2455,24 @@ private fun SubtaskPicker(
 
                         var menuExpanded by remember { mutableStateOf(false) }
                         IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Filled.Menu, contentDescription = "Subtask menu")
+                            Icon(
+                                Icons.Filled.Menu,
+                                contentDescription = stringResource(R.string.task_subtask_menu)
+                            )
                         }
                         DropdownMenu(
                             expanded = menuExpanded,
                             onDismissRequest = { menuExpanded = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("名前を変更") },
+                                text = { Text(stringResource(R.string.task_rename)) },
                                 onClick = {
                                     menuExpanded = false
                                     onRenameRequest(t.id, t.name)
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("削除") },
+                                text = { Text(stringResource(R.string.action_delete)) },
                                 onClick = {
                                     menuExpanded = false
                                     onDeleteRequest(t.id, t.name)
@@ -2442,36 +2512,14 @@ private fun TimelineScreen(
 
     val defaultProjectColor = MaterialTheme.colorScheme.onSurface
 
-    // 週間ビュー ON/OFF とオフセット
-    var weekMode by rememberSaveable { mutableStateOf(false) }   // 週間ビューON/OFF
-    var weekOffset by rememberSaveable { mutableIntStateOf(0) }  // 今週=0, 先週=-1, 来週=+1
-
-    val dayMs = 24L * 60L * 60L * 1000L
-    fun startOfWeekSunday(ms: Long): Long {
-        val cal = java.util.Calendar.getInstance().apply {
-            timeInMillis = midnightOf(ms) // その日の0:00
-        }
-        val dow = cal.get(java.util.Calendar.DAY_OF_WEEK) // SUNDAY=1
-        val backDays = (dow - java.util.Calendar.SUNDAY + 7) % 7
-        cal.timeInMillis -= backDays * dayMs
-        return cal.timeInMillis
-    }
-
-    // 「今日を右端」にするためのアンカー（非週間時のみ使用）
-    var dayCount by rememberSaveable { mutableIntStateOf(3) }
-    var anchorOffset by rememberSaveable { mutableIntStateOf(-1) } // start = today + offset * 1day
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(externalRefreshTick) { nowMs = System.currentTimeMillis() }
-
-    val startOfToday = remember(nowMs) { midnightOf(nowMs) }
-    val startMs = remember(startOfToday, anchorOffset, weekMode, weekOffset, dayCount) {
-        if (weekMode) {
-            startOfWeekSunday(startOfToday) + weekOffset * 7L * dayMs
-        } else {
-            startOfToday + anchorOffset * dayMs
-        }
+    LaunchedEffect(externalRefreshTick) {
+        while (true) { nowMs = System.currentTimeMillis(); delay(30_000) }
     }
-    val endMs = remember(startMs, dayCount) { startMs + dayCount * dayMs }
+    val range = com.example.timerecorder.ui.rememberTimelineRange(nowMs)
+    val startMs = range.startMs
+    val endMs = range.endMs
+    val dayCount = range.dayCount
 
     LaunchedEffect(startMs, endMs, history, isLoading, endReached) {
         // いま読み込めている最古の pressedAt（なければ MAX）
@@ -2482,13 +2530,6 @@ private fun TimelineScreen(
             // 1ページずつ追加ロード（Flow更新で再度この Effect が走り、必要分だけ繰り返す）
             viewModel.loadNextHistoryPage()
         }
-    }
-
-    val f = remember { SimpleDateFormat("yyyy/MM/dd (EEE)", Locale.getDefault()) }
-    val headerLabel = remember(startMs, endMs, dayCount) {
-        val first = f.format(Date(startMs))
-        val last = f.format(Date(endMs - 1))
-        if (dayCount == 1) first else "$first 〜 $last"
     }
 
     // taskId -> 現在のプロジェクト色
@@ -2526,70 +2567,13 @@ private fun TimelineScreen(
 
     fun colorFor(taskId: Long) = colorByTaskId[taskId] ?: defaultProjectColor
 
-    // 非週間モードに入った/日数が変わったら「今日が右端」になるように調整
-    LaunchedEffect(dayCount, weekMode) {
-        if (!weekMode) anchorOffset = -(dayCount - 1) // ← ここがポイント（右端=今日）
-    }
-
     Box(
         modifier = modifier
             .fillMaxSize()
             .padding(12.dp)
     ) {
         Column(Modifier.fillMaxSize()) {
-            // ヘッダー（左右でページ送り＋同期）
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = {
-                    if (weekMode) weekOffset -= 1 else anchorOffset -= dayCount
-                    viewModel.reloadHistory() // スワイプ相当の移動で同期
-                }) {
-                    Icon(Icons.Filled.ChevronLeft, contentDescription = "prev")
-                }
-                Text(
-                    headerLabel,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = {
-                    if (weekMode) weekOffset += 1 else anchorOffset += dayCount
-                    viewModel.reloadHistory() // スワイプ相当の移動で同期
-                }) {
-                    Icon(Icons.Filled.ChevronRight, contentDescription = "next")
-                }
-            }
-
-            Spacer(Modifier.height(6.dp))
-
-            // セグメント（3/5/7日 + 週間）
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                SegButton("3日", active = !weekMode && dayCount == 3) {
-                    weekMode = false; dayCount = 3
-                    anchorOffset = -(dayCount - 1) // 今日を右端
-                    viewModel.reloadHistory()
-                }
-                SegButton("5日", active = !weekMode && dayCount == 5) {
-                    weekMode = false; dayCount = 5
-                    anchorOffset = -(dayCount - 1)
-                    viewModel.reloadHistory()
-                }
-                SegButton("7日", active = !weekMode && dayCount == 7) {
-                    weekMode = false; dayCount = 7
-                    anchorOffset = -(dayCount - 1)
-                    viewModel.reloadHistory()
-                }
-                SegButton("週間", active = weekMode) {
-                    weekMode = true
-                    dayCount = 7            // 週間は7固定
-                    weekOffset = 0          // 今週
-                    viewModel.reloadHistory()
-                }
-                Spacer(Modifier.weight(1f))
-                // ※「更新」ボタンは削除済み
-            }
-
+            TimelineRangeControls(range)
             Spacer(Modifier.height(8.dp))
 
             // 表示するブロックを分割生成
@@ -2614,8 +2598,8 @@ private fun TimelineScreen(
                     ) {
                         if (e <= startMs || s >= endMs) return
                         repeat(dayCount) { i ->
-                            val dStart = startMs + i * dayMs
-                            val dEnd = dStart + dayMs
+                            val dStart = range.dayStart(i)
+                            val dEnd = range.dayStart(i + 1)
                             val cs = maxOf(s, dStart)
                             val ce = minOf(e, dEnd)
                             if (ce > cs) days[i].add(
@@ -2623,6 +2607,8 @@ private fun TimelineScreen(
                                     eventId = eventId,
                                     startMs = cs,
                                     endMs = ce,
+                                    recordStartMs = s,
+                                    recordEndMs = e,
                                     name = name,
                                     color = colorFor(taskId),
                                     taskId = taskId
@@ -2670,7 +2656,10 @@ private fun TimelineScreen(
                 .align(Alignment.BottomEnd)
                 .padding(16.dp)
         ) {
-            Icon(Icons.Filled.AddCircle, contentDescription = "Add record")
+            Icon(
+                Icons.Filled.AddCircle,
+                contentDescription = stringResource(R.string.timeline_add_record)
+            )
         }
     }
 }
@@ -2682,7 +2671,10 @@ private data class TimelineBlock(
     val endMs: Long,
     val name: String,
     val color: Color,
-    val taskId: Long
+    val taskId: Long,
+    // Keep the full record bounds separate from the day-clipped drawing bounds.
+    val recordStartMs: Long = startMs,
+    val recordEndMs: Long = endMs
 )
 
 @Composable
@@ -2735,7 +2727,7 @@ private fun MultiDayTimeline(
                 ) {
                     if (h in 0..23) {
                         Text(
-                            text = String.format("%02d", h),
+                            text = String.format(java.util.Locale.getDefault(), "%02d", h),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(end = 4.dp, top = 2.dp)
@@ -2749,6 +2741,7 @@ private fun MultiDayTimeline(
         Row(
             Modifier
                 .weight(1f)
+                .then(if (dayCount > 7) Modifier.horizontalScroll(rememberScrollState()).width(110.dp * dayCount) else Modifier)
                 .fillMaxHeight()
                 .pointerInput(dayCount, hourHeight) {
                     awaitEachGesture {
@@ -2791,7 +2784,7 @@ private fun MultiDayTimeline(
                 }
         ) {
             repeat(dayCount) { i ->
-                val dayStart = startMs + i * 24L * 60L * 60L * 1000L
+                val dayStart = com.example.timerecorder.ui.calendarDay(startMs, i)
                 val label = dateFmt.format(Date(dayStart))
                 DayColumn(
                     label = label,
@@ -2891,7 +2884,7 @@ private fun DayColumn(
                     .border(borderWidth, borderColor, RoundedCornerShape(0.dp))
                     .clickable {
                         onSelectEvent(b.eventId)
-                        onSelectBlock(b.eventId, b.taskId, b.startMs, b.endMs)
+                        onSelectBlock(b.eventId, b.taskId, b.recordStartMs, b.recordEndMs)
                     }
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
@@ -2944,8 +2937,8 @@ private fun colorToHex(color: Color, withAlpha: Boolean = false): String {
     val g = (color.green * 255).roundToInt().coerceIn(0, 255)
     val b = (color.blue * 255).roundToInt().coerceIn(0, 255)
     val a = (color.alpha * 255).roundToInt().coerceIn(0, 255)
-    return if (withAlpha) String.format("#%02X%02X%02X%02X", a, r, g, b)
-    else String.format("#%02X%02X%02X", r, g, b)
+    return if (withAlpha) String.format(java.util.Locale.getDefault(), "#%02X%02X%02X%02X", a, r, g, b)
+    else String.format(java.util.Locale.getDefault(), "#%02X%02X%02X", r, g, b)
 }
 
 // ---------- カラーピッカー（RGB/Alphaスライダー） ----------
@@ -2964,7 +2957,7 @@ private fun RgbColorPickerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("色を選択") },
+        title = { Text(stringResource(R.string.task_color_select)) },
         text = {
             Column {
                 // プレビュー＋HEX
@@ -2994,10 +2987,14 @@ private fun RgbColorPickerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(current) }) { Text("適用") }
+            TextButton(onClick = { onConfirm(current) }) {
+                Text(stringResource(R.string.action_apply))
+            }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("キャンセル") }
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
         }
     )
 }
@@ -3025,24 +3022,43 @@ private fun ChannelSlider(label: String, value: Int, onChange: (Int) -> Unit) {
 
 @SuppressLint("DefaultLocale")
 @Composable
-private fun StatsScreen(
+internal fun StatsScreen(
     viewModel: TaskViewModel,
     modifier: Modifier = Modifier,
-    includedLeafIds: Set<Long> = emptySet(),
+    includedTaskIds: Set<Long>? = null,
     aggMode: StatsAggMode = StatsAggMode.Leaf
 ) {
     val statsItems by viewModel.statsItems.collectAsStateWithLifecycle()
     val activeUi by viewModel.activeUi.collectAsStateWithLifecycle()
     val parents by viewModel.parents.collectAsStateWithLifecycle()
 
-    var days by rememberSaveable { mutableIntStateOf(7) }
+    var period by rememberSaveable { mutableStateOf(StatisticsPeriod.SevenDays) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var customStartMs by rememberSaveable { mutableLongStateOf(calendarDay(nowMs, -7)) }
+    var customEndMs by rememberSaveable { mutableLongStateOf(calendarDay(nowMs, -1)) }
+    var showCustomRange by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(period) {
+        while (true) {
+            nowMs = System.currentTimeMillis()
+            delay(30_000)
+        }
+    }
+    val (windowStart, windowEnd) = statisticsBounds(
+        period, nowMs, customStartMs = customStartMs, customEndMs = customEndMs
+    )
 
-    val dayMs = 24L * 60L * 60L * 1000L
-    val startOfToday = remember(nowMs) { midnightOf(nowMs) }
-    val windowEnd = startOfToday                       // 集計の上端（当日0:00）＝当日は除外
-    val windowStart = remember(startOfToday, days) {   // 下端（昨日から n 日前まで）
-        startOfToday - days * dayMs
+    if (showCustomRange) {
+        CalendarDateRangeDialog(
+            initialStartMs = customStartMs,
+            initialEndMs = customEndMs,
+            onDismiss = { showCustomRange = false },
+            onApply = { start, end ->
+                customStartMs = start
+                customEndMs = end
+                period = StatisticsPeriod.Custom
+                showCustomRange = false
+            }
+        )
     }
 
     LaunchedEffect(windowStart, windowEnd) {
@@ -3137,10 +3153,11 @@ private fun StatsScreen(
     val aggregated: List<Agg> = remember(
         statsItems,
         activeUi,
+        nowMs,
         parents,
         windowStart,
         windowEnd,
-        includedLeafIds,
+        includedTaskIds,
         aggMode,
         projByTaskId,
         childByLeafId,
@@ -3163,7 +3180,7 @@ private fun StatsScreen(
                         taskId = active.taskId,
                         taskName = active.taskName,
                         startMs = active.startEpochMs,
-                        endMs = windowEnd
+                        endMs = minOf(nowMs, windowEnd)
                     )
                 )
             }
@@ -3173,7 +3190,7 @@ private fun StatsScreen(
             records = records,
             windowStartMs = windowStart,
             windowEndMs = windowEnd,
-            includedLeafIds = includedLeafIds
+            includedTaskIds = includedTaskIds
         ) { record ->
             when (aggMode) {
                 StatsAggMode.Project -> projByTaskId[record.taskId]
@@ -3211,7 +3228,7 @@ private fun StatsScreen(
         val totalMin = (ms / 60_000L).toInt()
         val hh = totalMin / 60
         val mm = totalMin % 60
-        return String.format("%02d:%02d", hh, mm)
+        return String.format(java.util.Locale.getDefault(), "%02d:%02d", hh, mm)
     }
 
     Column(
@@ -3220,19 +3237,33 @@ private fun StatsScreen(
             .padding(16.dp)
             .verticalScroll(scroll)
     ) {
-        Text("集計", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.stats_title), style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(12.dp))
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SegButton("7日", active = days == 7) { days = 7 }
-            SegButton("30日", active = days == 30) { days = 30 }
-            SegButton("90日", active = days == 90) { days = 90 }
-            Spacer(Modifier.weight(1f))
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StatisticsPeriod.entries.forEach { option ->
+                SegButton(stringResource(option.label), active = period == option) {
+                    if (option == StatisticsPeriod.Custom) showCustomRange = true
+                    else period = option
+                }
+            }
+        }
+
+        if (period == StatisticsPeriod.Custom) {
+            val dateFormat = DateFormat.getDateInstance(DateFormat.MEDIUM)
+            TextButton(onClick = { showCustomRange = true }) {
+                Text(stringResource(R.string.date_range,
+                    dateFormat.format(Date(customStartMs)), dateFormat.format(Date(customEndMs))))
+            }
         }
 
         Spacer(Modifier.height(8.dp))
         Text(
-            "期間: 過去${days}日 / 合計 ${(totalAll / 1000 / 60)} 分",
+            stringResource(
+                R.string.stats_selected_period_summary,
+                stringResource(period.label),
+                totalAll / 1_000L / 60L
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -3253,7 +3284,7 @@ private fun StatsScreen(
                         .padding(24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("データがありません。記録するとここに表示されます。")
+                    Text(stringResource(R.string.stats_no_data))
                 }
             }
         } else {
@@ -3298,7 +3329,7 @@ private fun BarChart(
         val totalSec = (ms / 1000f).toLong().coerceAtLeast(0)
         val h = totalSec / 3600
         val m = (totalSec % 3600) / 60
-        return String.format("%02d:%02d", h, m)
+        return String.format(java.util.Locale.getDefault(), "%02d:%02d", h, m)
     }
 
     Column(modifier = modifier.verticalScroll(scroll)) {
@@ -3306,7 +3337,12 @@ private fun BarChart(
             val ratio = (value / maxVal).coerceIn(0f, 1f)
             val barColor = colors.getOrNull(index) ?: MaterialTheme.colorScheme.primary
             val pct = ((value / totalVal) * 100.0).roundToInt()
-            val displayLabel = "$label (${hhmm(value)}, $pct %)"
+            val displayLabel = stringResource(
+                R.string.stats_bar_label,
+                label,
+                hhmm(value),
+                pct
+            )
 
             Column(Modifier.padding(vertical = 6.dp)) {
                 Text(
@@ -3392,7 +3428,7 @@ fun HistoryScreen(modifier: Modifier = Modifier, viewModel: TaskViewModel) {
                                 .fillMaxWidth()
                                 .padding(8.dp),
                             contentAlignment = Alignment.Center
-                        ) { Text("以上です") }
+                        ) { Text(stringResource(R.string.history_end)) }
                     }
                 }
             }
@@ -3441,7 +3477,7 @@ private fun HistoryRowCard(row: HistoryItemUi) {
             )
             Spacer(Modifier.width(12.dp))
             Text(
-                String.format("%d:%02d", minutes, seconds),
+                String.format(java.util.Locale.getDefault(), "%d:%02d", minutes, seconds),
                 style = MaterialTheme.typography.bodyLarge
             )
         }
@@ -3472,17 +3508,20 @@ fun AdaptiveBottomBar(
                     IconButton(onClick = onActionA) {
                         Icon(
                             painter = painterResource(id = R.drawable.content_cut_24px),
-                            contentDescription = "content_cut_24"
+                            contentDescription = stringResource(R.string.bottom_split_record)
                         )
                     }
                     IconButton(onClick = onActionB) {
                         Icon(
                             painter = painterResource(id = R.drawable.edit_24px),
-                            contentDescription = "edit_24"
+                            contentDescription = stringResource(R.string.bottom_edit_record)
                         )
                     }
                     IconButton(onClick = onDeleteAction) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Delete record")
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = stringResource(R.string.bottom_delete_record)
+                        )
                     }
                     Spacer(Modifier.weight(1f))
                     if (timelineSpanText != null) {
@@ -3500,14 +3539,17 @@ fun AdaptiveBottomBar(
             BottomAppBar(
                 actions = {
                     IconButton(onClick = onSortAction) {
-                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
+                        Icon(
+                            Icons.AutoMirrored.Filled.Sort,
+                            contentDescription = stringResource(R.string.bottom_sort)
+                        )
                     }
                     if (showExtraIcon) {
                         IconButton(onClick = onExtraAction) {
                             // ★ 仮アイコン：設定アイコン（後でカスタムに差し替え）
                             Icon(
                                 painter = painterResource(id = R.drawable.sort_by_alpha_24px),
-                                contentDescription = "Placeholder"
+                                contentDescription = stringResource(R.string.bottom_sort_by_name)
                             )
                         }
                     }
@@ -3518,15 +3560,20 @@ fun AdaptiveBottomBar(
         2 -> {
             BottomAppBar {
                 IconButton(onClick = onFilterAction) {
-                    Icon(Icons.Filled.FilterList, contentDescription = "Filter")
+                    Icon(
+                        Icons.Filled.FilterList,
+                        contentDescription = stringResource(R.string.bottom_filter)
+                    )
                 }
                 Spacer(Modifier.weight(1f))
                 // 3モード巡回（アイコンは共通、CD に現在モード名）
                 IconButton(onClick = onAggCycleAction) {
                     val cd = when (aggMode) {
-                        StatsAggMode.Project -> "Aggregate: Project"
-                        StatsAggMode.Task -> "Aggregate: Task"
-                        StatsAggMode.Leaf -> "Aggregate: All (leaf)"
+                        StatsAggMode.Project -> stringResource(
+                            R.string.bottom_aggregate_project
+                        )
+                        StatsAggMode.Task -> stringResource(R.string.bottom_aggregate_task)
+                        StatsAggMode.Leaf -> stringResource(R.string.bottom_aggregate_leaf)
                     }
                     Icon(Icons.Filled.Dashboard, contentDescription = cd)
                 }
@@ -3547,351 +3594,6 @@ fun BlankScreen(label: String, modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
-}
-
-/* =========================
-   タスク追加画面（実装版：過去記録の手動追加）
-   ========================= */
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun AddTaskScreen(
-    onBack: () -> Unit,
-    viewModel: TaskViewModel,
-    initialTaskId: Long? = null,
-    initialStartMs: Long? = null,
-    initialEndMs: Long? = null
-) {
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    val parents by viewModel.parents.collectAsStateWithLifecycle()
-
-    var selectedParentId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var selectedSubtaskId by rememberSaveable { mutableStateOf<Long?>(null) }
-
-    // initialTaskId が来たら初期選択に反映（子 or サブタスクを自動選択）
-    LaunchedEffect(initialTaskId, parents) {
-        val target = initialTaskId ?: return@LaunchedEffect
-
-        // 子タスク一致
-        parents.firstOrNull { g -> g.children.any { it.id == target } }?.let { g ->
-            selectedParentId = g.parent.id
-            selectedTaskId = target
-            selectedSubtaskId = null
-            return@LaunchedEffect
-        }
-
-        // サブタスク一致
-        outer@ for (g in parents) {
-            for (child in g.children) {
-                if (viewModel.hasChildren(child.id)) {
-                    val subs = viewModel.children(child.id).first()
-                    if (subs.any { it.id == target }) {
-                        selectedParentId = g.parent.id
-                        selectedTaskId = child.id
-                        selectedSubtaskId = target
-                        break@outer
-                    }
-                }
-            }
-        }
-    }
-
-    // 選択された親配下の子タスク
-    val tasksInParent = remember(selectedParentId, parents) {
-        parents.firstOrNull { it.parent.id == selectedParentId }?.children.orEmpty()
-    }
-
-    // 選択された子タスク配下のサブタスク
-    val subtasks by remember(selectedTaskId) {
-        if (selectedTaskId != null) {
-            viewModel.children(selectedTaskId!!)
-        } else {
-            kotlinx.coroutines.flow.flowOf(emptyList())
-        }
-    }.collectAsStateWithLifecycle(initialValue = emptyList())
-
-    // 開始・終了の初期値：編集遷移時（initialStart/End）があればそれを採用
-    var startMs by rememberSaveable {
-        mutableLongStateOf(initialStartMs ?: (System.currentTimeMillis() - 60 * 60 * 1000L))
-    }
-    var endMs by rememberSaveable {
-        mutableLongStateOf(initialEndMs ?: System.currentTimeMillis())
-    }
-
-    val dfFull =
-        remember { java.text.SimpleDateFormat("yyyy/MM/dd HH:mm", java.util.Locale.getDefault()) }
-
-    fun pickDateTime(
-        initial: Long,
-        onPicked: (Long) -> Unit
-    ) {
-        val cal = java.util.Calendar.getInstance().apply { timeInMillis = initial }
-        android.app.DatePickerDialog(
-            ctx,
-            { _, y, m, d ->
-                cal.set(java.util.Calendar.YEAR, y)
-                cal.set(java.util.Calendar.MONTH, m)
-                cal.set(java.util.Calendar.DAY_OF_MONTH, d)
-                android.app.TimePickerDialog(
-                    ctx,
-                    { _, hh, mm ->
-                        cal.set(java.util.Calendar.HOUR_OF_DAY, hh)
-                        cal.set(java.util.Calendar.MINUTE, mm)
-                        cal.set(java.util.Calendar.SECOND, 0)
-                        cal.set(java.util.Calendar.MILLISECOND, 0)
-                        onPicked(cal.timeInMillis)
-                    },
-                    cal.get(java.util.Calendar.HOUR_OF_DAY),
-                    cal.get(java.util.Calendar.MINUTE),
-                    true
-                ).show()
-            },
-            cal.get(java.util.Calendar.YEAR),
-            cal.get(java.util.Calendar.MONTH),
-            cal.get(java.util.Calendar.DAY_OF_MONTH)
-        ).show()
-    }
-
-    // 上書き確認ダイアログの状態
-    var showOverwriteDialog by rememberSaveable { mutableStateOf(false) }
-    var pendingTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var pendingStart by rememberSaveable { mutableLongStateOf(0L) }
-    var pendingEnd by rememberSaveable { mutableLongStateOf(0L) }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("タスク記録を追加") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ChevronLeft, contentDescription = "Back")
-                    }
-                }
-            )
-        }
-    ) { inner ->
-        Column(
-            modifier = Modifier
-                .padding(inner)
-                .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Text(
-                "親タスク / タスク / サブタスク（任意）と、開始・終了の日時を指定して保存します。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            // 親タスク
-            DropdownField(
-                label = "親タスク",
-                current = parents.firstOrNull { it.parent.id == selectedParentId }?.parent?.name
-                    ?: "選択してください",
-                enabled = parents.isNotEmpty(),
-                items = parents.map { it.parent.id to it.parent.name },
-                onSelect = { id ->
-                    selectedParentId = id
-                    selectedTaskId = null
-                    selectedSubtaskId = null
-                }
-            )
-
-            // タスク（子）
-            DropdownField(
-                label = "タスク",
-                current = tasksInParent.firstOrNull { it.id == selectedTaskId }?.name
-                    ?: if (selectedParentId == null) "（親タスク未選択）" else "選択してください",
-                enabled = selectedParentId != null && tasksInParent.isNotEmpty(),
-                items = tasksInParent.map { it.id to it.name },
-                onSelect = { id ->
-                    selectedTaskId = id
-                    selectedSubtaskId = null
-                }
-            )
-
-            // サブタスク（任意）
-            DropdownField(
-                label = "サブタスク（任意）",
-                current = when {
-                    selectedTaskId == null -> "（タスク未選択）"
-                    subtasks.isEmpty() -> "（サブタスクなし）"
-                    selectedSubtaskId == null -> "未選択"
-                    else -> subtasks.firstOrNull { it.id == selectedSubtaskId }?.name ?: "未選択"
-                },
-                enabled = selectedTaskId != null && subtasks.isNotEmpty(),
-                items = subtasks.map { it.id to it.name },
-                onSelect = { id -> selectedSubtaskId = id }
-            )
-
-            // 開始日時
-            TimeField(
-                label = "開始",
-                valueText = dfFull.format(java.util.Date(startMs)),
-                onClick = {
-                    pickDateTime(startMs) { picked ->
-                        startMs = picked
-                        if (endMs <= startMs) endMs = startMs + 5 * 60 * 1000L
-                    }
-                }
-            )
-
-            // 終了日時
-            TimeField(
-                label = "終了",
-                valueText = dfFull.format(java.util.Date(endMs)),
-                onClick = {
-                    pickDateTime(endMs) { picked ->
-                        endMs = picked
-                        if (endMs <= startMs) startMs = endMs - 5 * 60 * 1000L
-                    }
-                }
-            )
-
-            Spacer(Modifier.height(8.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onBack) { Text("キャンセル") }
-                FilledTonalButton(onClick = {
-                    val baseTaskId = selectedTaskId
-                    val finalTaskId = selectedSubtaskId ?: baseTaskId
-                    when {
-                        selectedParentId == null -> Toast.makeText(
-                            ctx,
-                            "親タスクを選択してください",
-                            Toast.LENGTH_SHORT
-                        ).show()
-
-                        baseTaskId == null -> Toast.makeText(
-                            ctx,
-                            "タスクを選択してください",
-                            Toast.LENGTH_SHORT
-                        ).show()
-
-                        endMs <= startMs -> Toast.makeText(
-                            ctx,
-                            "終了は開始より後にしてください",
-                            Toast.LENGTH_SHORT
-                        ).show()
-
-                        else -> {
-                            scope.launch {
-                                // 既存と重なる場合は上書き確認
-                                val overlap = viewModel.hasOverlap(startMs, endMs)
-                                if (overlap) {
-                                    pendingTaskId = finalTaskId!!
-                                    pendingStart = startMs
-                                    pendingEnd = endMs
-                                    showOverwriteDialog = true
-                                } else {
-                                    viewModel.addManualRecord(finalTaskId!!, startMs, endMs)
-                                    onBack()
-                                }
-                            }
-                        }
-                    }
-                }) { Text("保存") }
-            }
-
-            Spacer(Modifier.weight(1f))
-        }
-    }
-
-    // 上書き警告ダイアログ
-    if (showOverwriteDialog) {
-        AlertDialog(
-            onDismissRequest = { showOverwriteDialog = false },
-            title = { Text("重複する記録を上書きします") },
-            text = {
-                Text(
-                    "この期間には既存の記録が存在します。\n" +
-                            "追加する記録を優先し、重複部分は削除または切り詰められます。続行しますか？"
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    pendingTaskId?.let { t ->
-                        // 重複時は近傍吸収版で一度だけ登録・調整する
-                        viewModel.upsertRecordAbsorbingNeighbors(t, pendingStart, pendingEnd)
-                    }
-                    showOverwriteDialog = false
-                    onBack()
-                }) { Text("上書きして追加") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showOverwriteDialog = false }) { Text("キャンセル") }
-            }
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DropdownField(
-    label: String,
-    current: String,
-    enabled: Boolean = true,
-    items: List<Pair<Long, String>>,
-    onSelect: (Long) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    // アンカー用コンテナ
-    Box(modifier = Modifier.fillMaxWidth()) {
-        // 表示用の読み取り専用 TextField
-        OutlinedTextField(
-            value = current,
-            onValueChange = {},
-            readOnly = true,
-            enabled = enabled,
-            label = { Text(label) },
-            modifier = Modifier
-                .fillMaxWidth()
-        )
-
-        // フィールド全体をクリックでメニュー展開
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .clickable(enabled = enabled) { expanded = true }
-        )
-
-        // 通常の DropdownMenu を使う
-        DropdownMenu(
-            expanded = expanded && enabled,
-            onDismissRequest = { expanded = false }
-        ) {
-            items.forEach { (id, name) ->
-                DropdownMenuItem(
-                    text = { Text(name) },
-                    onClick = {
-                        onSelect(id)
-                        expanded = false
-                    }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TimeField(
-    label: String,
-    valueText: String,
-    onClick: () -> Unit
-) {
-    OutlinedTextField(
-        value = valueText,
-        onValueChange = {},
-        readOnly = true,
-        label = { Text(label) },
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-    )
 }
 
 // ============================================
@@ -3993,7 +3695,7 @@ private fun Preview_TasksMain() {
                 .padding(16.dp)
         ) {
             Text(
-                text = "タスクを選択してください",
+                text = stringResource(R.string.label_select_task),
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
@@ -4072,6 +3774,17 @@ private fun Preview_TasksMain() {
     }
 }
 
+private suspend fun readImportFile(
+    context: Context,
+    uri: android.net.Uri
+): String = withContext(Dispatchers.IO) {
+    context.contentResolver.openInputStream(uri)
+        ?.bufferedReader(Charsets.UTF_8)
+        ?.use { it.readText() }
+        ?.removePrefix("\uFEFF")
+        ?: error(context.getString(R.string.import_file_open_failed))
+}
+
 private fun writeTsvToCacheAndGetUri(
     context: Context,
     content: String,
@@ -4143,21 +3856,27 @@ private fun ExportTsvRangeDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Export (TSV)") },
+        title = { Text(stringResource(R.string.export_tsv_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("期間をカレンダーから選択してください。点が付いた日には記録があります。")
+                Text(stringResource(R.string.export_tsv_range_description))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = { monthOffset -= 1 }) {
-                        Icon(Icons.Filled.ChevronLeft, contentDescription = "Prev month")
+                        Icon(
+                            Icons.Filled.ChevronLeft,
+                            contentDescription = stringResource(R.string.calendar_previous_month)
+                        )
                     }
                     Text(monthLabel(monthStart), style = MaterialTheme.typography.titleMedium)
                     IconButton(onClick = { monthOffset += 1 }) {
-                        Icon(Icons.Filled.ChevronRight, contentDescription = "Next month")
+                        Icon(
+                            Icons.Filled.ChevronRight,
+                            contentDescription = stringResource(R.string.calendar_next_month)
+                        )
                     }
                 }
                 ExportCalendarMonth(
@@ -4195,10 +3914,12 @@ private fun ExportTsvRangeDialog(
                     }.timeInMillis
                     onExport(start, endExclusive)
                 }
-            ) { Text("エクスポート") }
+            ) { Text(stringResource(R.string.action_export)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("キャンセル") }
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
         }
     )
 }
@@ -4217,7 +3938,7 @@ private fun ExportCalendarMonth(
     val firstDayOfWeek = monthCal.get(java.util.Calendar.DAY_OF_WEEK)
     val offset = (firstDayOfWeek + 5) % 7
     val daysInMonth = monthCal.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
-    val weekLabels = listOf("月", "火", "水", "木", "金", "土", "日")
+    val weekLabels = stringArrayResource(R.array.weekday_short_labels)
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth()) {
@@ -4333,10 +4054,17 @@ private fun Preview_StatsMain() {
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            Text("集計", style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(R.string.stats_title),
+                style = MaterialTheme.typography.titleMedium
+            )
             Spacer(Modifier.height(12.dp))
             Text(
-                "期間: 過去7日 / 合計 ${sampleVals.sum().toLong()} 分",
+                stringResource(
+                    R.string.stats_period_summary,
+                    7,
+                    sampleVals.sum().toLong()
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -4377,7 +4105,10 @@ private fun Preview_StatsMain() {
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Text("${value.toInt()} 分", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        stringResource(R.string.label_minutes, value.toInt()),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

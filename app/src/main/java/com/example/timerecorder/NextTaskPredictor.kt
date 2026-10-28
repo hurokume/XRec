@@ -25,6 +25,8 @@ class NextTaskPredictor private constructor(
         withContext(Dispatchers.IO) {
             val all = taskDao.getAllEventsForCsv()
             if (all.isEmpty()) return@withContext emptyList()
+            val visibleTaskIds = taskDao.getVisibleTaskIds().toSet()
+            if (visibleTaskIds.isEmpty()) return@withContext emptyList()
 
             val since = nowMs - lookbackDays * 24L * 60 * 60 * 1000
             val events = all.map { r ->
@@ -70,7 +72,9 @@ class NextTaskPredictor private constructor(
             val pHour = norm(hourPrior[curHour] ?: emptyMap())
             val pDow = norm(dowPrior[curDow] ?: emptyMap())
 
-            val candidates = (pTrans.keys + pHour.keys + pDow.keys).distinct()
+            val candidates = (pTrans.keys + pHour.keys + pDow.keys)
+                .distinct()
+                .filter { it in visibleTaskIds }
             candidates.map { tid ->
                 val score = wTrans * (pTrans[tid] ?: 0.0) +
                         wHour * (pHour[tid] ?: 0.0) +
