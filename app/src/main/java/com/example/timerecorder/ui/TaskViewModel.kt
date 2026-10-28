@@ -22,6 +22,8 @@ import com.example.timerecorder.data.TaskAnalysisRequest
 import com.example.timerecorder.data.TaskAnalysisResult
 import com.example.timerecorder.data.TaskDeletionMode
 import com.example.timerecorder.data.TaskRepository
+import com.example.timerecorder.data.WorkHistoryAction
+import com.example.timerecorder.data.RestoreWorkResult
 import com.example.timerecorder.data.WeeklyReportData
 import com.example.timerecorder.data.WeeklyReportEngine
 import com.example.timerecorder.data.db.ActiveWithTask
@@ -64,6 +66,7 @@ private const val DEFAULT_MERGE_THRESHOLD_SECONDS: Long = 60
 sealed interface UiEvent {
     data class ShowMessage(val message: String) : UiEvent
     data object TasksMerged : UiEvent
+    data object DataRestored : UiEvent
 }
 
 data class AdvancedAnalysisUiState(
@@ -121,6 +124,39 @@ class TaskViewModel @JvmOverloads constructor(app: Application, database: AppDat
 
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
     val events = _events.asSharedFlow()
+
+    val workHistory = repo.observeWorkHistory()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val _workHistoryRestoring = MutableStateFlow(false)
+    val workHistoryRestoring: StateFlow<Boolean> = _workHistoryRestoring
+
+    fun restoreWorkHistory(id: Long, expectedLatestId: Long) = viewModelScope.launch {
+        if (_workHistoryRestoring.value) return@launch
+        _workHistoryRestoring.value = true
+        try {
+            when (repo.restoreWorkHistory(id, expectedLatestId)) {
+                RestoreWorkResult.Restored -> {
+                    reloadHistory().join()
+                    advancedAnalysisJob?.cancel()
+                    taskAnalysisJob?.cancel()
+                    _advancedAnalysis.value = AdvancedAnalysisUiState()
+                    _taskAnalysis.value = TaskAnalysisUiState()
+                    _timelineItems.value = emptyList()
+                    _statsItems.value = emptyList()
+                    _events.emit(UiEvent.DataRestored)
+                    _events.emit(UiEvent.ShowMessage(text(R.string.work_history_restored)))
+                }
+                RestoreWorkResult.HistoryChanged, RestoreWorkResult.Missing ->
+                    _events.emit(UiEvent.ShowMessage(text(R.string.work_history_changed)))
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            _events.emit(UiEvent.ShowMessage(text(R.string.work_history_restore_failed)))
+        } finally {
+            _workHistoryRestoring.value = false
+        }
+    }
 
     val parents: StateFlow<List<ParentWithChildren>> =
         repo.observeTree()
@@ -506,42 +542,44 @@ class TaskViewModel @JvmOverloads constructor(app: Application, database: AppDat
     ) = viewModelScope.launch {
         if (newEndMs <= newStartMs) return@launch
 
-        val overlaps = taskDao.getEventsInRange(newStartMs, newEndMs)
+        repo.recordChange(WorkHistoryAction.EditRecord) {
+            val overlaps = taskDao.getEventsInRange(newStartMs, newEndMs)
 
-        overlaps.forEach { row ->
-            if (row.eventId == eventId) return@forEach
+            overlaps.forEach { row ->
+                if (row.eventId == eventId) return@forEach
 
-            val s = row.pressedAtEpochMs
-            val e = row.pressedAtEpochMs + kotlin.math.max(0L, row.durationMillis)
+                val s = row.pressedAtEpochMs
+                val e = row.pressedAtEpochMs + kotlin.math.max(0L, row.durationMillis)
 
-            when {
-                s >= newStartMs && e <= newEndMs -> {
-                    taskDao.deleteEventById(row.eventId)
-                }
-
-                s < newStartMs && e > newStartMs && e <= newEndMs -> {
-                    val newDur = newStartMs - s
-                    if (newDur > 0L) {
-                        taskDao.updateEventTime(row.eventId, s, newDur)
-                    } else {
+                when {
+                    s >= newStartMs && e <= newEndMs -> {
                         taskDao.deleteEventById(row.eventId)
                     }
-                }
 
-                s >= newStartMs && s < newEndMs && e > newEndMs -> {
-                    val newStart = newEndMs
-                    val newDur = e - newEndMs
-                    if (newDur > 0L) {
-                        taskDao.updateEventTime(row.eventId, newStart, newDur)
-                    } else {
-                        taskDao.deleteEventById(row.eventId)
+                    s < newStartMs && e > newStartMs && e <= newEndMs -> {
+                        val newDur = newStartMs - s
+                        if (newDur > 0L) {
+                            taskDao.updateEventTime(row.eventId, s, newDur)
+                        } else {
+                            taskDao.deleteEventById(row.eventId)
+                        }
+                    }
+
+                    s >= newStartMs && s < newEndMs && e > newEndMs -> {
+                        val newStart = newEndMs
+                        val newDur = e - newEndMs
+                        if (newDur > 0L) {
+                            taskDao.updateEventTime(row.eventId, newStart, newDur)
+                        } else {
+                            taskDao.deleteEventById(row.eventId)
+                        }
                     }
                 }
             }
-        }
 
-        taskDao.updateEventTask(eventId, newTaskId)
-        taskDao.updateEventTime(eventId, newStartMs, newEndMs - newStartMs)
+            taskDao.updateEventTask(eventId, newTaskId)
+            taskDao.updateEventTime(eventId, newStartMs, newEndMs - newStartMs)
+        }
 
         reloadHistory()
     }
@@ -555,67 +593,69 @@ class TaskViewModel @JvmOverloads constructor(app: Application, database: AppDat
                 return@launch
             }
 
-            val overlaps = taskDao.getEventsInRange(startMs, endMs)
+            repo.recordChange(WorkHistoryAction.AddRecord) {
+                val overlaps = taskDao.getEventsInRange(startMs, endMs)
 
-            overlaps.forEach { row ->
-                val s = row.pressedAtEpochMs
-                val e = row.pressedAtEpochMs + kotlin.math.max(0L, row.durationMillis)
+                overlaps.forEach { row ->
+                    val s = row.pressedAtEpochMs
+                    val e = row.pressedAtEpochMs + kotlin.math.max(0L, row.durationMillis)
 
-                when {
-                    s >= startMs && e <= endMs -> {
-                        taskDao.deleteEventById(row.eventId)
-                    }
-
-                    s < startMs && e > startMs && e <= endMs -> {
-                        val newDur = startMs - s
-                        if (newDur > 0L) {
-                            taskDao.updateEventTime(row.eventId, s, newDur)
-                        } else {
-                            taskDao.deleteEventById(row.eventId)
-                        }
-                    }
-
-                    s >= startMs && s < endMs && e > endMs -> {
-                        val newStart = endMs
-                        val newDur = e - endMs
-                        if (newDur > 0L) {
-                            taskDao.updateEventTime(row.eventId, newStart, newDur)
-                        } else {
-                            taskDao.deleteEventById(row.eventId)
-                        }
-                    }
-
-                    s < startMs && e > endMs -> {
-                        val leftDur = startMs - s
-                        val rightStart = endMs
-                        val rightDur = e - endMs
-
-                        if (leftDur > 0L) {
-                            taskDao.updateEventTime(row.eventId, s, leftDur)
-                        } else {
+                    when {
+                        s >= startMs && e <= endMs -> {
                             taskDao.deleteEventById(row.eventId)
                         }
 
-                        if (rightDur > 0L) {
-                            taskDao.insertEvent(
-                                com.example.timerecorder.data.db.TaskEventEntity(
-                                    taskId = row.taskId,
-                                    pressedAtEpochMs = rightStart,
-                                    durationMillis = rightDur
+                        s < startMs && e > startMs && e <= endMs -> {
+                            val newDur = startMs - s
+                            if (newDur > 0L) {
+                                taskDao.updateEventTime(row.eventId, s, newDur)
+                            } else {
+                                taskDao.deleteEventById(row.eventId)
+                            }
+                        }
+
+                        s >= startMs && s < endMs && e > endMs -> {
+                            val newStart = endMs
+                            val newDur = e - endMs
+                            if (newDur > 0L) {
+                                taskDao.updateEventTime(row.eventId, newStart, newDur)
+                            } else {
+                                taskDao.deleteEventById(row.eventId)
+                            }
+                        }
+
+                        s < startMs && e > endMs -> {
+                            val leftDur = startMs - s
+                            val rightStart = endMs
+                            val rightDur = e - endMs
+
+                            if (leftDur > 0L) {
+                                taskDao.updateEventTime(row.eventId, s, leftDur)
+                            } else {
+                                taskDao.deleteEventById(row.eventId)
+                            }
+
+                            if (rightDur > 0L) {
+                                taskDao.insertEvent(
+                                    com.example.timerecorder.data.db.TaskEventEntity(
+                                        taskId = row.taskId,
+                                        pressedAtEpochMs = rightStart,
+                                        durationMillis = rightDur
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }
-            }
 
-            taskDao.insertEvent(
-                com.example.timerecorder.data.db.TaskEventEntity(
-                    taskId = taskId,
-                    pressedAtEpochMs = startMs,
-                    durationMillis = endMs - startMs
+                taskDao.insertEvent(
+                    com.example.timerecorder.data.db.TaskEventEntity(
+                        taskId = taskId,
+                        pressedAtEpochMs = startMs,
+                        durationMillis = endMs - startMs
+                    )
                 )
-            )
+            }
 
             reloadHistory()
             _events.emit(UiEvent.ShowMessage(text(R.string.message_saved)))
@@ -624,37 +664,41 @@ class TaskViewModel @JvmOverloads constructor(app: Application, database: AppDat
 
     /** はさみ機能：イベントをsplitAtMsで2つに分割 */
     fun splitEventAt(eventId: Long, splitAtMs: Long) = viewModelScope.launch {
-        val ev = taskDao.getEventById(eventId)
-        if (ev == null) {
-            _events.emit(UiEvent.ShowMessage(text(R.string.error_record_not_found)))
-            return@launch
+        val split = repo.recordChange(WorkHistoryAction.SplitRecord) {
+            val ev = taskDao.getEventById(eventId)
+            if (ev == null) {
+                _events.emit(UiEvent.ShowMessage(text(R.string.error_record_not_found)))
+                return@recordChange false
+            }
+
+            val s = ev.pressedAtEpochMs
+            val e = ev.pressedAtEpochMs + kotlin.math.max(0L, ev.durationMillis)
+
+            if (splitAtMs <= s || splitAtMs >= e) {
+                _events.emit(
+                    UiEvent.ShowMessage(text(R.string.error_split_time_out_of_range))
+                )
+                return@recordChange false
+            }
+
+            val leftDur = splitAtMs - s
+            val rightDur = e - splitAtMs
+
+            // 左側を元イベントとして時間を更新
+            taskDao.updateEventTime(eventId, s, leftDur)
+
+            // 右側を新規イベントとして挿入（同じtaskIdのまま）
+            taskDao.insertEvent(
+                TaskEventEntity(
+                    taskId = ev.taskId,
+                    pressedAtEpochMs = splitAtMs,
+                    durationMillis = rightDur
+                )
+            )
+            true
         }
 
-        val s = ev.pressedAtEpochMs
-        val e = ev.pressedAtEpochMs + kotlin.math.max(0L, ev.durationMillis)
-
-        if (splitAtMs <= s || splitAtMs >= e) {
-            _events.emit(
-                UiEvent.ShowMessage(text(R.string.error_split_time_out_of_range))
-            )
-            return@launch
-        }
-
-        val leftDur = splitAtMs - s
-        val rightDur = e - splitAtMs
-
-        // 左側を元イベントとして時間を更新
-        taskDao.updateEventTime(eventId, s, leftDur)
-
-        // 右側を新規イベントとして挿入（同じtaskIdのまま）
-        taskDao.insertEvent(
-            TaskEventEntity(
-                taskId = ev.taskId,
-                pressedAtEpochMs = splitAtMs,
-                durationMillis = rightDur
-            )
-        )
-
+        if (!split) return@launch
         reloadHistory()
         _events.emit(UiEvent.ShowMessage(text(R.string.message_record_split)))
     }

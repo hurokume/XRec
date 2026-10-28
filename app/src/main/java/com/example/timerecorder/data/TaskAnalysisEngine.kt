@@ -232,13 +232,14 @@ object TaskAnalysisEngine {
         request: TaskAnalysisRequest
     ): TaskAnalysisResult {
         val range = rangeFor(request)
+        val completedThroughMs = min(request.nowMs, range.endMs)
         val lookbackStartMs = movingAverageLookbackStart(request)
         val selectedEvents = events.mapNotNull { event ->
             // 複数選択で祖先と子孫がともに含まれる場合、より具体的な子孫側を採用する。
             val selectedIndex = event.path.indexOfLast { it.id in request.taskIds }
             if (selectedIndex < 0) return@mapNotNull null
             val start = max(event.startMs, lookbackStartMs)
-            val end = min(event.endMs, range.endMs)
+            val end = min(event.endMs, completedThroughMs)
             if (end <= start) return@mapNotNull null
             SelectedEvent(event, selectedIndex, start, end)
         }
@@ -279,7 +280,14 @@ object TaskAnalysisEngine {
         val dayGroups = buildDayGroups(clippedEvents, request.timeZoneId)
         val heatCells = buildHeatCells(clippedEvents, range, request.timeZoneId)
         val totalMs = buckets.sumOf { it.totalMs }
-        val completedThroughMs = min(request.nowMs, range.endMs)
+        // Average calendar totals, including empty buckets and the current partial bucket.
+        // Future hours/days/months have not contributed an observation yet.
+        val elapsedBuckets = buckets.filter { it.startMs < completedThroughMs }
+        val averagePerBucketMs = if (elapsedBuckets.isEmpty()) {
+            0L
+        } else {
+            elapsedBuckets.sumOf { it.totalMs } / elapsedBuckets.size
+        }
         val movingBoundaries = bucketBoundaries(
             period = request.period,
             range = TaskAnalysisRange(lookbackStartMs, range.endMs),
@@ -315,7 +323,7 @@ object TaskAnalysisEngine {
             request = request,
             range = range,
             totalMs = totalMs,
-            averagePerBucketMs = if (buckets.isEmpty()) 0L else totalMs / buckets.size,
+            averagePerBucketMs = averagePerBucketMs,
             movingAverageMs = movingAverage,
             buckets = buckets,
             categories = sortedCategories,

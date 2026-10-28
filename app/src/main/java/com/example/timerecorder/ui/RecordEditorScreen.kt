@@ -100,37 +100,6 @@ fun AddTaskScreen(
     val dfFull =
         remember { java.text.SimpleDateFormat("yyyy/MM/dd HH:mm", java.util.Locale.getDefault()) }
 
-    fun pickDateTime(
-        initial: Long,
-        onPicked: (Long) -> Unit
-    ) {
-        val cal = java.util.Calendar.getInstance().apply { timeInMillis = initial }
-        android.app.DatePickerDialog(
-            ctx,
-            { _, y, m, d ->
-                cal.set(java.util.Calendar.YEAR, y)
-                cal.set(java.util.Calendar.MONTH, m)
-                cal.set(java.util.Calendar.DAY_OF_MONTH, d)
-                android.app.TimePickerDialog(
-                    ctx,
-                    { _, hh, mm ->
-                        cal.set(java.util.Calendar.HOUR_OF_DAY, hh)
-                        cal.set(java.util.Calendar.MINUTE, mm)
-                        cal.set(java.util.Calendar.SECOND, 0)
-                        cal.set(java.util.Calendar.MILLISECOND, 0)
-                        onPicked(cal.timeInMillis)
-                    },
-                    cal.get(java.util.Calendar.HOUR_OF_DAY),
-                    cal.get(java.util.Calendar.MINUTE),
-                    true
-                ).show()
-            },
-            cal.get(java.util.Calendar.YEAR),
-            cal.get(java.util.Calendar.MONTH),
-            cal.get(java.util.Calendar.DAY_OF_MONTH)
-        ).show()
-    }
-
     // 上書き確認ダイアログの状態
     var showOverwriteDialog by rememberSaveable { mutableStateOf(false) }
     var pendingTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -252,7 +221,7 @@ fun AddTaskScreen(
                 label = stringResource(R.string.label_start),
                 valueText = dfFull.format(java.util.Date(startMs)),
                 onClick = {
-                    pickDateTime(startMs) { picked ->
+                    showRecordDateTimePicker(ctx, startMs) { picked ->
                         startMs = picked
                         if (endMs <= startMs) endMs = startMs + 5 * 60 * 1000L
                     }
@@ -264,7 +233,7 @@ fun AddTaskScreen(
                 label = stringResource(R.string.label_end),
                 valueText = dfFull.format(java.util.Date(endMs)),
                 onClick = {
-                    pickDateTime(endMs) { picked ->
+                    showRecordDateTimePicker(ctx, endMs) { picked ->
                         endMs = picked
                         if (endMs <= startMs) startMs = endMs - 5 * 60 * 1000L
                     }

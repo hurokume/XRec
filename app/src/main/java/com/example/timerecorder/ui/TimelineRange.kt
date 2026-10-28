@@ -143,31 +143,51 @@ internal fun TimelineRangeControls(range: TimelineRange) {
         }
     }
     if (showCustomRange) {
-        val picker = rememberDateRangePickerState(
-            initialSelectedStartDateMillis = localDateToPickerMillis(range.startMs),
-            initialSelectedEndDateMillis = localDateToPickerMillis(range.endMs - 1)
-        )
-        DatePickerDialog(
-            onDismissRequest = { showCustomRange = false },
-            confirmButton = {
-                TextButton(
-                    enabled = picker.selectedStartDateMillis != null && picker.selectedEndDateMillis != null,
-                    onClick = {
-                        val start = picker.selectedStartDateMillis
-                        val end = picker.selectedEndDateMillis
-                        if (start != null && end != null) {
-                            range.custom(pickerMillisToLocalDate(start), pickerMillisToLocalDate(end))
-                            showCustomRange = false
-                        }
-                    }
-                ) { Text(stringResource(R.string.action_apply)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCustomRange = false }) { Text(stringResource(R.string.action_cancel)) }
+        CalendarDateRangeDialog(
+            initialStartMs = range.startMs,
+            initialEndMs = range.endMs - 1,
+            onDismiss = { showCustomRange = false },
+            onApply = { start, end ->
+                range.custom(start, end)
+                showCustomRange = false
             }
-        ) {
-            RangeCalendar(picker, Modifier.weight(1f))
+        )
+    }
+}
+
+/** Both the initial and selected end dates are inclusive local calendar dates. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun CalendarDateRangeDialog(
+    initialStartMs: Long,
+    initialEndMs: Long,
+    onDismiss: () -> Unit,
+    onApply: (Long, Long) -> Unit
+) {
+    val picker = rememberDateRangePickerState(
+        initialSelectedStartDateMillis = localDateToPickerMillis(initialStartMs),
+        initialSelectedEndDateMillis = localDateToPickerMillis(initialEndMs),
+        initialDisplayedMonthMillis = localDateToPickerMillis(initialStartMs)
+    )
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                enabled = picker.selectedStartDateMillis != null && picker.selectedEndDateMillis != null,
+                onClick = {
+                    val start = picker.selectedStartDateMillis
+                    val end = picker.selectedEndDateMillis
+                    if (start != null && end != null) {
+                        onApply(pickerMillisToLocalDate(start), pickerMillisToLocalDate(end))
+                    }
+                }
+            ) { Text(stringResource(R.string.action_apply)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
         }
+    ) {
+        RangeCalendar(picker, Modifier.weight(1f))
     }
 }
 

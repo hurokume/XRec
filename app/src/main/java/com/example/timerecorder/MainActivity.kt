@@ -139,7 +139,12 @@ import com.example.timerecorder.ui.AddTaskScreen
 import com.example.timerecorder.ui.DailyPlanTaskOption
 import com.example.timerecorder.ui.ManageDataScreen
 import com.example.timerecorder.ui.TimelineRangeControls
+import com.example.timerecorder.ui.CalendarDateRangeDialog
+import com.example.timerecorder.ui.StatisticsPeriod
+import com.example.timerecorder.ui.calendarDay
+import com.example.timerecorder.ui.statisticsBounds
 import com.example.timerecorder.ui.SettingsScreen
+import com.example.timerecorder.ui.WorkHistoryScreen
 import com.example.timerecorder.ui.StatsFilterSelectionScreen
 import com.example.timerecorder.ui.TaskDeletionDialog
 import com.example.timerecorder.ui.TaskDeletionUiState
@@ -148,6 +153,7 @@ import com.example.timerecorder.ui.TaskViewModel
 import com.example.timerecorder.ui.UiEvent
 import com.example.timerecorder.ui.WeeklyReportScreen
 import com.example.timerecorder.ui.ReplacementTaskSelectionScreen
+import com.example.timerecorder.ui.showRecordDateTimePicker
 import com.example.timerecorder.data.StatsAggregator
 import com.example.timerecorder.data.StatsRecord
 import com.example.timerecorder.data.StatsTarget
@@ -172,7 +178,7 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /** 画面モード（メイン/履歴） */
-private enum class AppScreen { Main, History, Analysis, WeeklyReport, Settings, ManageData }
+private enum class AppScreen { Main, History, Analysis, WeeklyReport, Settings, ManageData, WorkHistory }
 
 /** 名前ソートモード */
 enum class NameSort { None, Asc, Desc }
@@ -534,10 +540,18 @@ fun AppRoot(
         }
     }
 
+    var timelineRefreshTick by remember { mutableLongStateOf(0L) }
+
     // ViewModel のワンショット UI イベントを収集して Snackbar を表示
     LaunchedEffect(Unit) {
         taskVm.events.collectLatest { ev ->
             when (ev) {
+                UiEvent.DataRestored -> {
+                    timelineRefreshTick++
+                    selectedTimelineTaskId = null
+                    selectedTimelineStartMs = -1L
+                    selectedTimelineEndMs = -1L
+                }
                 UiEvent.TasksMerged -> {
                     dailyPlans = DailyPlansCodec.decode(settingsPreferences.getString(KEY_DAILY_PLANS, null))
                     statsIncludedTaskIds = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -547,8 +561,6 @@ fun AppRoot(
             }
         }
     }
-
-    var timelineRefreshTick by remember { mutableLongStateOf(0L) }
 
     // Import ダイアログの状態
     var showImportDialog by rememberSaveable { mutableStateOf(false) }
@@ -635,11 +647,11 @@ fun AppRoot(
     var screen by remember { mutableStateOf(AppScreen.Main) }
 
     // Manage Data は Settings の子画面として一段ずつ戻る。
-    BackHandler(enabled = screen == AppScreen.ManageData) {
+    BackHandler(enabled = screen == AppScreen.ManageData || screen == AppScreen.WorkHistory) {
         screen = AppScreen.Settings
     }
     // その他の Home 以外の画面では、Activity を終了せず Home に戻す。
-    BackHandler(enabled = screen != AppScreen.Main && screen != AppScreen.ManageData) {
+    BackHandler(enabled = screen != AppScreen.Main && screen != AppScreen.ManageData && screen != AppScreen.WorkHistory) {
         screen = AppScreen.Main
     }
     BackHandler(enabled = screen == AppScreen.Main && showStatsFilterScreen) {
@@ -693,7 +705,7 @@ fun AppRoot(
                     topBar = {
                         TopAppBar(
                             navigationIcon = {
-                                if (screen == AppScreen.ManageData) {
+                                if (screen == AppScreen.ManageData || screen == AppScreen.WorkHistory) {
                                     IconButton(onClick = { screen = AppScreen.Settings }) {
                                         Icon(
                                             Icons.AutoMirrored.Filled.ArrowBack,
@@ -713,7 +725,9 @@ fun AppRoot(
                                             selectedTimelineEndMs > selectedTimelineStartMs
 
                                 val titleText =
-                                    if (showStatsFilterScreen) {
+                                    if (screen == AppScreen.WorkHistory) {
+                                        stringResource(R.string.work_history_title)
+                                    } else if (showStatsFilterScreen) {
                                         stringResource(R.string.stats_filter_title)
                                     } else if (showTimelineTitle) {
                                         // ① 選択中ブロックを最優先（タスク / サブタスク + HH:MM）
@@ -743,6 +757,7 @@ fun AppRoot(
                                                 R.string.weekly_report_title
                                             )
                                             AppScreen.Settings -> stringResource(R.string.drawer_settings)
+                                            AppScreen.WorkHistory -> stringResource(R.string.work_history_title)
                                             AppScreen.ManageData -> stringResource(
                                                 R.string.manage_data_title
                                             )
@@ -816,42 +831,29 @@ fun AppRoot(
                                             return@AdaptiveBottomBar
                                         }
 
-                                        // 初期値: ブロック中央
-                                        val mid = (s + e) / 2
-                                        val calInit =
-                                            Calendar.getInstance().apply { timeInMillis = mid }
-                                        val initHour = calInit.get(Calendar.HOUR_OF_DAY)
-                                        val initMin = calInit.get(Calendar.MINUTE)
-
-                                        android.app.TimePickerDialog(
-                                            ctx,
-                                            { _, hh, mm ->
-                                                // 分割日は選択ブロックの開始日（ブロックは1日内にクランプ済み）
-                                                val base = Calendar.getInstance().apply {
-                                                    timeInMillis = s
-                                                    set(Calendar.HOUR_OF_DAY, hh)
-                                                    set(Calendar.MINUTE, mm)
-                                                    set(Calendar.SECOND, 0)
-                                                    set(Calendar.MILLISECOND, 0)
-                                                }.timeInMillis
-
-                                                if (base <= s || base >= e) {
+                                        scope.launch(Dispatchers.Main.immediate) {
+                                            val event = taskVm.recordForEdit(eid)
+                                            if (event == null || event.durationMillis <= 0L) {
+                                                snackbar.showSnackbar(ctx.getString(R.string.main_split_unavailable))
+                                                return@launch
+                                            }
+                                            // Use the whole record, regardless of which day's fragment was selected.
+                                            val mid = event.pressedAtEpochMs + event.durationMillis / 2
+                                            showRecordDateTimePicker(ctx, mid) { splitAtMs ->
+                                                val recordEnd = event.pressedAtEpochMs + event.durationMillis
+                                                if (splitAtMs <= event.pressedAtEpochMs || splitAtMs >= recordEnd) {
                                                     scope.launch {
-                                                        snackbar.showSnackbar(
-                                                            ctx.getString(
-                                                                R.string.main_split_out_of_range
-                                                            )
-                                                        )
+                                                        snackbar.showSnackbar(ctx.getString(R.string.error_split_time_out_of_range))
                                                     }
                                                 } else {
-                                                    taskVm.splitEventAt(eid, base)
-                                                    // 選択は一旦クリア
+                                                    taskVm.splitEventAt(eid, splitAtMs)
                                                     selectedTimelineEventId = null
                                                     selectedTimelineTaskId = null
+                                                    selectedTimelineStartMs = -1L
+                                                    selectedTimelineEndMs = -1L
                                                 }
-                                            },
-                                            initHour, initMin, true
-                                        ).show()
+                                            }
+                                        }
                                     },
                                     onActionB = {
                                         val eventId = selectedTimelineEventId
@@ -1018,8 +1020,20 @@ fun AppRoot(
                             dailyPlans = dailyPlans,
                             taskOptions = dailyPlanTaskOptions,
                             onDailyPlansChange = ::updateDailyPlans,
-                            onManageDataClick = { screen = AppScreen.ManageData }
+                            onManageDataClick = { screen = AppScreen.ManageData },
+                            onWorkHistoryClick = { screen = AppScreen.WorkHistory }
                         )
+
+                        AppScreen.WorkHistory -> {
+                            val entries by taskVm.workHistory.collectAsStateWithLifecycle()
+                            val restoring by taskVm.workHistoryRestoring.collectAsStateWithLifecycle()
+                            WorkHistoryScreen(
+                                entries = entries,
+                                restoring = restoring,
+                                onRestore = { id, latestId -> taskVm.restoreWorkHistory(id, latestId) },
+                                modifier = Modifier.padding(innerPadding).fillMaxSize()
+                            )
+                        }
 
                         AppScreen.ManageData -> ManageDataScreen(
                             modifier = Modifier
@@ -3008,7 +3022,7 @@ private fun ChannelSlider(label: String, value: Int, onChange: (Int) -> Unit) {
 
 @SuppressLint("DefaultLocale")
 @Composable
-private fun StatsScreen(
+internal fun StatsScreen(
     viewModel: TaskViewModel,
     modifier: Modifier = Modifier,
     includedTaskIds: Set<Long>? = null,
@@ -3018,15 +3032,34 @@ private fun StatsScreen(
     val activeUi by viewModel.activeUi.collectAsStateWithLifecycle()
     val parents by viewModel.parents.collectAsStateWithLifecycle()
 
-    var period by rememberSaveable { mutableStateOf(com.example.timerecorder.ui.StatisticsPeriod.SevenDays) }
+    var period by rememberSaveable { mutableStateOf(StatisticsPeriod.SevenDays) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var customStartMs by rememberSaveable { mutableLongStateOf(calendarDay(nowMs, -7)) }
+    var customEndMs by rememberSaveable { mutableLongStateOf(calendarDay(nowMs, -1)) }
+    var showCustomRange by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(period) {
         while (true) {
             nowMs = System.currentTimeMillis()
             delay(30_000)
         }
     }
-    val (windowStart, windowEnd) = com.example.timerecorder.ui.statisticsBounds(period, nowMs)
+    val (windowStart, windowEnd) = statisticsBounds(
+        period, nowMs, customStartMs = customStartMs, customEndMs = customEndMs
+    )
+
+    if (showCustomRange) {
+        CalendarDateRangeDialog(
+            initialStartMs = customStartMs,
+            initialEndMs = customEndMs,
+            onDismiss = { showCustomRange = false },
+            onApply = { start, end ->
+                customStartMs = start
+                customEndMs = end
+                period = StatisticsPeriod.Custom
+                showCustomRange = false
+            }
+        )
+    }
 
     LaunchedEffect(windowStart, windowEnd) {
         viewModel.loadStatsRange(windowStart, windowEnd)
@@ -3120,6 +3153,7 @@ private fun StatsScreen(
     val aggregated: List<Agg> = remember(
         statsItems,
         activeUi,
+        nowMs,
         parents,
         windowStart,
         windowEnd,
@@ -3146,7 +3180,7 @@ private fun StatsScreen(
                         taskId = active.taskId,
                         taskName = active.taskName,
                         startMs = active.startEpochMs,
-                        endMs = windowEnd
+                        endMs = minOf(nowMs, windowEnd)
                     )
                 )
             }
@@ -3207,8 +3241,19 @@ private fun StatsScreen(
         Spacer(Modifier.height(12.dp))
 
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            com.example.timerecorder.ui.StatisticsPeriod.entries.forEach { option ->
-                SegButton(stringResource(option.label), active = period == option) { period = option }
+            StatisticsPeriod.entries.forEach { option ->
+                SegButton(stringResource(option.label), active = period == option) {
+                    if (option == StatisticsPeriod.Custom) showCustomRange = true
+                    else period = option
+                }
+            }
+        }
+
+        if (period == StatisticsPeriod.Custom) {
+            val dateFormat = DateFormat.getDateInstance(DateFormat.MEDIUM)
+            TextButton(onClick = { showCustomRange = true }) {
+                Text(stringResource(R.string.date_range,
+                    dateFormat.format(Date(customStartMs)), dateFormat.format(Date(customEndMs))))
             }
         }
 

@@ -55,6 +55,14 @@ class TaskRepository(
     private val taskDao: TaskDao,
     private val stringResolver: (Int) -> String = { it.toString() }
 ) {
+    private val workHistory = WorkHistory(db, stringResolver)
+    fun observeWorkHistory() = workHistory.observe()
+    suspend fun restoreWorkHistory(id: Long, expectedLatestId: Long) =
+        workHistory.restoreBefore(id, expectedLatestId)
+
+    suspend fun <T> recordChange(action: WorkHistoryAction, block: suspend () -> T): T =
+        workHistory.record(action, block)
+
     // ---------------- 観測系 ----------------
     fun observeTree(): Flow<List<ParentWithChildren>> =
         taskDao.observeParentsWithChildren()
@@ -90,7 +98,7 @@ class TaskRepository(
         newTaskId: Long,
         now: Long,
         mergeThresholdSec: Long = 60
-    ): SwitchResult = db.withTransaction {
+    ): SwitchResult = workHistory.record(WorkHistoryAction.StartOrSwitch) {
         val newTask = requireNotNull(taskDao.getTaskById(newTaskId)) {
             stringResolver(R.string.error_task_missing)
         }
@@ -168,8 +176,8 @@ class TaskRepository(
     }
 
     /** 停止：実行中セッションを終了して履歴に記録、アクティブをクリア */
-    suspend fun stopActive(nowMs: Long) = db.withTransaction {
-        val active = sessionDao.getActive() ?: return@withTransaction
+    suspend fun stopActive(nowMs: Long) = workHistory.record(WorkHistoryAction.Stop) {
+        val active = sessionDao.getActive() ?: return@record
         sessionDao.updateEnd(active.id, nowMs)
         taskDao.insertEvent(
             TaskEventEntity(
@@ -182,17 +190,19 @@ class TaskRepository(
     }
 
     // ---------------- タスク CRUD / 並び順 / 色 ----------------
-    suspend fun addTask(name: String, parentId: Long?): Long {
+    suspend fun addTask(name: String, parentId: Long?): Long = workHistory.record(WorkHistoryAction.AddTask) {
         val next = taskDao.getMaxSortOrder(parentId) + 1
-        return taskDao.insertTask(TaskEntity(name = name, parentId = parentId, sortOrder = next))
+        taskDao.insertTask(TaskEntity(name = name, parentId = parentId, sortOrder = next))
     }
 
-    suspend fun changeColor(id: Long, colorInt: Int) = taskDao.updateTaskColor(id, colorInt)
-    suspend fun changeRunningTask(expectedTaskId: Long, expectedStart: Long, newTaskId: Long): Boolean = db.withTransaction {
-        val active = sessionDao.getActive() ?: return@withTransaction false
-        if (active.taskId != expectedTaskId || active.startedAt != expectedStart) return@withTransaction false
-        val target = taskDao.getTaskById(newTaskId) ?: return@withTransaction false
-        if (target.isArchived) return@withTransaction false
+    suspend fun changeColor(id: Long, colorInt: Int) = workHistory.record(WorkHistoryAction.ChangeColor) {
+        taskDao.updateTaskColor(id, colorInt)
+    }
+    suspend fun changeRunningTask(expectedTaskId: Long, expectedStart: Long, newTaskId: Long): Boolean = workHistory.record(WorkHistoryAction.ChangeRunningTask) {
+        val active = sessionDao.getActive() ?: return@record false
+        if (active.taskId != expectedTaskId || active.startedAt != expectedStart) return@record false
+        val target = taskDao.getTaskById(newTaskId) ?: return@record false
+        if (target.isArchived) return@record false
         sessionDao.changeActiveTask(active.id, newTaskId)
         taskDao.upsertActive(ActiveTaskEntity(taskId = newTaskId, startedAtEpochMs = active.startedAt))
         true
@@ -210,12 +220,12 @@ class TaskRepository(
         return null to renamed
     }
 
-    suspend fun addTaskResolving(name: String, parentId: Long?, decisions: Map<String, TaskNameDecision>): Long = db.withTransaction {
+    suspend fun addTaskResolving(name: String, parentId: Long?, decisions: Map<String, TaskNameDecision>): Long = workHistory.record(WorkHistoryAction.AddTask) {
         val (existing, resolved) = resolveTaskName(parentId, name, null, decisions)
         existing ?: addTask(resolved, parentId)
     }
 
-    suspend fun renameTask(taskId: Long, newName: String, decisions: Map<String, TaskNameDecision>): Map<Long, Long> = db.withTransaction {
+    suspend fun renameTask(taskId: Long, newName: String, decisions: Map<String, TaskNameDecision>): Map<Long, Long> = workHistory.record(WorkHistoryAction.RenameTask) {
         val remapped = mutableMapOf<Long, Long>()
         suspend fun merge(source: Long, target: Long) {
             taskDao.getChildrenIncludingArchived(source).forEach { child ->
@@ -229,17 +239,19 @@ class TaskRepository(
             taskDao.deleteTaskById(source)
             remapped[source] = target
         }
-        val source = taskDao.getTaskById(taskId) ?: return@withTransaction emptyMap()
+        val source = taskDao.getTaskById(taskId) ?: return@record emptyMap()
         val (target, resolved) = resolveTaskName(source.parentId, newName, taskId, decisions)
         if (target == null) taskDao.updateTaskName(taskId, resolved) else merge(taskId, target)
         remapped
     }
-    suspend fun updateSortOrdersForParent(parentId: Long, idsInOrder: List<Long>) =
+    suspend fun updateSortOrdersForParent(parentId: Long, idsInOrder: List<Long>) = workHistory.record(WorkHistoryAction.ReorderTasks) {
         taskDao.updateSortOrdersForParent(parentId, idsInOrder)
+    }
 
     // 親（ルート＝プロジェクト）の並び替え
-    suspend fun reorderParents(idsInOrder: List<Long>) =
+    suspend fun reorderParents(idsInOrder: List<Long>) = workHistory.record(WorkHistoryAction.ReorderTasks) {
         taskDao.updateSortOrdersForRoot(idsInOrder)
+    }
 
     // ---------------- 履歴（task_events） ----------------
     suspend fun loadHistoryPage(page: Int, pageSize: Int): List<HistoryRowDb> {
@@ -299,7 +311,7 @@ class TaskRepository(
     suspend fun reassignEvents(eventIds: Set<Long>, newTaskId: Long): Int {
         val persistedIds = eventIds.filter { it > 0L }.distinct()
         if (persistedIds.isEmpty()) return 0
-        return db.withTransaction {
+        return workHistory.record(WorkHistoryAction.ReassignRecords) {
             val destination = requireNotNull(taskDao.getTaskById(newTaskId)) {
                 stringResolver(R.string.error_destination_missing)
             }
@@ -332,11 +344,11 @@ class TaskRepository(
         mode: TaskDeletionMode,
         replacementTaskId: Long? = null,
         nowMs: Long = System.currentTimeMillis()
-    ) = db.withTransaction {
+    ) = workHistory.record(WorkHistoryAction.DeleteTask) {
         val root = requireNotNull(taskDao.getTaskById(rootId)) { stringResolver(R.string.error_delete_missing) }
         check(!root.isArchived) { stringResolver(R.string.error_delete_archived) }
         val ids = getTaskTreeIds(rootId)
-        if (ids.isEmpty()) return@withTransaction
+        if (ids.isEmpty()) return@record
 
         when (mode) {
             TaskDeletionMode.PromoteToParent -> {
@@ -427,7 +439,7 @@ class TaskRepository(
         }.toString(2)
     }
 
-    suspend fun importTasksJson(json: String, replaceAll: Boolean, decisions: Map<String, TaskNameDecision> = emptyMap()) = db.withTransaction {
+    suspend fun importTasksJson(json: String, replaceAll: Boolean, decisions: Map<String, TaskNameDecision> = emptyMap()) = workHistory.record(WorkHistoryAction.ImportTasks) {
         val current = observeTree().first()
 
         if (replaceAll) {
@@ -469,7 +481,7 @@ class TaskRepository(
      * 履歴画面は task_events を参照しているため、events も必ず追加する。
      * セッション表（task_sessions）にも“終了済み”として残す。
      */
-    suspend fun addManualRecord(taskId: Long, startedAt: Long, endedAt: Long) = db.withTransaction {
+    suspend fun addManualRecord(taskId: Long, startedAt: Long, endedAt: Long) = workHistory.record(WorkHistoryAction.AddRecord) {
         require(endedAt > startedAt) { "end must be after start" }
 
         val start = startedAt
@@ -541,7 +553,7 @@ class TaskRepository(
         return taskDao.getEventsInRange(startedAt, endedAt).isNotEmpty()
     }
 
-    suspend fun deleteEventById(eventId: Long) = db.withTransaction {
+    suspend fun deleteEventById(eventId: Long) = workHistory.record(WorkHistoryAction.DeleteRecord) {
         taskDao.deleteEventById(eventId)
     }
 
@@ -586,7 +598,7 @@ class TaskRepository(
     }
 
     // === CSV Import ===
-    suspend fun importEventsFromCsv(csv: String, replaceAll: Boolean) = db.withTransaction {
+    suspend fun importEventsFromCsv(csv: String, replaceAll: Boolean) = workHistory.record(WorkHistoryAction.ImportRecords) {
         if (replaceAll) {
             taskDao.clearAllEvents()
         }
@@ -594,7 +606,7 @@ class TaskRepository(
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .toList()
-        if (lines.isEmpty()) return@withTransaction
+        if (lines.isEmpty()) return@record
 
         // 先頭行がヘッダーならスキップ
         var idx = 0
@@ -689,7 +701,7 @@ class TaskRepository(
         clearExistingEvents: Boolean = false,
         createMissingTasks: Boolean = true,
         decisions: Map<String, TaskNameDecision> = emptyMap()
-    ): Int = db.withTransaction {
+    ): Int = workHistory.record(WorkHistoryAction.ImportRecords) {
         if (clearExistingEvents) {
             taskDao.clearAllEvents()
         }

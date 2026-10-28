@@ -160,7 +160,7 @@ internal fun TotalBarChart(result: TaskAnalysisResult, taskColor: Color) {
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             ChartLineLegend(
-                stringResource(R.string.analysis_chart_average),
+                analysisAverageLabel(result.request.period),
                 lineColor,
                 dashed = true
             )

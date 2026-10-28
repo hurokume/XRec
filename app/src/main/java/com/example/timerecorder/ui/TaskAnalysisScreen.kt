@@ -59,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -835,20 +836,28 @@ private fun TaskAnalysisDetail(
                     }
                 }
                 item {
+                    val isCumulative = chartType == TaskAnalysisChartType.CumulativeStacked
                     Surface(color = MaterialTheme.colorScheme.secondaryContainer) {
                         Row(
                             modifier = Modifier
+                                .testTag("task-analysis-statistic")
                                 .fillMaxWidth()
                                 .padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = averageLabel(request.period),
+                                text = if (isCumulative) {
+                                    stringResource(R.string.analysis_cumulative_total)
+                                } else {
+                                    analysisAverageLabel(request.period)
+                                },
                                 style = MaterialTheme.typography.titleMedium,
                                 modifier = Modifier.weight(1f)
                             )
                             Text(
-                                text = formatDuration(result.averagePerBucketMs),
+                                text = formatDuration(
+                                    if (isCumulative) result.totalMs else result.averagePerBucketMs
+                                ),
                                 style = MaterialTheme.typography.titleLarge
                             )
                         }
@@ -1057,7 +1066,7 @@ private fun chartTypeLabel(type: TaskAnalysisChartType): String = when (type) {
 }
 
 @Composable
-private fun averageLabel(period: TaskAnalysisPeriod): String = when (period) {
+internal fun analysisAverageLabel(period: TaskAnalysisPeriod): String = when (period) {
     TaskAnalysisPeriod.Day -> stringResource(R.string.analysis_average_hour)
     TaskAnalysisPeriod.Week,
     TaskAnalysisPeriod.Month,

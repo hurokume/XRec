@@ -79,7 +79,8 @@ fun SettingsScreen(
     taskOptions: List<DailyPlanTaskOption>,
     onDailyPlansChange: (DailyPlans) -> Unit,
     onManageDataClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onWorkHistoryClick: () -> Unit = {}
 ) {
     var section by rememberSaveable { mutableStateOf<String?>(null) }
     val ctx = LocalContext.current
@@ -96,8 +97,15 @@ fun SettingsScreen(
     ) {
         if (section == null) {
             listOf("display" to R.string.settings_display_title, "plans" to R.string.daily_plan_title,
-                "data" to R.string.manage_data_title).forEach { (key, label) ->
-                Card(Modifier.fillMaxWidth().clickable { if (key == "data") onManageDataClick() else section = key }) {
+                "data" to R.string.manage_data_title,
+                "work_history" to R.string.work_history_title).forEach { (key, label) ->
+                Card(Modifier.fillMaxWidth().clickable {
+                    when (key) {
+                        "data" -> onManageDataClick()
+                        "work_history" -> onWorkHistoryClick()
+                        else -> section = key
+                    }
+                }) {
                     Row(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text(stringResource(label), Modifier.weight(1f))
                         Icon(Icons.Filled.ChevronRight, contentDescription = null)

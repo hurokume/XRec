@@ -202,6 +202,128 @@ class TaskAnalysisEngineTest {
         assertEquals(0.0, tuesdayAtNine.probability, 0.0001)
     }
 
+    @Test
+    fun dailyAverageCombinesTasksAndIncludesEmptyDaysButNotFutureDays() {
+        val firstTask = AnalysisCategoryNode(1L, "Work")
+        val secondTask = AnalysisCategoryNode(2L, "Study")
+        val start = utcMillis(2026, 8, 10)
+        val thirdDay = utcMillis(2026, 8, 12)
+        val events = listOf(
+            AnalysisEvent(1L, 1L, listOf(firstTask), start + hour, start + 2 * hour),
+            AnalysisEvent(2L, 2L, listOf(secondTask), start + 3 * hour, start + 6 * hour),
+            AnalysisEvent(3L, 1L, listOf(firstTask), thirdDay + hour, thirdDay + 3 * hour)
+        )
+
+        for ((period, elapsedDays) in listOf(
+            TaskAnalysisPeriod.Week to 3,
+            TaskAnalysisPeriod.Month to 12,
+            TaskAnalysisPeriod.Custom to 3
+        )) {
+            val result = TaskAnalysisEngine.analyze(
+                events,
+                request(1L, "Selected tasks", period, start).copy(
+                    taskIds = setOf(1L, 2L),
+                    nowMs = thirdDay + 12 * hour,
+                    customStartMs = start,
+                    customEndMs = utcMillis(2026, 8, 15)
+                )
+            )
+
+            assertEquals(6 * hour, result.totalMs)
+            assertEquals(4 * hour, result.buckets.single { it.startMs == start }.totalMs)
+            assertEquals(0L, result.buckets.single { it.startMs == utcMillis(2026, 8, 11) }.totalMs)
+            assertEquals(2 * hour, result.buckets.single { it.startMs == thirdDay }.totalMs)
+            assertEquals("$period daily average", 6 * hour / elapsedDays, result.averagePerBucketMs)
+        }
+    }
+
+    @Test
+    fun monthlyAverageUsesCalendarMonthTotalsIncludingEmptyMonths() {
+        val firstTask = AnalysisCategoryNode(1L, "Work")
+        val secondTask = AnalysisCategoryNode(2L, "Study")
+        val january = utcMillis(2026, 1, 10)
+        val march = utcMillis(2026, 3, 10)
+        val events = listOf(
+            AnalysisEvent(1L, 1L, listOf(firstTask), january, january + hour),
+            AnalysisEvent(2L, 2L, listOf(secondTask), january + hour, january + 4 * hour),
+            AnalysisEvent(3L, 1L, listOf(firstTask), march, march + 2 * hour)
+        )
+        val analysisRequest = request(1L, "Selected tasks", TaskAnalysisPeriod.Year, january)
+            .copy(taskIds = setOf(1L, 2L))
+        val currentYear = TaskAnalysisEngine.analyze(
+            events, analysisRequest.copy(nowMs = utcMillis(2026, 3, 15))
+        )
+        val pastYear = TaskAnalysisEngine.analyze(events, analysisRequest)
+
+        assertEquals(listOf(4 * hour, 0L, 2 * hour), currentYear.buckets.take(3).map { it.totalMs })
+        assertEquals(2 * hour, currentYear.averagePerBucketMs)
+        assertEquals(hour / 2, pastYear.averagePerBucketMs)
+    }
+
+    @Test
+    fun dailyAverageSplitsCrossMidnightTimeIntoCalendarDays() {
+        val task = AnalysisCategoryNode(1L, "Work")
+        val start = utcMillis(2026, 8, 10)
+        val result = TaskAnalysisEngine.analyze(
+            listOf(AnalysisEvent(1L, 1L, listOf(task), start + 23 * hour, start + 26 * hour)),
+            request(1L, "Work", TaskAnalysisPeriod.Custom, start).copy(
+                customStartMs = start,
+                customEndMs = utcMillis(2026, 8, 13)
+            )
+        )
+
+        assertEquals(listOf(hour, 2 * hour, 0L), result.buckets.map { it.totalMs })
+        assertEquals(hour, result.averagePerBucketMs)
+    }
+
+    @Test
+    fun totalsAndHourlyAverageStopAtNowIncludingInsideCurrentBucket() {
+        val task = AnalysisCategoryNode(1L, "Work")
+        val day = utcMillis(2026, 8, 10)
+        val now = day + hour + hour / 2
+        val result = TaskAnalysisEngine.analyze(
+            listOf(
+                AnalysisEvent(1L, 1L, listOf(task), day + hour / 2, day + 2 * hour),
+                AnalysisEvent(2L, 1L, listOf(task), day + 4 * hour, day + 5 * hour)
+            ),
+            request(1L, "Work", TaskAnalysisPeriod.Day, day).copy(nowMs = now)
+        )
+        val cumulative = TaskAnalysisEngine.cumulativeCategoryTotals(result.buckets, now)
+
+        assertEquals(hour, result.totalMs)
+        assertEquals(hour / 2, result.averagePerBucketMs)
+        assertEquals(listOf(hour / 2, hour / 2, 0L), result.buckets.take(3).map { it.totalMs })
+        assertEquals(result.totalMs, cumulative[1].values.sum())
+        assertTrue(cumulative.drop(2).all { it.isEmpty() })
+    }
+
+    @Test
+    fun dailyAverageExcludesDayThatHasNotStartedAtMidnight() {
+        val task = AnalysisCategoryNode(1L, "Work")
+        val start = utcMillis(2026, 8, 10)
+        val result = TaskAnalysisEngine.analyze(
+            listOf(AnalysisEvent(1L, 1L, listOf(task), start, start + 4 * hour)),
+            request(1L, "Work", TaskAnalysisPeriod.Week, start)
+                .copy(nowMs = utcMillis(2026, 8, 12))
+        )
+
+        assertEquals(2 * hour, result.averagePerBucketMs)
+    }
+
+    @Test
+    fun whollyFuturePeriodHasZeroTotalAndAverage() {
+        val task = AnalysisCategoryNode(1L, "Work")
+        val day = utcMillis(2026, 8, 10)
+        val result = TaskAnalysisEngine.analyze(
+            listOf(AnalysisEvent(1L, 1L, listOf(task), day, day + hour)),
+            request(1L, "Work", TaskAnalysisPeriod.Day, day).copy(nowMs = day - hour)
+        )
+
+        assertEquals(0L, result.totalMs)
+        assertEquals(0L, result.averagePerBucketMs)
+        assertTrue(result.buckets.all { it.totalMs == 0L })
+    }
+
     private fun request(
         taskId: Long,
         taskName: String,

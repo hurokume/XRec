@@ -15,15 +15,33 @@ import kotlinx.coroutines.launch
         ActiveTaskEntity::class,
         TaskEventEntity::class,
         TaskSessionEntity::class, // ← 追加済み
+        WorkHistoryEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
     abstract fun sessionDao(): SessionDao
+    abstract fun workHistoryDao(): WorkHistoryDao
 
     companion object {
+        internal val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS work_history (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        action TEXT NOT NULL,
+                        details TEXT NOT NULL,
+                        taskCount INTEGER NOT NULL,
+                        recordCount INTEGER NOT NULL,
+                        changesJson TEXT NOT NULL
+                    )
+                """.trimIndent())
+            }
+        }
+
         // 1→2: task_sessions テーブルとインデックスを追加
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -58,7 +76,7 @@ abstract class AppDatabase : RoomDatabase() {
         fun get(context: Context, scope: CoroutineScope): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(context, AppDatabase::class.java, "timerecorder.db")
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

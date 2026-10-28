@@ -43,4 +43,39 @@ class StatisticsPeriodTest {
         val rolling = statisticsBounds(StatisticsPeriod.OneDay, now, tz)
         assertEquals(24 * 3_600_000L, rolling.second - rolling.first)
     }
+
+    @Test fun customRangeIncludesBothDatesAcrossMonthsAndLeapDay() {
+        assertEquals(date(2024, 2, 28) to date(2024, 3, 2), statisticsBounds(
+            StatisticsPeriod.Custom, date(2026, 10, 7), zone,
+            customStartMs = date(2024, 2, 28, 14), customEndMs = date(2024, 3, 1, 8)
+        ))
+    }
+
+    @Test fun customRangeCanSelectASingleDay() {
+        val selected = date(2026, 10, 7)
+        assertEquals(selected to date(2026, 10, 8), statisticsBounds(
+            StatisticsPeriod.Custom, selected, zone,
+            customStartMs = selected, customEndMs = selected
+        ))
+    }
+
+    @Test fun customRangeUsesCalendarDaysAcrossDaylightSaving() {
+        val tz = TimeZone.getTimeZone("America/Los_Angeles")
+        for ((month, day, hours) in listOf(Triple(3, 8, 23), Triple(11, 1, 25))) {
+            val selected = date(2026, month, day, tz = tz)
+            val (start, end) = statisticsBounds(
+                StatisticsPeriod.Custom, selected, tz,
+                customStartMs = selected, customEndMs = selected
+            )
+            assertEquals(selected, start)
+            assertEquals(date(2026, month, day + 1, tz = tz), end)
+            assertEquals(hours * 3_600_000L, end - start)
+        }
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun customRangeRejectsEndDateBeforeStartDate() {
+        statisticsBounds(StatisticsPeriod.Custom, date(2026, 10, 7), zone,
+            customStartMs = date(2026, 10, 7), customEndMs = date(2026, 10, 6))
+    }
 }
