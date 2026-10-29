@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Time Recorder</string>
+    <string name="app_name">XRec</string>
 
     <!-- Common actions and accessibility labels -->
     <string name="action_add">追加</string>
@@ -28,7 +28,7 @@
     <string name="label_empty_duration">--:--:--</string>
 
     <!-- Header and main navigation -->
-    <string name="header_title">Time Recorder App</string>
+    <string name="header_title">XRec</string>
     <string name="header_subtitle">タスクを記録しましょう</string>
     <string name="label_select_task">タスクを選択</string>
     <string name="label_selected_prefix">選択中:</string>
@@ -51,7 +51,7 @@
     <string name="manage_data_title">データ管理</string>
     <string name="settings_manage_data_description">記録データとタスク定義のインポート・エクスポート</string>
     <string name="settings_open_manage_data">Manage Dataを開く</string>
-    <string name="manage_data_description">Time Recorderのデータをファイルへ書き出したり、ファイルから読み込んだりできます。</string>
+    <string name="manage_data_description">XRecのデータをファイルへ書き出したり、ファイルから読み込んだりできます。</string>
     <string name="manage_data_records_title">記録データ</string>
     <string name="manage_data_tasks_title">タスク定義</string>
     <string name="manage_data_export_tsv_description">指定期間の記録をTSVファイルとして共有します。</string>
@@ -192,7 +192,7 @@
     <!-- Weekly report -->
     <string name="weekly_report_title">週間レポート</string>
     <string name="weekly_report_description">指定した週の7日Timeline、Daily plan達成度、Analysisを1つのPDFにまとめます。</string>
-    <string name="weekly_report_share_subject">TimeRecorder Weekly Report</string>
+    <string name="weekly_report_share_subject">XRec Weekly Report</string>
     <string name="weekly_report_share_chooser">Weekly reportを共有</string>
     <string name="weekly_report_error">Weekly reportの作成に失敗しました: %1$s</string>
     <string name="weekly_report_target_week">対象週</string>
@@ -214,7 +214,7 @@
     <string name="advanced_analysis_title">解析</string>
     <string name="advanced_analysis_description">完了した解析日を対象に、時間配分・生活パターン・遷移を分析します。</string>
     <string name="advanced_analysis_refresh">分析を更新</string>
-    <string name="advanced_analysis_share_subject">TimeRecorder Analysis レポート</string>
+    <string name="advanced_analysis_share_subject">Analysis レポート</string>
     <string name="advanced_analysis_share_chooser">A4 PDFレポートを共有</string>
     <string name="advanced_analysis_pdf_error">PDF作成に失敗しました: %1$s</string>
     <string name="advanced_analysis_pdf_creating">PDFを作成中…</string>
@@ -289,23 +289,23 @@
     <string name="main_sort_ascending">A→Z（昇順）</string>
     <string name="main_sort_descending">Z→A（降順）</string>
     <string name="main_sort_manual">任意順</string>
-    <string name="export_tasks_subject">TimeRecorder Tasks Export</string>
+    <string name="export_tasks_subject">XRec Tasks Export</string>
     <string name="export_tasks_chooser">タスクをJSONで共有</string>
     <string name="export_failed">Export 失敗: %1$s</string>
     <string name="import_json_title">Import (JSON)</string>
-    <string name="import_json_description">Time RecorderでエクスポートしたJSONファイルを選択してください。</string>
+    <string name="import_json_description">XRecでエクスポートしたJSONファイルを選択してください。</string>
     <string name="import_json_replace_all">既存を全て削除して置き換える</string>
     <string name="import_complete">Import 完了</string>
     <string name="import_failed">Import 失敗: %1$s</string>
     <string name="import_select_file">ファイルを選択</string>
     <string name="import_file_open_failed">選択したファイルを開けません。</string>
     <string name="import_tsv_title">Import (TSV)</string>
-    <string name="import_tsv_description">Time RecorderでエクスポートしたTSVファイルを選択してください。</string>
+    <string name="import_tsv_description">XRecでエクスポートしたTSVファイルを選択してください。</string>
     <string name="import_tsv_clear_existing">既存の記録を全て削除してから取り込み</string>
     <string name="import_tsv_create_missing">存在しないプロジェクト/タスク/サブタスクを自動作成</string>
     <string name="import_tsv_complete">TSV Import 完了（%1$d 件）</string>
-    <string name="export_tsv_subject">TimeRecorder Events Export (TSV)</string>
-    <string name="export_tsv_clip_label">TimeRecorder TSV</string>
+    <string name="export_tsv_subject">XRec Events Export (TSV)</string>
+    <string name="export_tsv_clip_label">XRec TSV</string>
     <string name="export_tsv_chooser">記録をTSVで共有</string>
     <string name="export_tsv_failed">Export TSV 失敗: %1$s</string>
     <string name="delete_record_title">記録を削除</string>

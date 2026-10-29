@@ -251,7 +251,7 @@ private class WeeklyTimelinePdfWriter(
         val generatedAt = SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault()).format(Date())
         drawText(
             canvas,
-            "TimeRecorder | $generatedAt",
+            "${context.getString(R.string.app_name)} | $generatedAt",
             margin,
             pageHeight - 17f,
             8f,

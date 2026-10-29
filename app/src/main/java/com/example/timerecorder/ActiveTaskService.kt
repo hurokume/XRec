@@ -99,11 +99,11 @@ class ActiveTaskService : LifecycleService() {
                     .distinct()
                     .take(3)
                 val candidates = candidateIds.map { taskId ->
-                        NotificationCandidate(
-                            taskId = taskId,
-                            label = shortLabelFor(taskId).take(14)
-                        )
-                    }
+                    NotificationCandidate(
+                        taskId = taskId,
+                        label = shortLabelFor(taskId).take(14)
+                    )
+                }
 
                 val notification = notificationFactory.activeNotification(
                     title = taskPath(active.task.id),
@@ -116,7 +116,7 @@ class ActiveTaskService : LifecycleService() {
     }
 
     private suspend fun taskPath(taskId: Long): String {
-        val task = taskDao.getTaskById(taskId) ?: return "Time Recorder"
+        val task = taskDao.getTaskById(taskId) ?: return getString(R.string.app_name)
         val parent = task.parentId?.let { taskDao.getTaskById(it) }
         val grandparent = parent?.parentId?.let { taskDao.getTaskById(it) }
         return buildList {

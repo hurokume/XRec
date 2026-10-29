@@ -160,7 +160,7 @@ import com.example.timerecorder.data.StatsTarget
 import com.example.timerecorder.data.DailyPlans
 import com.example.timerecorder.data.DailyPlansCodec
 import com.example.timerecorder.data.TaskDeletionMode
-import com.example.timerecorder.ui.theme.TimeRecorderTheme
+import com.example.timerecorder.ui.theme.XRecTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -211,7 +211,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            TimeRecorderTheme {
+            XRecTheme {
                 com.example.timerecorder.ui.TaskEditDialogs(taskViewModel)
                 Surface(color = MaterialTheme.colorScheme.background) {
                     // NavController を用意し、アプリ内の画面遷移を管理
@@ -3613,7 +3613,7 @@ private fun msOf(baseMidnight: Long, hour: Int, minute: Int = 0): Long {
 )
 @Composable
 private fun Preview_TimelineMain() {
-    TimeRecorderTheme {
+    XRecTheme {
         val start = midnightOf(System.currentTimeMillis())
         val dayCount = 3
 
@@ -3688,7 +3688,7 @@ private fun Preview_TimelineMain() {
 )
 @Composable
 private fun Preview_TasksMain() {
-    TimeRecorderTheme {
+    XRecTheme {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -3796,7 +3796,7 @@ private fun writeTsvToCacheAndGetUri(
     val endForName = (endExclusiveMs - 1L).coerceAtLeast(startMs)
     val file = java.io.File(
         dir,
-        "timerecorder_${fmt.format(java.util.Date(startMs))}_${fmt.format(java.util.Date(endForName))}.tsv"
+        "xrec_${fmt.format(java.util.Date(startMs))}_${fmt.format(java.util.Date(endForName))}.tsv"
     )
     file.writeText(content, Charsets.UTF_8)
     return FileProvider.getUriForFile(
@@ -4039,7 +4039,7 @@ private fun ExportCalendarMonth(
 )
 @Composable
 private fun Preview_StatsMain() {
-    TimeRecorderTheme {
+    XRecTheme {
         val sampleNames = listOf(
             "Design", "Coding", "Review", "Meeting", "Docs", "Ops", "Support", "Other"
         )

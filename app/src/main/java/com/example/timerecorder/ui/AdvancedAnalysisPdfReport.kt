@@ -140,7 +140,7 @@ internal class AdvancedAnalysisPdfWriter(
         requireCanvas().drawLine(margin, pageHeight - 31f, pageWidth - margin, pageHeight - 31f, paint)
         paint.style = Paint.Style.FILL
         drawText(
-            text = "TimeRecorder | $generatedAt",
+            text = "${text(R.string.app_name)} | $generatedAt",
             x = margin,
             baseline = pageHeight - 17f,
             size = 8f,
