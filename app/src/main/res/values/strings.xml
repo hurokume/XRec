@@ -1,5 +1,18 @@
 <resources>
     <string name="app_name">XRec</string>
+    <string name="temporary_task_name">Temporary</string>
+    <string name="notification_temporary">Temporary</string>
+    <string name="temporary_task_description">Start a new record in the Temporary task</string>
+    <string name="temporary_task_started">New temporary record started</string>
+    <string name="task_switch_failed">Could not switch tasks. Please open XRec and try again.</string>
+    <string name="work_history_start_temporary">Start temporary record</string>
+    <string name="settings_widgets_title">Widgets</string>
+    <string name="temporary_widget_name">XRec · Temporary task</string>
+    <string name="temporary_widget_hint">Each tap starts a new record</string>
+    <string name="temporary_widget_description">Tap to switch immediately to the Temporary task. Each additional tap ends the current record and starts another in the same task. Short records are kept separately, and you can reassign them later.</string>
+    <string name="temporary_widget_add">Add to home screen</string>
+    <string name="temporary_widget_manual_add">You can also long-press the home screen, choose Widgets, and add XRec · Temporary task.</string>
+    <string name="temporary_notification_help">The Temporary button also appears in the running-task notification. Allow XRec notifications and lock-screen notification display in your device settings.</string>
 
     <!-- Common actions and accessibility labels -->
     <string name="action_add">Add</string>

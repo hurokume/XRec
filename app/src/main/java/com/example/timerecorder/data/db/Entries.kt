@@ -23,7 +23,9 @@ data class TaskEntity(
     val colorInt: Int? = null,       // 親カテゴリ色（子にも入れておくとUIで便利）
     val sortOrder: Int = 0,
     /** 過去の記録を残したまま、タスク選択 UI からだけ除外する。 */
-    @ColumnInfo(defaultValue = "0") val isArchived: Boolean = false
+    @ColumnInfo(defaultValue = "0") val isArchived: Boolean = false,
+    /** 通知・ウィジェットで共有する臨時タスク。名前変更後も同じタスクを使う。 */
+    @ColumnInfo(defaultValue = "0") val isTemporary: Boolean = false
 )
 
 /** 親 → 直下の子 のリレーション */

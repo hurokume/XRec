@@ -375,9 +375,9 @@ fun AppRoot(
             } else {
                 ActiveTaskService.start(ctx)
             }
-        } else {
-            ActiveTaskService.stop(ctx)
         }
+        // The service stops itself after DB updates and queued widget presses complete.
+        // The initial null UI state must not cancel a task started from the widget.
     }
 
     // タイムラインで選択中の taskId を保持（null で未選択）

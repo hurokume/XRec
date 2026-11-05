@@ -3,6 +3,7 @@ package com.example.timerecorder.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalContext
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -59,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.timerecorder.R
+import com.example.timerecorder.TemporaryTaskWidgetProvider
 import com.example.timerecorder.data.DailyPlanEntry
 import com.example.timerecorder.data.DailyPlans
 import com.example.timerecorder.data.DailyPlanType
@@ -97,6 +99,7 @@ fun SettingsScreen(
     ) {
         if (section == null) {
             listOf("display" to R.string.settings_display_title, "plans" to R.string.daily_plan_title,
+                "widgets" to R.string.settings_widgets_title,
                 "data" to R.string.manage_data_title,
                 "work_history" to R.string.work_history_title).forEach { (key, label) ->
                 Card(Modifier.fillMaxWidth().clickable {
@@ -171,6 +174,23 @@ fun SettingsScreen(
         }
         if (section == "plans") {
             DailyPlansEditor(dailyPlans, taskOptions, onDailyPlansChange)
+        }
+        if (section == "widgets") {
+            Text(stringResource(R.string.temporary_widget_name), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.temporary_widget_description), style = MaterialTheme.typography.bodyMedium)
+            FilledTonalButton(
+                onClick = {
+                    if (!TemporaryTaskWidgetProvider.requestPin(ctx)) {
+                        Toast.makeText(ctx, R.string.temporary_widget_manual_add, Toast.LENGTH_LONG).show()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null)
+                Text(stringResource(R.string.temporary_widget_add))
+            }
+            Text(stringResource(R.string.temporary_widget_manual_add), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.temporary_notification_help), style = MaterialTheme.typography.bodySmall)
         }
     }
 }

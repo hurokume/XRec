@@ -16,6 +16,7 @@ import kotlin.coroutines.CoroutineContext
 
 enum class WorkHistoryAction(@StringRes val label: Int) {
     StartOrSwitch(R.string.work_history_start_switch),
+    StartTemporary(R.string.work_history_start_temporary),
     Stop(R.string.work_history_stop),
     AddTask(R.string.work_history_add_task),
     RenameTask(R.string.work_history_rename_task),
@@ -57,7 +58,7 @@ class WorkHistory(
     }
 
     private val tables = listOf(
-        Table("tasks", listOf("id", "name", "parentId", "colorInt", "sortOrder", "isArchived")),
+        Table("tasks", listOf("id", "name", "parentId", "colorInt", "sortOrder", "isArchived", "isTemporary")),
         Table("task_events", listOf("id", "taskId", "pressedAtEpochMs", "durationMillis")),
         Table("task_sessions", listOf("id", "taskId", "startedAt", "endedAt")),
         Table("active_task_singleton", listOf("singletonId", "taskId", "startedAtEpochMs"))
@@ -197,9 +198,12 @@ class WorkHistory(
             fun row(key: String): List<Any?>? {
                 if (item.isNull(key)) return null
                 val values = item.getJSONArray(key)
-                check(values.length() == table.columns.size)
+                // Journals saved before database v5 have no isTemporary column.
+                val legacyTask = table.name == "tasks" && values.length() == table.columns.size - 1
+                check(values.length() == table.columns.size || legacyTask)
                 return table.columns.indices.map { column ->
                     when {
+                        legacyTask && column == table.columns.lastIndex -> 0L
                         values.isNull(column) -> null
                         table.columns[column] == "name" -> values.getString(column)
                         else -> values.getLong(column)

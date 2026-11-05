@@ -94,23 +94,48 @@ class TaskRepository(
     fun observeActive(): Flow<ActiveWithTask?> = taskDao.observeActiveWithTask()
 
     // ---------------- 操作系（短時間統合スイッチ） ----------------
+    /** 何度押しても同じ臨時タスクを使い、押下ごとに独立した記録を残す。 */
+    suspend fun startTemporaryTask(now: Long): SwitchResult =
+        workHistory.record(WorkHistoryAction.StartTemporary) {
+            val tasks = taskDao.getAllTasksOnce()
+            val temporary = tasks.firstOrNull { it.isTemporary && !it.isArchived }
+            val defaultName = stringResolver(R.string.temporary_task_name)
+            val rootNames = tasks.filter { it.parentId == null }.map { it.name }
+            val taskId = temporary?.id ?: taskDao.insertTask(
+                TaskEntity(
+                    name = if (rootNames.any { sameTaskName(it, defaultName) }) {
+                        uniqueTaskName(defaultName, rootNames)
+                    } else defaultName,
+                    sortOrder = taskDao.getMaxSortOrder(null) + 1,
+                    isTemporary = true
+                )
+            )
+            // Keep rapid taps and clock corrections from producing reversed intervals.
+            val boundary = maxOf(now, sessionDao.getActive()?.startedAt ?: now)
+            startOrSwitch(taskId, boundary, forceNewSession = true)
+        }
+
     suspend fun startOrSwitch(
         newTaskId: Long,
         now: Long,
-        mergeThresholdSec: Long = 60
+        mergeThresholdSec: Long = 60,
+        forceNewSession: Boolean = false
     ): SwitchResult = workHistory.record(WorkHistoryAction.StartOrSwitch) {
         val newTask = requireNotNull(taskDao.getTaskById(newTaskId)) {
             stringResolver(R.string.error_task_missing)
         }
         require(!newTask.isArchived) { stringResolver(R.string.error_task_archived) }
         val active = sessionDao.getActive()
+        val currentIsTemporary = active?.let { taskDao.getTaskById(it.taskId)?.isTemporary } == true
         val thresholdMs = mergeThresholdSec * 1000L
         val decision = TaskSwitchPolicy.decide(
             currentTaskId = active?.taskId,
             currentStartedAt = active?.startedAt,
             newTaskId = newTaskId,
             nowMs = now,
-            mergeThresholdMs = thresholdMs
+            mergeThresholdMs = thresholdMs,
+            preserveBoundary = newTask.isTemporary || currentIsTemporary,
+            restartCurrent = forceNewSession
         )
 
         when (decision.action) {
@@ -424,6 +449,7 @@ class TaskRepository(
             val children = taskDao.getChildren(task.id)
             return JSONObject().apply {
                 put("name", task.name)
+                if (task.isTemporary) put("isTemporary", true)
                 task.colorInt?.let { put("color", it) }
                 put(
                     "children",
@@ -458,6 +484,9 @@ class TaskRepository(
 
             val (existing, resolved) = resolveTaskName(parentId, name, null, decisions)
             val taskId = existing ?: addTask(resolved, parentId)
+            if (existing == null && node.optBoolean("isTemporary", false)) {
+                taskDao.getTaskById(taskId)?.let { taskDao.updateTask(it.copy(isTemporary = true)) }
+            }
 
             if (node.has("color") && !node.isNull("color")) {
                 changeColor(taskId, node.getInt("color"))

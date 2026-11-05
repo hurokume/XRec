@@ -198,7 +198,7 @@ class WorkHistoryIntegrationTest {
                 old.version = 3
             }
             db = Room.databaseBuilder(context, AppDatabase::class.java, name)
-                .addMigrations(AppDatabase.MIGRATION_3_4).build()
+                .addMigrations(AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5).build()
             repo = TaskRepository(db, db.sessionDao(), db.taskDao())
             assertEquals("Existing", db.taskDao().getTaskById(7)!!.name)
             assertEquals(500L, db.taskDao().getEventById(12)!!.durationMillis)
