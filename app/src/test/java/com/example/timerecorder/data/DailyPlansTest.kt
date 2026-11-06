@@ -1,9 +1,9 @@
 package com.example.timerecorder.data
 
-import java.util.Calendar
-import java.util.TimeZone
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.util.Calendar
+import java.util.TimeZone
 
 class DailyPlansTest {
     private val utc = TimeZone.getTimeZone("UTC")

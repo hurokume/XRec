@@ -65,15 +65,15 @@ import com.example.timerecorder.data.AnalysisDayType
 import com.example.timerecorder.data.AnalysisLevel
 import com.example.timerecorder.data.AnalysisRequest
 import com.example.timerecorder.data.AnalysisTimeProfile
-import com.example.timerecorder.data.DailyPlans
 import com.example.timerecorder.data.DailyPlanType
+import com.example.timerecorder.data.DailyPlans
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 fun AdvancedAnalysisScreen(
@@ -222,7 +222,11 @@ fun AdvancedAnalysisScreen(
                 color = MaterialTheme.colorScheme.errorContainer,
                 shape = RoundedCornerShape(10.dp)
             ) {
-                Text(message, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onErrorContainer)
+                Text(
+                    message,
+                    Modifier.padding(12.dp),
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
             }
         }
         state.result?.let { result ->
@@ -335,11 +339,17 @@ private fun ChoiceRow(label: String, content: @Composable RowScope.() -> Unit) {
 @Composable
 private fun AnalysisChoice(label: String, selected: Boolean, onClick: () -> Unit) {
     if (selected) {
-        FilledTonalButton(onClick = onClick, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)) {
+        FilledTonalButton(
+            onClick = onClick,
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)
+        ) {
             Text(label)
         }
     } else {
-        OutlinedButton(onClick = onClick, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)) {
+        OutlinedButton(
+            onClick = onClick,
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)
+        ) {
             Text(label)
         }
     }
@@ -394,10 +404,22 @@ private fun AnalysisResultContent(
             )
         )
         KeyValue(stringResource(R.string.advanced_analysis_coverage_rate), percent(q.coverageRate))
-        KeyValue(stringResource(R.string.advanced_analysis_recorded_time), formatDuration(q.recordedMs))
-        KeyValue(stringResource(R.string.advanced_analysis_missing_time), formatDuration(q.missingMs))
-        KeyValue(stringResource(R.string.advanced_analysis_overlap_time), formatDuration(q.overlapMs))
-        KeyValue(stringResource(R.string.advanced_analysis_unspecified), formatDuration(q.unspecifiedMs))
+        KeyValue(
+            stringResource(R.string.advanced_analysis_recorded_time),
+            formatDuration(q.recordedMs)
+        )
+        KeyValue(
+            stringResource(R.string.advanced_analysis_missing_time),
+            formatDuration(q.missingMs)
+        )
+        KeyValue(
+            stringResource(R.string.advanced_analysis_overlap_time),
+            formatDuration(q.overlapMs)
+        )
+        KeyValue(
+            stringResource(R.string.advanced_analysis_unspecified),
+            formatDuration(q.unspecifiedMs)
+        )
         KeyValue(
             stringResource(R.string.advanced_analysis_short_records),
             stringResource(R.string.label_item_count, q.shortEventCount)
@@ -426,10 +448,16 @@ private fun AnalysisResultContent(
         )
         Spacer(Modifier.height(8.dp))
         ChoiceRow(stringResource(R.string.advanced_analysis_display)) {
-            AnalysisChoice(stringResource(R.string.label_item_count, 10), probabilityItemLimit == 10) {
+            AnalysisChoice(
+                stringResource(R.string.label_item_count, 10),
+                probabilityItemLimit == 10
+            ) {
                 onProbabilityItemLimitChange(10)
             }
-            AnalysisChoice(stringResource(R.string.label_item_count, 20), probabilityItemLimit == 20) {
+            AnalysisChoice(
+                stringResource(R.string.label_item_count, 20),
+                probabilityItemLimit == 20
+            ) {
                 onProbabilityItemLimitChange(20)
             }
             AnalysisChoice(
@@ -710,7 +738,10 @@ private fun ProbabilityHeatmap(
         Row(Modifier.weight(1f), horizontalArrangement = Arrangement.SpaceBetween) {
             repeat(5) { index ->
                 val minute = (profile.boundaryMinutes + index * 6 * 60) % 1440
-                Text(String.format(Locale.getDefault(), "%02d", minute / 60), style = MaterialTheme.typography.labelSmall)
+                Text(
+                    String.format(Locale.getDefault(), "%02d", minute / 60),
+                    style = MaterialTheme.typography.labelSmall
+                )
             }
         }
     }
@@ -756,7 +787,13 @@ private fun modalDaySummary(profile: AnalysisTimeProfile): String {
     profile.modalLabels.forEachIndexed { index, label ->
         if (label != previous && label != null) {
             val minute = (profile.boundaryMinutes + index * profile.slotMinutes) % 1440
-            entries += String.format(Locale.getDefault(), "%02d:%02d %s", minute / 60, minute % 60, label)
+            entries += String.format(
+                Locale.getDefault(),
+                "%02d:%02d %s",
+                minute / 60,
+                minute % 60,
+                label
+            )
             previous = label
         } else if (label == null) {
             previous = null

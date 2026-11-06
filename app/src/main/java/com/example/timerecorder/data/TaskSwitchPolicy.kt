@@ -19,7 +19,9 @@ internal object TaskSwitchPolicy {
         currentStartedAt: Long?,
         newTaskId: Long,
         nowMs: Long,
-        mergeThresholdMs: Long
+        mergeThresholdMs: Long,
+        preserveBoundary: Boolean = false,
+        restartCurrent: Boolean = false
     ): TaskSwitchDecision {
         require(mergeThresholdMs >= 0L) { "merge threshold must not be negative" }
 
@@ -28,12 +30,12 @@ internal object TaskSwitchPolicy {
         }
         require(currentStartedAt != null) { "active task requires a start time" }
 
-        if (currentTaskId == newTaskId) {
+        if (currentTaskId == newTaskId && !restartCurrent) {
             return TaskSwitchDecision(TaskSwitchAction.NoChange)
         }
 
         val duration = (nowMs - currentStartedAt).coerceAtLeast(0L)
-        val action = if (duration <= mergeThresholdMs) {
+        val action = if (!preserveBoundary && !restartCurrent && duration <= mergeThresholdMs) {
             TaskSwitchAction.MergeShort
         } else {
             TaskSwitchAction.SwitchNormal

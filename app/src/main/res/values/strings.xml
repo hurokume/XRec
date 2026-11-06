@@ -1,5 +1,18 @@
 <resources>
-    <string name="app_name">Time Recorder</string>
+    <string name="app_name">XRec</string>
+    <string name="temporary_task_name">Temporary</string>
+    <string name="notification_temporary">Temporary</string>
+    <string name="temporary_task_description">Start a new record in the Temporary task</string>
+    <string name="temporary_task_started">New temporary record started</string>
+    <string name="task_switch_failed">Could not switch tasks. Please open XRec and try again.</string>
+    <string name="work_history_start_temporary">Start temporary record</string>
+    <string name="settings_widgets_title">Widgets</string>
+    <string name="temporary_widget_name">XRec · Temporary task</string>
+    <string name="temporary_widget_hint">Each tap starts a new record</string>
+    <string name="temporary_widget_description">Tap to switch immediately to the Temporary task. Each additional tap ends the current record and starts another in the same task. Short records are kept separately, and you can reassign them later.</string>
+    <string name="temporary_widget_add">Add to home screen</string>
+    <string name="temporary_widget_manual_add">You can also long-press the home screen, choose Widgets, and add XRec · Temporary task.</string>
+    <string name="temporary_notification_help">The Temporary button also appears in the running-task notification. Allow XRec notifications and lock-screen notification display in your device settings.</string>
 
     <!-- Common actions and accessibility labels -->
     <string name="action_add">Add</string>
@@ -29,7 +42,7 @@
     <string name="range_separator_hyphen" translatable="false">-</string>
 
     <!-- Header and main navigation -->
-    <string name="header_title">Time Recorder App</string>
+    <string name="header_title">XRec</string>
     <string name="header_subtitle">Lets record your tasks</string>
     <string name="label_select_task">Select a task</string>
     <string name="label_selected_prefix">Selected:</string>
@@ -52,7 +65,7 @@
     <string name="manage_data_title">Manage Data</string>
     <string name="settings_manage_data_description">Import and export records and task definitions</string>
     <string name="settings_open_manage_data">Open Manage Data</string>
-    <string name="manage_data_description">Export Time Recorder data to files or import data from files.</string>
+    <string name="manage_data_description">Export XRec data to files or import data from files.</string>
     <string name="manage_data_records_title">Records</string>
     <string name="manage_data_tasks_title">Task definitions</string>
     <string name="manage_data_export_tsv_description">Share records for a selected period as a TSV file.</string>
@@ -175,7 +188,8 @@
     <!-- Settings and daily plans -->
     <string name="settings_display_title">Display settings</string>
     <string name="settings_stop_button_title">Task stop button</string>
-    <string name="settings_stop_button_description">Show the stop button in the top bar while a task is running.</string>
+    <string name="settings_show_notification">Show in notification area</string>
+    <string name="settings_show_temporary_on_lock_screen">Show temporary task button on lock screen</string>
     <string name="daily_plan_description">Define daily routines for weekdays and weekends. Achievement is calculated from time recorded for the planned task or its subtasks.</string>
     <string name="daily_plan_title">Daily plans</string>
     <string name="daily_plan_timeline_title">Timeline</string>
@@ -194,7 +208,7 @@
     <!-- Weekly report -->
     <string name="weekly_report_title">Weekly report</string>
     <string name="weekly_report_description">Combine the seven-day timeline, daily plan achievement, and analysis for a selected week in one PDF.</string>
-    <string name="weekly_report_share_subject">TimeRecorder Weekly Report</string>
+    <string name="weekly_report_share_subject">XRec Weekly Report</string>
     <string name="weekly_report_share_chooser">Share weekly report</string>
     <string name="weekly_report_error">Could not create weekly report: %1$s</string>
     <string name="weekly_report_target_week">Target week</string>
@@ -216,7 +230,7 @@
     <string name="advanced_analysis_title">Analysis</string>
     <string name="advanced_analysis_description">Analyze time allocation, daily routines, and transitions for completed analysis days.</string>
     <string name="advanced_analysis_refresh">Refresh analysis</string>
-    <string name="advanced_analysis_share_subject">TimeRecorder Analysis Report</string>
+    <string name="advanced_analysis_share_subject">Analysis Report</string>
     <string name="advanced_analysis_share_chooser">Share A4 PDF report</string>
     <string name="advanced_analysis_pdf_error">Could not create PDF: %1$s</string>
     <string name="advanced_analysis_pdf_creating">Creating PDF…</string>
@@ -291,23 +305,23 @@
     <string name="main_sort_ascending">A→Z (ascending)</string>
     <string name="main_sort_descending">Z→A (descending)</string>
     <string name="main_sort_manual">Manual order</string>
-    <string name="export_tasks_subject">TimeRecorder Tasks Export</string>
+    <string name="export_tasks_subject">XRec Tasks Export</string>
     <string name="export_tasks_chooser">Export tasks as JSON</string>
     <string name="export_failed">Export failed: %1$s</string>
     <string name="import_json_title">Import (JSON)</string>
-    <string name="import_json_description">Select a JSON file exported by Time Recorder.</string>
+    <string name="import_json_description">Select a JSON file exported by XRec.</string>
     <string name="import_json_replace_all">Delete all existing tasks and replace</string>
     <string name="import_complete">Import complete</string>
     <string name="import_failed">Import failed: %1$s</string>
     <string name="import_select_file">Select file</string>
     <string name="import_file_open_failed">Could not open the selected file.</string>
     <string name="import_tsv_title">Import (TSV)</string>
-    <string name="import_tsv_description">Select a TSV file exported by Time Recorder.</string>
+    <string name="import_tsv_description">Select a TSV file exported by XRec.</string>
     <string name="import_tsv_clear_existing">Delete all existing records before importing</string>
     <string name="import_tsv_create_missing">Automatically create missing projects, tasks, and subtasks</string>
     <string name="import_tsv_complete">TSV import complete (%1$d records)</string>
-    <string name="export_tsv_subject">TimeRecorder Events Export (TSV)</string>
-    <string name="export_tsv_clip_label">TimeRecorder TSV</string>
+    <string name="export_tsv_subject">XRec Events Export (TSV)</string>
+    <string name="export_tsv_clip_label">XRec TSV</string>
     <string name="export_tsv_chooser">Export records as TSV</string>
     <string name="export_tsv_failed">TSV export failed: %1$s</string>
     <string name="delete_record_title">Delete record</string>
@@ -492,4 +506,7 @@
     <string name="work_history_title">Work history</string>
     <string name="work_history_color">Color</string>
     <string name="work_history_order">Position</string>
+    <string name="settings_privacy_policy_title">Privacy policy</string>
+    <string name="settings_privacy_policy_open_failed">Could not open the privacy policy. Check that a browser is available.</string>
+    <string name="privacy_policy_url" translatable="false">https://hurokume.github.io/XRec/</string>
 </resources>

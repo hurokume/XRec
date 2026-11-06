@@ -1,5 +1,18 @@
 <resources>
-    <string name="app_name">Time Recorder</string>
+    <string name="app_name">XRec</string>
+    <string name="temporary_task_name">臨時</string>
+    <string name="notification_temporary">臨時</string>
+    <string name="temporary_task_description">臨時タスクの新しい記録を開始</string>
+    <string name="temporary_task_started">臨時タスクの新しい記録を開始しました</string>
+    <string name="task_switch_failed">タスクを切り替えられませんでした。XRecを開いて再度操作してください。</string>
+    <string name="work_history_start_temporary">臨時記録の開始</string>
+    <string name="settings_widgets_title">ウィジェット</string>
+    <string name="temporary_widget_name">XRec・臨時タスク</string>
+    <string name="temporary_widget_hint">タップごとに記録を区切る</string>
+    <string name="temporary_widget_description">タップするだけで「臨時」タスクへ切り替えます。続けて押すと、同じタスク内で前の記録を終了し、新しい記録を開始します。短い記録も個別に残り、後から正式なタスクへ振り分けられます。</string>
+    <string name="temporary_widget_add">ホーム画面に追加</string>
+    <string name="temporary_widget_manual_add">ホーム画面の空きスペースを長押しして「ウィジェット」から「XRec・臨時タスク」を選んでも追加できます。</string>
+    <string name="temporary_notification_help">計測中の通知にも「臨時」ボタンを表示します。端末の設定でXRecの通知とロック画面への通知表示を許可してください。</string>
 
     <!-- Common actions and accessibility labels -->
     <string name="action_add">追加</string>
@@ -28,7 +41,7 @@
     <string name="label_empty_duration">--:--:--</string>
 
     <!-- Header and main navigation -->
-    <string name="header_title">Time Recorder App</string>
+    <string name="header_title">XRec</string>
     <string name="header_subtitle">タスクを記録しましょう</string>
     <string name="label_select_task">タスクを選択</string>
     <string name="label_selected_prefix">選択中:</string>
@@ -51,7 +64,7 @@
     <string name="manage_data_title">データ管理</string>
     <string name="settings_manage_data_description">記録データとタスク定義のインポート・エクスポート</string>
     <string name="settings_open_manage_data">Manage Dataを開く</string>
-    <string name="manage_data_description">Time Recorderのデータをファイルへ書き出したり、ファイルから読み込んだりできます。</string>
+    <string name="manage_data_description">XRecのデータをファイルへ書き出したり、ファイルから読み込んだりできます。</string>
     <string name="manage_data_records_title">記録データ</string>
     <string name="manage_data_tasks_title">タスク定義</string>
     <string name="manage_data_export_tsv_description">指定期間の記録をTSVファイルとして共有します。</string>
@@ -173,7 +186,8 @@
     <!-- Settings and daily plans -->
     <string name="settings_display_title">表示設定</string>
     <string name="settings_stop_button_title">タスク停止ボタン</string>
-    <string name="settings_stop_button_description">タスク実行中に上部バーへ停止ボタンを表示します。</string>
+    <string name="settings_show_notification">通知エリアに表示</string>
+    <string name="settings_show_temporary_on_lock_screen">ロック画面に臨時タスクボタンを表示</string>
     <string name="daily_plan_description">平日と休日（土日）の基本パターンを時間帯ごとに定義します。予定タスクまたはその配下タスクの記録時間から、日ごとの達成度を算出します。</string>
     <string name="daily_plan_title">日々の予定</string>
     <string name="daily_plan_timeline_title">タイムライン</string>
@@ -192,7 +206,7 @@
     <!-- Weekly report -->
     <string name="weekly_report_title">週間レポート</string>
     <string name="weekly_report_description">指定した週の7日Timeline、Daily plan達成度、Analysisを1つのPDFにまとめます。</string>
-    <string name="weekly_report_share_subject">TimeRecorder Weekly Report</string>
+    <string name="weekly_report_share_subject">XRec Weekly Report</string>
     <string name="weekly_report_share_chooser">Weekly reportを共有</string>
     <string name="weekly_report_error">Weekly reportの作成に失敗しました: %1$s</string>
     <string name="weekly_report_target_week">対象週</string>
@@ -214,7 +228,7 @@
     <string name="advanced_analysis_title">解析</string>
     <string name="advanced_analysis_description">完了した解析日を対象に、時間配分・生活パターン・遷移を分析します。</string>
     <string name="advanced_analysis_refresh">分析を更新</string>
-    <string name="advanced_analysis_share_subject">TimeRecorder Analysis レポート</string>
+    <string name="advanced_analysis_share_subject">Analysis レポート</string>
     <string name="advanced_analysis_share_chooser">A4 PDFレポートを共有</string>
     <string name="advanced_analysis_pdf_error">PDF作成に失敗しました: %1$s</string>
     <string name="advanced_analysis_pdf_creating">PDFを作成中…</string>
@@ -289,23 +303,23 @@
     <string name="main_sort_ascending">A→Z（昇順）</string>
     <string name="main_sort_descending">Z→A（降順）</string>
     <string name="main_sort_manual">任意順</string>
-    <string name="export_tasks_subject">TimeRecorder Tasks Export</string>
+    <string name="export_tasks_subject">XRec Tasks Export</string>
     <string name="export_tasks_chooser">タスクをJSONで共有</string>
     <string name="export_failed">Export 失敗: %1$s</string>
     <string name="import_json_title">Import (JSON)</string>
-    <string name="import_json_description">Time RecorderでエクスポートしたJSONファイルを選択してください。</string>
+    <string name="import_json_description">XRecでエクスポートしたJSONファイルを選択してください。</string>
     <string name="import_json_replace_all">既存を全て削除して置き換える</string>
     <string name="import_complete">Import 完了</string>
     <string name="import_failed">Import 失敗: %1$s</string>
     <string name="import_select_file">ファイルを選択</string>
     <string name="import_file_open_failed">選択したファイルを開けません。</string>
     <string name="import_tsv_title">Import (TSV)</string>
-    <string name="import_tsv_description">Time RecorderでエクスポートしたTSVファイルを選択してください。</string>
+    <string name="import_tsv_description">XRecでエクスポートしたTSVファイルを選択してください。</string>
     <string name="import_tsv_clear_existing">既存の記録を全て削除してから取り込み</string>
     <string name="import_tsv_create_missing">存在しないプロジェクト/タスク/サブタスクを自動作成</string>
     <string name="import_tsv_complete">TSV Import 完了（%1$d 件）</string>
-    <string name="export_tsv_subject">TimeRecorder Events Export (TSV)</string>
-    <string name="export_tsv_clip_label">TimeRecorder TSV</string>
+    <string name="export_tsv_subject">XRec Events Export (TSV)</string>
+    <string name="export_tsv_clip_label">XRec TSV</string>
     <string name="export_tsv_chooser">記録をTSVで共有</string>
     <string name="export_tsv_failed">Export TSV 失敗: %1$s</string>
     <string name="delete_record_title">記録を削除</string>
@@ -490,4 +504,6 @@
     <string name="work_history_title">作業履歴</string>
     <string name="work_history_color">色</string>
     <string name="work_history_order">表示順</string>
+    <string name="settings_privacy_policy_title">プライバシーポリシー</string>
+    <string name="settings_privacy_policy_open_failed">プライバシーポリシーを開けませんでした。ブラウザーが利用できるか確認してください。</string>
 </resources>

@@ -39,14 +39,18 @@ fun WorkHistoryScreen(
     // Freeze both selection and latest revision while the confirmation is open.
     // A concurrent change causes restoration to fail safely and asks for a refresh.
     var selection by remember { mutableStateOf<Triple<WorkHistoryItem, Long, Int>?>(null) }
-    val formatter = remember { DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.MEDIUM) }
+    val formatter =
+        remember { DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.MEDIUM) }
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Text(stringResource(R.string.work_history_title), style = MaterialTheme.typography.titleLarge)
+            Text(
+                stringResource(R.string.work_history_title),
+                style = MaterialTheme.typography.titleLarge
+            )
             Text(
                 stringResource(R.string.work_history_description),
                 style = MaterialTheme.typography.bodySmall,
@@ -57,23 +61,39 @@ fun WorkHistoryScreen(
         if (restoring) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         if (entries.isEmpty()) {
             item {
-                Text(stringResource(R.string.work_history_empty), Modifier.padding(vertical = 16.dp))
+                Text(
+                    stringResource(R.string.work_history_empty),
+                    Modifier.padding(vertical = 16.dp)
+                )
             }
         } else {
             item {
-                Text(stringResource(R.string.work_history_count, entries.size), style = MaterialTheme.typography.labelMedium)
+                Text(
+                    stringResource(R.string.work_history_count, entries.size),
+                    style = MaterialTheme.typography.labelMedium
+                )
             }
         }
         itemsIndexed(entries, key = { _, entry -> entry.id }) { index, entry ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        stringResource(WorkHistoryAction.fromStored(entry.action)?.label ?: R.string.work_history_change),
+                        stringResource(
+                            WorkHistoryAction.fromStored(entry.action)?.label
+                                ?: R.string.work_history_change
+                        ),
                         style = MaterialTheme.typography.titleMedium
                     )
-                    Text(formatter.format(Date(entry.createdAt)), style = MaterialTheme.typography.bodySmall)
                     Text(
-                        stringResource(R.string.work_history_affected, entry.taskCount, entry.recordCount),
+                        formatter.format(Date(entry.createdAt)),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        stringResource(
+                            R.string.work_history_affected,
+                            entry.taskCount,
+                            entry.recordCount
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -82,7 +102,10 @@ fun WorkHistoryScreen(
                         TextButton(onClick = { expanded = !expanded }) {
                             Text(stringResource(if (expanded) R.string.work_history_hide_details else R.string.work_history_details))
                         }
-                        if (expanded) Text(entry.details, style = MaterialTheme.typography.bodySmall)
+                        if (expanded) Text(
+                            entry.details,
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
                     TextButton(
                         enabled = !restoring,
@@ -99,9 +122,17 @@ fun WorkHistoryScreen(
             onDismissRequest = { selection = null },
             title = { Text(stringResource(R.string.work_history_confirm_title)) },
             text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Text(formatter.format(Date(entry.createdAt)))
-                    Text(stringResource(WorkHistoryAction.fromStored(entry.action)?.label ?: R.string.work_history_change))
+                    Text(
+                        stringResource(
+                            WorkHistoryAction.fromStored(entry.action)?.label
+                                ?: R.string.work_history_change
+                        )
+                    )
                     Text(stringResource(R.string.work_history_confirm_message, count))
                 }
             },
@@ -112,7 +143,9 @@ fun WorkHistoryScreen(
                 }) { Text(stringResource(R.string.work_history_restore_action)) }
             },
             dismissButton = {
-                TextButton(onClick = { selection = null }) { Text(stringResource(R.string.action_cancel)) }
+                TextButton(onClick = {
+                    selection = null
+                }) { Text(stringResource(R.string.action_cancel)) }
             }
         )
     }

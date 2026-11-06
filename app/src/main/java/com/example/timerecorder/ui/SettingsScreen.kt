@@ -1,8 +1,10 @@
 package com.example.timerecorder.ui
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.ui.platform.LocalContext
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,11 +18,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
@@ -28,17 +32,17 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.MenuAnchorType
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,14 +58,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import com.example.timerecorder.R
+import com.example.timerecorder.TemporaryTaskWidgetProvider
 import com.example.timerecorder.data.DailyPlanEntry
-import com.example.timerecorder.data.DailyPlans
 import com.example.timerecorder.data.DailyPlanType
+import com.example.timerecorder.data.DailyPlans
 import java.util.Locale
 
 data class DailyPlanTaskOption(
@@ -80,12 +89,25 @@ fun SettingsScreen(
     onDailyPlansChange: (DailyPlans) -> Unit,
     onManageDataClick: () -> Unit,
     modifier: Modifier = Modifier,
-    onWorkHistoryClick: () -> Unit = {}
+    onWorkHistoryClick: () -> Unit = {},
+    showNotification: Boolean = true,
+    onShowNotificationChange: (Boolean) -> Unit = {},
+    showTemporaryOnLockScreen: Boolean = true,
+    onShowTemporaryOnLockScreenChange: (Boolean) -> Unit = {}
 ) {
     var section by rememberSaveable { mutableStateOf<String?>(null) }
     val ctx = LocalContext.current
     val prefs = remember(ctx) { ctx.getSharedPreferences("app_settings", Context.MODE_PRIVATE) }
-    var defaultPeriod by rememberSaveable { mutableStateOf(timelinePeriodFromPreference(prefs.getString("timeline_period", null))) }
+    var defaultPeriod by rememberSaveable {
+        mutableStateOf(
+            timelinePeriodFromPreference(
+                prefs.getString(
+                    "timeline_period",
+                    null
+                )
+            )
+        )
+    }
     var periodMenuExpanded by remember { mutableStateOf(false) }
     BackHandler(enabled = section != null) { section = null }
     Column(
@@ -96,81 +118,151 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         if (section == null) {
-            listOf("display" to R.string.settings_display_title, "plans" to R.string.daily_plan_title,
+            listOf(
+                "display" to R.string.settings_display_title,
+                "plans" to R.string.daily_plan_title,
+                "widgets" to R.string.settings_widgets_title,
                 "data" to R.string.manage_data_title,
-                "work_history" to R.string.work_history_title).forEach { (key, label) ->
-                Card(Modifier.fillMaxWidth().clickable {
-                    when (key) {
-                        "data" -> onManageDataClick()
-                        "work_history" -> onWorkHistoryClick()
-                        else -> section = key
-                    }
-                }) {
-                    Row(Modifier.fillMaxWidth().padding(16.dp)) {
-                        Text(stringResource(label), Modifier.weight(1f))
-                        Icon(Icons.Filled.ChevronRight, contentDescription = null)
+                "work_history" to R.string.work_history_title,
+                "privacy_policy" to R.string.settings_privacy_policy_title
+            ).forEach { (key, label) ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(role = Role.Button) {
+                            when (key) {
+                                "data" -> onManageDataClick()
+                                "work_history" -> onWorkHistoryClick()
+                                "privacy_policy" -> openPrivacyPolicy(ctx)
+                                else -> section = key
+                            }
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stringResource(label),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            imageVector = if (key == "privacy_policy") {
+                                Icons.AutoMirrored.Filled.OpenInNew
+                            } else {
+                                Icons.Filled.ChevronRight
+                            },
+                            contentDescription = null
+                        )
                     }
                 }
             }
         } else {
-            TextButton(onClick = { section = null }) { Text(stringResource(R.string.action_back)) }
+            TextButton(onClick = { section = null }) {
+                Text(stringResource(R.string.action_back))
+            }
         }
         if (section == "display") {
-        Text(
-            stringResource(R.string.settings_display_title),
-            style = MaterialTheme.typography.titleMedium
-        )
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        stringResource(R.string.settings_stop_button_title),
-                        style = MaterialTheme.typography.titleSmall
-                    )
-                    Text(
-                        stringResource(R.string.settings_stop_button_description),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(
-                    checked = showStopButton,
-                    onCheckedChange = onShowStopButtonChange
-                )
-            }
-        }
-
-        ExposedDropdownMenuBox(
-            expanded = periodMenuExpanded,
-            onExpandedChange = { periodMenuExpanded = it }
-        ) {
-            OutlinedTextField(
-                value = stringResource(defaultPeriod.label),
-                onValueChange = {},
-                readOnly = true,
-                label = { Text(stringResource(R.string.settings_timeline_default)) },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = periodMenuExpanded) },
-                modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth()
+            Text(
+                stringResource(R.string.settings_display_title),
+                style = MaterialTheme.typography.titleMedium
             )
-            ExposedDropdownMenu(expanded = periodMenuExpanded, onDismissRequest = { periodMenuExpanded = false }) {
-                TimelinePeriod.entries.forEach { period ->
-                    DropdownMenuItem(text = { Text(stringResource(period.label)) }, onClick = {
-                        defaultPeriod = period
-                        prefs.edit().putString("timeline_period", period.name).apply()
-                        periodMenuExpanded = false
-                    })
+
+            SettingsSwitchRow(
+                stringResource(R.string.settings_stop_button_title),
+                showStopButton,
+                onShowStopButtonChange
+            )
+            SettingsSwitchRow(
+                stringResource(R.string.settings_show_notification),
+                showNotification,
+                onShowNotificationChange
+            )
+            SettingsSwitchRow(
+                stringResource(R.string.settings_show_temporary_on_lock_screen),
+                showTemporaryOnLockScreen, onShowTemporaryOnLockScreenChange,
+                enabled = showNotification
+            )
+
+            ExposedDropdownMenuBox(
+                expanded = periodMenuExpanded,
+                onExpandedChange = { periodMenuExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = stringResource(defaultPeriod.label),
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text(stringResource(R.string.settings_timeline_default)) },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = periodMenuExpanded) },
+                    modifier = Modifier
+                        .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                        .fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = periodMenuExpanded,
+                    onDismissRequest = { periodMenuExpanded = false }) {
+                    TimelinePeriod.entries.forEach { period ->
+                        DropdownMenuItem(text = { Text(stringResource(period.label)) }, onClick = {
+                            defaultPeriod = period
+                            prefs.edit { putString("timeline_period", period.name) }
+                            periodMenuExpanded = false
+                        })
+                    }
                 }
             }
-        }
         }
         if (section == "plans") {
             DailyPlansEditor(dailyPlans, taskOptions, onDailyPlansChange)
+        }
+        if (section == "widgets") {
+            Text(
+                stringResource(R.string.temporary_widget_name),
+                style = MaterialTheme.typography.titleMedium
+            )
+            FilledTonalButton(
+                onClick = {
+                    if (!TemporaryTaskWidgetProvider.requestPin(ctx)) {
+                        Toast.makeText(ctx, R.string.temporary_widget_manual_add, Toast.LENGTH_LONG)
+                            .show()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null)
+                Text(stringResource(R.string.temporary_widget_add))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSwitchRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .toggleable(
+                    checked,
+                    enabled = enabled,
+                    role = Role.Switch,
+                    onValueChange = onCheckedChange
+                )
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                label, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+            )
+            Switch(checked = checked, onCheckedChange = null, enabled = enabled)
         }
     }
 }
@@ -203,11 +295,6 @@ private fun DailyPlansEditor(
         Text(
             stringResource(R.string.daily_plan_title),
             style = MaterialTheme.typography.titleMedium
-        )
-        Text(
-            stringResource(R.string.daily_plan_description),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
@@ -562,4 +649,23 @@ private fun formatPlanTime(minutes: Int): String = if (minutes == 24 * 60) {
     "24:00"
 } else {
     String.format(Locale.getDefault(), "%02d:%02d", minutes / 60, minutes % 60)
+}
+
+private fun openPrivacyPolicy(context: Context) {
+    val intent = Intent(
+        Intent.ACTION_VIEW,
+        context.getString(R.string.privacy_policy_url).toUri()
+    ).apply {
+        addCategory(Intent.CATEGORY_BROWSABLE)
+    }
+
+    try {
+        context.startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(
+            context,
+            R.string.settings_privacy_policy_open_failed,
+            Toast.LENGTH_LONG
+        ).show()
+    }
 }

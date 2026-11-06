@@ -2,9 +2,15 @@ package com.example.timerecorder
 
 import android.app.Application
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.test.*
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.lifecycle.ViewModelStore
 import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
@@ -25,20 +31,23 @@ import java.util.Calendar
 import java.util.Date
 
 class StatisticsCustomRangeTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule
+    val compose = createComposeRule()
     private val app get() = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as Application
     private lateinit var db: AppDatabase
     private lateinit var vm: TaskViewModel
     private val store = ViewModelStore()
     private val locale get() = app.resources.configuration.locales[0]
 
-    @Before fun setup() {
+    @Before
+    fun setup() {
         db = Room.inMemoryDatabaseBuilder(app, AppDatabase::class.java).build()
         vm = TaskViewModel(app, db)
         store.put("test", vm)
     }
 
-    @After fun close() {
+    @After
+    fun close() {
         InstrumentationRegistry.getInstrumentation().runOnMainSync { store.clear() }
         db.close()
     }
@@ -71,16 +80,27 @@ class StatisticsCustomRangeTest {
 
     private fun rangeLabel(start: Long, end: Long): String {
         val formatter = DateFormat.getDateInstance(DateFormat.MEDIUM, locale)
-        return app.getString(R.string.date_range, formatter.format(Date(start)), formatter.format(Date(end)))
+        return app.getString(
+            R.string.date_range,
+            formatter.format(Date(start)),
+            formatter.format(Date(end))
+        )
     }
 
     private fun assertTotal(minutes: Long) {
-        val summary = app.getString(R.string.stats_selected_period_summary, text(R.string.stats_custom), minutes)
-        compose.waitUntil(10_000) { compose.onAllNodesWithText(summary).fetchSemanticsNodes().isNotEmpty() }
+        val summary = app.getString(
+            R.string.stats_selected_period_summary,
+            text(R.string.stats_custom),
+            minutes
+        )
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText(summary).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithText(summary).assertIsDisplayed()
     }
 
-    @Test fun customDatesApplyCancelRestoreAndSupportSingleDay(): Unit = runBlocking {
+    @Test
+    fun customDatesApplyCancelRestoreAndSupportSingleDay(): Unit = runBlocking {
         val task = db.taskDao().insertTask(TaskEntity(name = "Custom range task"))
         val start = date(1, 31)
         val end = date(2, 2)
@@ -92,7 +112,13 @@ class StatisticsCustomRangeTest {
             start - 7_200_000L to start,
             endExclusive to endExclusive + 7_200_000L
         )) {
-            db.taskDao().insertEvent(TaskEventEntity(taskId = task, pressedAtEpochMs = s, durationMillis = e - s))
+            db.taskDao().insertEvent(
+                TaskEventEntity(
+                    taskId = task,
+                    pressedAtEpochMs = s,
+                    durationMillis = e - s
+                )
+            )
         }
         val initial = calendarDay(System.currentTimeMillis(), -7)
         val restoration = StateRestorationTester(compose)
@@ -116,9 +142,19 @@ class StatisticsCustomRangeTest {
         compose.onNodeWithText(text(R.string.action_today)).performScrollTo().performClick()
         openCustom()
         val formatter = DateFormat.getDateInstance(DateFormat.MEDIUM, locale)
-        compose.onNodeWithText(app.getString(R.string.timeline_range_start, formatter.format(Date(start))))
+        compose.onNodeWithText(
+            app.getString(
+                R.string.timeline_range_start,
+                formatter.format(Date(start))
+            )
+        )
             .assertIsDisplayed()
-        compose.onNodeWithText(app.getString(R.string.timeline_range_end, formatter.format(Date(end))))
+        compose.onNodeWithText(
+            app.getString(
+                R.string.timeline_range_end,
+                formatter.format(Date(end))
+            )
+        )
             .assertIsDisplayed()
         selectDate(start, end)
         selectDate(end, end)
@@ -127,7 +163,8 @@ class StatisticsCustomRangeTest {
         compose.onNodeWithText(rangeLabel(end, end)).assertIsDisplayed()
     }
 
-    @Test fun customRangeCountsRunningTaskOnlyThroughNow(): Unit = runBlocking {
+    @Test
+    fun customRangeCountsRunningTaskOnlyThroughNow(): Unit = runBlocking {
         val task = db.taskDao().insertTask(TaskEntity(name = "Running task"))
         val now = System.currentTimeMillis()
         TaskRepository(db, db.sessionDao(), db.taskDao()).startOrSwitch(task, now - 600_000L)

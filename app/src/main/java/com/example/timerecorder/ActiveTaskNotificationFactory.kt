@@ -18,7 +18,9 @@ internal object ActiveTaskNotificationContract {
     const val NOTIFICATION_ID = 1001
     const val ACTION_NEXT = "com.example.timerecorder.action.NEXT"
     const val ACTION_SWITCH_TO = "com.example.timerecorder.action.SWITCH_TO"
+    const val ACTION_TEMPORARY = "com.example.timerecorder.action.TEMPORARY"
     const val EXTRA_TASK_ID = "extra_task_id"
+    const val EXTRA_PRESSED_AT = "extra_pressed_at"
 }
 
 internal data class NotificationCandidate(
@@ -54,17 +56,19 @@ internal class ActiveTaskNotificationFactory(
         notificationManager.createNotificationChannel(channel)
     }
 
-    fun startingNotification(): Notification =
+    fun startingNotification(showTemporaryButton: Boolean = true): Notification =
         baseBuilder()
             .setContentTitle(context.getString(R.string.app_name))
             .setContentText(context.getString(R.string.notification_starting))
+            .apply { if (showTemporaryButton) addAction(temporaryAction()) }
             .addAction(0, context.getString(R.string.notification_next), pendingNext())
             .build()
 
     fun activeNotification(
         title: String,
         startedAtMs: Long,
-        candidates: List<NotificationCandidate>
+        candidates: List<NotificationCandidate>,
+        showTemporaryButton: Boolean = true
     ): Notification {
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -81,11 +85,11 @@ internal class ActiveTaskNotificationFactory(
             .setContentText(context.getString(R.string.notification_running))
             .setWhen(startedAtMs)
             .setUsesChronometer(true)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(openPendingIntent)
             .setStyle(NotificationCompat.DecoratedCustomViewStyle())
-            .setCustomContentView(collapsedViews(title, startedAtMs))
+            .setCustomContentView(collapsedViews(title, startedAtMs, showTemporaryButton))
             .setCustomBigContentView(expandedViews(title, startedAtMs, candidates))
+            .apply { if (showTemporaryButton) addAction(temporaryAction()) }
             .addAction(
                 android.R.drawable.ic_media_next,
                 context.getString(R.string.notification_next),
@@ -104,6 +108,14 @@ internal class ActiveTaskNotificationFactory(
             .setBadgeIconType(NotificationCompat.BADGE_ICON_NONE)
             .setVibrate(null)
             .setDefaults(0)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+
+    private fun temporaryAction(): NotificationCompat.Action =
+        NotificationCompat.Action.Builder(
+            android.R.drawable.ic_input_add,
+            context.getString(R.string.notification_temporary),
+            ActiveTaskService.temporaryPendingIntent(context)
+        ).setAuthenticationRequired(false).build()
 
     private fun expandedViews(
         title: String,
@@ -130,16 +142,33 @@ internal class ActiveTaskNotificationFactory(
         }
     }
 
-    private fun collapsedViews(title: String, startedAtMs: Long): RemoteViews =
+    private fun collapsedViews(
+        title: String,
+        startedAtMs: Long,
+        showTemporaryButton: Boolean
+    ): RemoteViews =
         RemoteViews(context.packageName, R.layout.notification_active_collapsed).apply {
             setTextViewText(R.id.title_small, title)
             setChronometer(R.id.chrono_small, chronometerBase(startedAtMs), null, true)
+            setViewVisibility(
+                R.id.btn_temporary,
+                if (showTemporaryButton) View.VISIBLE else View.GONE
+            )
+            setTextViewText(R.id.btn_temporary, context.getString(R.string.notification_temporary))
+            setContentDescription(
+                R.id.btn_temporary,
+                context.getString(R.string.temporary_task_description)
+            )
+            setOnClickPendingIntent(
+                R.id.btn_temporary,
+                ActiveTaskService.temporaryPendingIntent(context)
+            )
         }
 
     private fun pendingNext(): PendingIntent {
         val intent = Intent(context, ActiveTaskService::class.java)
             .setAction(ActiveTaskNotificationContract.ACTION_NEXT)
-        return PendingIntent.getService(context, 1, intent, pendingIntentFlags())
+        return TaskActionReceiver.pendingIntent(context, intent, 1)
     }
 
     private fun pendingSwitch(taskId: Long, requestCode: Int): PendingIntent {
@@ -147,7 +176,7 @@ internal class ActiveTaskNotificationFactory(
             action = ActiveTaskNotificationContract.ACTION_SWITCH_TO
             putExtra(ActiveTaskNotificationContract.EXTRA_TASK_ID, taskId)
         }
-        return PendingIntent.getService(context, requestCode, intent, pendingIntentFlags())
+        return TaskActionReceiver.pendingIntent(context, intent, requestCode)
     }
 
     private fun pendingIntentFlags(): Int =

@@ -2,8 +2,15 @@ package com.example.timerecorder
 
 import android.app.Application
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.test.*
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.lifecycle.ViewModelStore
 import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
@@ -13,29 +20,33 @@ import com.example.timerecorder.data.db.TaskEntity
 import com.example.timerecorder.data.db.TaskEventEntity
 import com.example.timerecorder.ui.TaskAnalysisScreen
 import com.example.timerecorder.ui.TaskViewModel
-import java.util.Calendar
-import java.util.Locale
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import java.util.Calendar
+import java.util.Locale
 
 class TaskAnalysisSummaryTest {
-    @get:Rule val compose = createComposeRule()
-    private val app get() = InstrumentationRegistry.getInstrumentation()
-        .targetContext.applicationContext as Application
+    @get:Rule
+    val compose = createComposeRule()
+    private val app
+        get() = InstrumentationRegistry.getInstrumentation()
+            .targetContext.applicationContext as Application
     private lateinit var db: AppDatabase
     private lateinit var vm: TaskViewModel
     private val store = ViewModelStore()
 
-    @Before fun setup() {
+    @Before
+    fun setup() {
         db = Room.inMemoryDatabaseBuilder(app, AppDatabase::class.java).build()
         vm = TaskViewModel(app, db)
         store.put("test", vm)
     }
 
-    @After fun close() {
+    @After
+    fun close() {
         InstrumentationRegistry.getInstrumentation().runOnMainSync { store.clear() }
         db.close()
     }
@@ -54,7 +65,8 @@ class TaskAnalysisSummaryTest {
             .assert(hasAnyDescendant(hasText(duration)))
     }
 
-    @Test fun summarySwitchesBetweenCalendarAveragesAndCumulativeTotal(): Unit = runBlocking {
+    @Test
+    fun summarySwitchesBetweenCalendarAveragesAndCumulativeTotal(): Unit = runBlocking {
         val firstTask = db.taskDao().insertTask(TaskEntity(name = "Work"))
         val secondTask = db.taskDao().insertTask(TaskEntity(name = "Study"))
         val previousYearMonth = Calendar.getInstance().apply {
@@ -73,12 +85,17 @@ class TaskAnalysisSummaryTest {
             Triple(firstTask, 49 * hour, 2 * hour)
         )) {
             db.taskDao().insertEvent(
-                TaskEventEntity(taskId = taskId, pressedAtEpochMs = start + offset, durationMillis = duration)
+                TaskEventEntity(
+                    taskId = taskId,
+                    pressedAtEpochMs = start + offset,
+                    durationMillis = duration
+                )
             )
         }
         compose.setContent { MaterialTheme { TaskAnalysisScreen(vm) } }
         compose.waitUntil(10_000) { vm.parents.value.size == 2 }
-        compose.onNodeWithContentDescription(app.getString(R.string.analysis_analyze_all)).performClick()
+        compose.onNodeWithContentDescription(app.getString(R.string.analysis_analyze_all))
+            .performClick()
         choose(R.string.analysis_period_year)
         compose.onNodeWithContentDescription(app.getString(R.string.analysis_previous_period))
             .performClick()

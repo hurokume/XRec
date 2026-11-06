@@ -111,9 +111,13 @@ private class WeeklyTimelinePdfWriter(
         val rangeLabel = "${dateFormat.format(Date(timeline.range.startMs))} - " +
                 dateFormat.format(Date(timeline.range.endMs - 1L))
         drawText(canvas, rangeLabel, margin, 77f, 10f, Color.rgb(36, 48, 61), true)
-        val detail = context.getString(R.string.pdf_weekly_detail,
-            formatMinute(timeline.displayStartMinute), formatMinute(timeline.displayEndMinute),
-            formatDurationForWeekly(data.analysis.quality.recordedMs), formatPercentForWeekly(data.analysis.quality.coverageRate))
+        val detail = context.getString(
+            R.string.pdf_weekly_detail,
+            formatMinute(timeline.displayStartMinute),
+            formatMinute(timeline.displayEndMinute),
+            formatDurationForWeekly(data.analysis.quality.recordedMs),
+            formatPercentForWeekly(data.analysis.quality.coverageRate)
+        )
         drawText(canvas, detail, margin, 91f, 8f, Color.rgb(82, 95, 109))
     }
 
@@ -150,7 +154,10 @@ private class WeeklyTimelinePdfWriter(
                 paint
             )
             val achievementLabel = achievementsByDay[day.startMs]?.let { achievement ->
-                context.getString(R.string.pdf_achievement, formatPercentForWeekly(achievement.achievementRate))
+                context.getString(
+                    R.string.pdf_achievement,
+                    formatPercentForWeekly(achievement.achievementRate)
+                )
             } ?: context.getString(R.string.pdf_achievement, "--")
             configurePaint(6.5f, Color.rgb(82, 95, 109), false)
             canvas.drawText(
@@ -251,7 +258,7 @@ private class WeeklyTimelinePdfWriter(
         val generatedAt = SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault()).format(Date())
         drawText(
             canvas,
-            "TimeRecorder | $generatedAt",
+            "${context.getString(R.string.app_name)} | $generatedAt",
             margin,
             pageHeight - 17f,
             8f,
