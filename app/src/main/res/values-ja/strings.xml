@@ -504,4 +504,6 @@
     <string name="work_history_title">作業履歴</string>
     <string name="work_history_color">色</string>
     <string name="work_history_order">表示順</string>
+    <string name="settings_privacy_policy_title">プライバシーポリシー</string>
+    <string name="settings_privacy_policy_open_failed">プライバシーポリシーを開けませんでした。ブラウザーが利用できるか確認してください。</string>
 </resources>

@@ -506,4 +506,7 @@
     <string name="work_history_title">Work history</string>
     <string name="work_history_color">Color</string>
     <string name="work_history_order">Position</string>
+    <string name="settings_privacy_policy_title">Privacy policy</string>
+    <string name="settings_privacy_policy_open_failed">Could not open the privacy policy. Check that a browser is available.</string>
+    <string name="privacy_policy_url" translatable="false">https://hurokume.github.io/XRec/</string>
 </resources>
