@@ -32,6 +32,7 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User-started task time tracking with an ongoing elapsed-time notification and immediate task switching from the lock screen." />
         </service>
+        <receiver android:name=".TaskActionReceiver" android:exported="false" />
         <receiver
             android:name=".TemporaryTaskWidgetProvider"
             android:exported="false"

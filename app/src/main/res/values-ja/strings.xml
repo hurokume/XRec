@@ -186,7 +186,8 @@
     <!-- Settings and daily plans -->
     <string name="settings_display_title">表示設定</string>
     <string name="settings_stop_button_title">タスク停止ボタン</string>
-    <string name="settings_stop_button_description">タスク実行中に上部バーへ停止ボタンを表示します。</string>
+    <string name="settings_show_notification">通知エリアに表示</string>
+    <string name="settings_show_temporary_on_lock_screen">ロック画面に臨時タスクボタンを表示</string>
     <string name="daily_plan_description">平日と休日（土日）の基本パターンを時間帯ごとに定義します。予定タスクまたはその配下タスクの記録時間から、日ごとの達成度を算出します。</string>
     <string name="daily_plan_title">日々の予定</string>
     <string name="daily_plan_timeline_title">タイムライン</string>

@@ -2,6 +2,7 @@ package com.example.timerecorder
 
 import android.app.Application
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.lifecycle.ViewModelStore
@@ -60,6 +61,25 @@ class EditingScreensTest {
         androidx.test.espresso.Espresso.pressBack()
         compose.onNodeWithText(text(R.string.action_back)).performClick()
         compose.onNodeWithText(text(R.string.daily_plan_title)).assertIsDisplayed()
+    }
+
+    @Test fun notificationSwitchDisablesDependentLockControlWithoutChangingItsChoice() {
+        val showNotification = mutableStateOf(true)
+        val showOnLock = mutableStateOf(true)
+        compose.setContent { MaterialTheme {
+            SettingsScreen(true, {}, DailyPlans(), emptyList(), {}, {},
+                showNotification = showNotification.value,
+                onShowNotificationChange = { showNotification.value = it },
+                showTemporaryOnLockScreen = showOnLock.value,
+                onShowTemporaryOnLockScreenChange = { showOnLock.value = it })
+        } }
+        compose.onNodeWithText(text(R.string.settings_display_title)).performClick()
+        compose.onNodeWithText(text(R.string.settings_show_temporary_on_lock_screen)).performClick()
+        compose.onNodeWithText(text(R.string.settings_show_temporary_on_lock_screen)).assertIsOff()
+        compose.onNodeWithText(text(R.string.settings_show_notification)).performClick()
+        compose.onNodeWithText(text(R.string.settings_show_temporary_on_lock_screen)).assertIsNotEnabled().assertIsOff()
+        compose.onNodeWithText(text(R.string.settings_show_notification)).performClick()
+        compose.onNodeWithText(text(R.string.settings_show_temporary_on_lock_screen)).assertIsEnabled().assertIsOff()
     }
 
     @Test fun runningEditorDoesNotOfferEndTime() {

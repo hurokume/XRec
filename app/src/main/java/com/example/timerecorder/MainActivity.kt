@@ -311,6 +311,8 @@ fun AppRoot(
     val settingsPreferences = remember(ctx) {
         ctx.getSharedPreferences(SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
     }
+    val notificationSettings by remember(ctx) { TaskNotificationPreferences.observe(ctx) }
+        .collectAsStateWithLifecycle(initialValue = TaskNotificationPreferences.read(ctx))
     var showStopButton by rememberSaveable {
         mutableStateOf(
             settingsPreferences.getBoolean(KEY_SHOW_STOP_BUTTON, true)
@@ -356,13 +358,13 @@ fun AppRoot(
     val notifPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) {
+        if (granted && TaskNotificationPreferences.read(ctx).showNotification && taskVm.active.value != null) {
             ActiveTaskService.start(ctx)
         } // 拒否時は何もしない（必要ならダイアログ or 設定遷移を案内）
     }
 
-    LaunchedEffect(active) {
-        if (active != null) {
+    LaunchedEffect(active, notificationSettings.showNotification) {
+        if (active != null && notificationSettings.showNotification) {
             if (Build.VERSION.SDK_INT >= 33) {
                 val has = ContextCompat.checkSelfPermission(
                     ctx, Manifest.permission.POST_NOTIFICATIONS
@@ -1017,6 +1019,12 @@ fun AppRoot(
                                 .fillMaxSize(),
                             showStopButton = showStopButton,
                             onShowStopButtonChange = ::updateShowStopButton,
+                            showNotification = notificationSettings.showNotification,
+                            onShowNotificationChange = { TaskNotificationPreferences.setShowNotification(ctx, it) },
+                            showTemporaryOnLockScreen = notificationSettings.showTemporaryOnLockScreen,
+                            onShowTemporaryOnLockScreenChange = {
+                                TaskNotificationPreferences.setShowTemporaryOnLockScreen(ctx, it)
+                            },
                             dailyPlans = dailyPlans,
                             taskOptions = dailyPlanTaskOptions,
                             onDailyPlansChange = ::updateDailyPlans,

@@ -188,7 +188,8 @@
     <!-- Settings and daily plans -->
     <string name="settings_display_title">Display settings</string>
     <string name="settings_stop_button_title">Task stop button</string>
-    <string name="settings_stop_button_description">Show the stop button in the top bar while a task is running.</string>
+    <string name="settings_show_notification">Show in notification area</string>
+    <string name="settings_show_temporary_on_lock_screen">Show temporary task button on lock screen</string>
     <string name="daily_plan_description">Define daily routines for weekdays and weekends. Achievement is calculated from time recorded for the planned task or its subtasks.</string>
     <string name="daily_plan_title">Daily plans</string>
     <string name="daily_plan_timeline_title">Timeline</string>

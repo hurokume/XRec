@@ -20,6 +20,7 @@ internal object ActiveTaskNotificationContract {
     const val ACTION_SWITCH_TO = "com.example.timerecorder.action.SWITCH_TO"
     const val ACTION_TEMPORARY = "com.example.timerecorder.action.TEMPORARY"
     const val EXTRA_TASK_ID = "extra_task_id"
+    const val EXTRA_PRESSED_AT = "extra_pressed_at"
 }
 
 internal data class NotificationCandidate(
@@ -55,18 +56,19 @@ internal class ActiveTaskNotificationFactory(
         notificationManager.createNotificationChannel(channel)
     }
 
-    fun startingNotification(): Notification =
+    fun startingNotification(showTemporaryButton: Boolean = true): Notification =
         baseBuilder()
             .setContentTitle(context.getString(R.string.app_name))
             .setContentText(context.getString(R.string.notification_starting))
-            .addAction(temporaryAction())
+            .apply { if (showTemporaryButton) addAction(temporaryAction()) }
             .addAction(0, context.getString(R.string.notification_next), pendingNext())
             .build()
 
     fun activeNotification(
         title: String,
         startedAtMs: Long,
-        candidates: List<NotificationCandidate>
+        candidates: List<NotificationCandidate>,
+        showTemporaryButton: Boolean = true
     ): Notification {
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -85,9 +87,9 @@ internal class ActiveTaskNotificationFactory(
             .setUsesChronometer(true)
             .setContentIntent(openPendingIntent)
             .setStyle(NotificationCompat.DecoratedCustomViewStyle())
-            .setCustomContentView(collapsedViews(title, startedAtMs))
+            .setCustomContentView(collapsedViews(title, startedAtMs, showTemporaryButton))
             .setCustomBigContentView(expandedViews(title, startedAtMs, candidates))
-            .addAction(temporaryAction())
+            .apply { if (showTemporaryButton) addAction(temporaryAction()) }
             .addAction(
                 android.R.drawable.ic_media_next,
                 context.getString(R.string.notification_next),
@@ -140,10 +142,11 @@ internal class ActiveTaskNotificationFactory(
         }
     }
 
-    private fun collapsedViews(title: String, startedAtMs: Long): RemoteViews =
+    private fun collapsedViews(title: String, startedAtMs: Long, showTemporaryButton: Boolean): RemoteViews =
         RemoteViews(context.packageName, R.layout.notification_active_collapsed).apply {
             setTextViewText(R.id.title_small, title)
             setChronometer(R.id.chrono_small, chronometerBase(startedAtMs), null, true)
+            setViewVisibility(R.id.btn_temporary, if (showTemporaryButton) View.VISIBLE else View.GONE)
             setTextViewText(R.id.btn_temporary, context.getString(R.string.notification_temporary))
             setContentDescription(R.id.btn_temporary, context.getString(R.string.temporary_task_description))
             setOnClickPendingIntent(R.id.btn_temporary, ActiveTaskService.temporaryPendingIntent(context))
@@ -152,7 +155,7 @@ internal class ActiveTaskNotificationFactory(
     private fun pendingNext(): PendingIntent {
         val intent = Intent(context, ActiveTaskService::class.java)
             .setAction(ActiveTaskNotificationContract.ACTION_NEXT)
-        return servicePendingIntent(intent, 1)
+        return TaskActionReceiver.pendingIntent(context, intent, 1)
     }
 
     private fun pendingSwitch(taskId: Long, requestCode: Int): PendingIntent {
@@ -160,15 +163,8 @@ internal class ActiveTaskNotificationFactory(
             action = ActiveTaskNotificationContract.ACTION_SWITCH_TO
             putExtra(ActiveTaskNotificationContract.EXTRA_TASK_ID, taskId)
         }
-        return servicePendingIntent(intent, requestCode)
+        return TaskActionReceiver.pendingIntent(context, intent, requestCode)
     }
-
-    private fun servicePendingIntent(intent: Intent, requestCode: Int): PendingIntent =
-        if (Build.VERSION.SDK_INT >= 26) {
-            PendingIntent.getForegroundService(context, requestCode, intent, pendingIntentFlags())
-        } else {
-            PendingIntent.getService(context, requestCode, intent, pendingIntentFlags())
-        }
 
     private fun pendingIntentFlags(): Int =
         PendingIntent.FLAG_UPDATE_CURRENT or

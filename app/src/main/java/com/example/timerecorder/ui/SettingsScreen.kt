@@ -8,6 +8,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -82,7 +84,11 @@ fun SettingsScreen(
     onDailyPlansChange: (DailyPlans) -> Unit,
     onManageDataClick: () -> Unit,
     modifier: Modifier = Modifier,
-    onWorkHistoryClick: () -> Unit = {}
+    onWorkHistoryClick: () -> Unit = {},
+    showNotification: Boolean = true,
+    onShowNotificationChange: (Boolean) -> Unit = {},
+    showTemporaryOnLockScreen: Boolean = true,
+    onShowTemporaryOnLockScreenChange: (Boolean) -> Unit = {}
 ) {
     var section by rememberSaveable { mutableStateOf<String?>(null) }
     val ctx = LocalContext.current
@@ -124,30 +130,17 @@ fun SettingsScreen(
             style = MaterialTheme.typography.titleMedium
         )
 
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        stringResource(R.string.settings_stop_button_title),
-                        style = MaterialTheme.typography.titleSmall
-                    )
-                    Text(
-                        stringResource(R.string.settings_stop_button_description),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(
-                    checked = showStopButton,
-                    onCheckedChange = onShowStopButtonChange
-                )
-            }
-        }
+        SettingsSwitchRow(
+            stringResource(R.string.settings_stop_button_title), showStopButton, onShowStopButtonChange
+        )
+        SettingsSwitchRow(
+            stringResource(R.string.settings_show_notification), showNotification, onShowNotificationChange
+        )
+        SettingsSwitchRow(
+            stringResource(R.string.settings_show_temporary_on_lock_screen),
+            showTemporaryOnLockScreen, onShowTemporaryOnLockScreenChange,
+            enabled = showNotification
+        )
 
         ExposedDropdownMenuBox(
             expanded = periodMenuExpanded,
@@ -177,7 +170,6 @@ fun SettingsScreen(
         }
         if (section == "widgets") {
             Text(stringResource(R.string.temporary_widget_name), style = MaterialTheme.typography.titleMedium)
-            Text(stringResource(R.string.temporary_widget_description), style = MaterialTheme.typography.bodyMedium)
             FilledTonalButton(
                 onClick = {
                     if (!TemporaryTaskWidgetProvider.requestPin(ctx)) {
@@ -189,8 +181,30 @@ fun SettingsScreen(
                 Icon(Icons.Filled.Add, contentDescription = null)
                 Text(stringResource(R.string.temporary_widget_add))
             }
-            Text(stringResource(R.string.temporary_widget_manual_add), style = MaterialTheme.typography.bodySmall)
-            Text(stringResource(R.string.temporary_notification_help), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun SettingsSwitchRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange)
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                label, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+            )
+            Switch(checked = checked, onCheckedChange = null, enabled = enabled)
         }
     }
 }
@@ -223,11 +237,6 @@ private fun DailyPlansEditor(
         Text(
             stringResource(R.string.daily_plan_title),
             style = MaterialTheme.typography.titleMedium
-        )
-        Text(
-            stringResource(R.string.daily_plan_description),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
