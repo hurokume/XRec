@@ -8,8 +8,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,12 +18,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -133,33 +133,33 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.example.timerecorder.ui.HistoryItemUi
-import com.example.timerecorder.ui.AdvancedAnalysisScreen
-import com.example.timerecorder.ui.AddTaskScreen
-import com.example.timerecorder.ui.DailyPlanTaskOption
-import com.example.timerecorder.ui.ManageDataScreen
-import com.example.timerecorder.ui.TimelineRangeControls
-import com.example.timerecorder.ui.CalendarDateRangeDialog
-import com.example.timerecorder.ui.StatisticsPeriod
-import com.example.timerecorder.ui.calendarDay
-import com.example.timerecorder.ui.statisticsBounds
-import com.example.timerecorder.ui.SettingsScreen
-import com.example.timerecorder.ui.WorkHistoryScreen
-import com.example.timerecorder.ui.StatsFilterSelectionScreen
-import com.example.timerecorder.ui.TaskDeletionDialog
-import com.example.timerecorder.ui.TaskDeletionUiState
-import com.example.timerecorder.ui.TaskAnalysisScreen
-import com.example.timerecorder.ui.TaskViewModel
-import com.example.timerecorder.ui.UiEvent
-import com.example.timerecorder.ui.WeeklyReportScreen
-import com.example.timerecorder.ui.ReplacementTaskSelectionScreen
-import com.example.timerecorder.ui.showRecordDateTimePicker
+import com.example.timerecorder.data.DailyPlans
+import com.example.timerecorder.data.DailyPlansCodec
 import com.example.timerecorder.data.StatsAggregator
 import com.example.timerecorder.data.StatsRecord
 import com.example.timerecorder.data.StatsTarget
-import com.example.timerecorder.data.DailyPlans
-import com.example.timerecorder.data.DailyPlansCodec
 import com.example.timerecorder.data.TaskDeletionMode
+import com.example.timerecorder.ui.AddTaskScreen
+import com.example.timerecorder.ui.AdvancedAnalysisScreen
+import com.example.timerecorder.ui.CalendarDateRangeDialog
+import com.example.timerecorder.ui.DailyPlanTaskOption
+import com.example.timerecorder.ui.HistoryItemUi
+import com.example.timerecorder.ui.ManageDataScreen
+import com.example.timerecorder.ui.ReplacementTaskSelectionScreen
+import com.example.timerecorder.ui.SettingsScreen
+import com.example.timerecorder.ui.StatisticsPeriod
+import com.example.timerecorder.ui.StatsFilterSelectionScreen
+import com.example.timerecorder.ui.TaskAnalysisScreen
+import com.example.timerecorder.ui.TaskDeletionDialog
+import com.example.timerecorder.ui.TaskDeletionUiState
+import com.example.timerecorder.ui.TaskViewModel
+import com.example.timerecorder.ui.TimelineRangeControls
+import com.example.timerecorder.ui.UiEvent
+import com.example.timerecorder.ui.WeeklyReportScreen
+import com.example.timerecorder.ui.WorkHistoryScreen
+import com.example.timerecorder.ui.calendarDay
+import com.example.timerecorder.ui.showRecordDateTimePicker
+import com.example.timerecorder.ui.statisticsBounds
 import com.example.timerecorder.ui.theme.XRecTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -227,9 +227,9 @@ class MainActivity : ComponentActivity() {
                                 onNavigateEditTask = { eventId, taskId, startMs, endMs ->
                                     navController.navigate(
                                         "${Routes.AddTask}?initialEventId=$eventId" +
-                                            "&initialTaskId=$taskId" +
-                                            "&initialStartMs=$startMs" +
-                                            "&initialEndMs=$endMs"
+                                                "&initialTaskId=$taskId" +
+                                                "&initialStartMs=$startMs" +
+                                                "&initialEndMs=$endMs"
                                     )
                                 }
                             )
@@ -237,9 +237,9 @@ class MainActivity : ComponentActivity() {
 
                         composable(
                             route = "${Routes.AddTask}?initialEventId={initialEventId}" +
-                                "&initialTaskId={initialTaskId}" +
-                                "&initialStartMs={initialStartMs}" +
-                                "&initialEndMs={initialEndMs}",
+                                    "&initialTaskId={initialTaskId}" +
+                                    "&initialStartMs={initialStartMs}" +
+                                    "&initialEndMs={initialEndMs}",
                             arguments = listOf(
                                 navArgument("initialEventId") {
                                     type = NavType.LongType
@@ -554,11 +554,16 @@ fun AppRoot(
                     selectedTimelineStartMs = -1L
                     selectedTimelineEndMs = -1L
                 }
+
                 UiEvent.TasksMerged -> {
-                    dailyPlans = DailyPlansCodec.decode(settingsPreferences.getString(KEY_DAILY_PLANS, null))
-                    statsIncludedTaskIds = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                        .getString(KEY_STATS_INCLUDED, null)?.split(',')?.mapNotNull { it.toLongOrNull() }?.toSet()
+                    dailyPlans =
+                        DailyPlansCodec.decode(settingsPreferences.getString(KEY_DAILY_PLANS, null))
+                    statsIncludedTaskIds =
+                        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                            .getString(KEY_STATS_INCLUDED, null)?.split(',')
+                            ?.mapNotNull { it.toLongOrNull() }?.toSet()
                 }
+
                 is UiEvent.ShowMessage -> snackbar.showSnackbar(ev.message)
             }
         }
@@ -640,7 +645,8 @@ fun AppRoot(
                         taskVm.reloadHistory()                   // ★追加
                     }
 
-                    3 -> { /* 分析画面は選択した期間を都度読み込む */ }
+                    3 -> { /* 分析画面は選択した期間を都度読み込む */
+                    }
                 }
             }
     }
@@ -758,6 +764,7 @@ fun AppRoot(
                                             AppScreen.WeeklyReport -> stringResource(
                                                 R.string.weekly_report_title
                                             )
+
                                             AppScreen.Settings -> stringResource(R.string.drawer_settings)
                                             AppScreen.WorkHistory -> stringResource(R.string.work_history_title)
                                             AppScreen.ManageData -> stringResource(
@@ -840,9 +847,11 @@ fun AppRoot(
                                                 return@launch
                                             }
                                             // Use the whole record, regardless of which day's fragment was selected.
-                                            val mid = event.pressedAtEpochMs + event.durationMillis / 2
+                                            val mid =
+                                                event.pressedAtEpochMs + event.durationMillis / 2
                                             showRecordDateTimePicker(ctx, mid) { splitAtMs ->
-                                                val recordEnd = event.pressedAtEpochMs + event.durationMillis
+                                                val recordEnd =
+                                                    event.pressedAtEpochMs + event.durationMillis
                                                 if (splitAtMs <= event.pressedAtEpochMs || splitAtMs >= recordEnd) {
                                                     scope.launch {
                                                         snackbar.showSnackbar(ctx.getString(R.string.error_split_time_out_of_range))
@@ -868,14 +877,23 @@ fun AppRoot(
                                             startMs >= 0L && endMs > startMs
                                         ) {
                                             scope.launch {
-                                                val event = if (eventId > 0) taskVm.recordForEdit(eventId) else null
+                                                val event =
+                                                    if (eventId > 0) taskVm.recordForEdit(eventId) else null
                                                 val running = taskVm.activeUi.value
                                                 if (event != null) {
-                                                    onNavigateEditTask(eventId, event.taskId,
-                                                        event.pressedAtEpochMs, event.pressedAtEpochMs + event.durationMillis)
+                                                    onNavigateEditTask(
+                                                        eventId,
+                                                        event.taskId,
+                                                        event.pressedAtEpochMs,
+                                                        event.pressedAtEpochMs + event.durationMillis
+                                                    )
                                                 } else if (eventId == -1L && running != null) {
-                                                    onNavigateEditTask(-1L, running.taskId,
-                                                        running.startEpochMs, System.currentTimeMillis())
+                                                    onNavigateEditTask(
+                                                        -1L,
+                                                        running.taskId,
+                                                        running.startEpochMs,
+                                                        System.currentTimeMillis()
+                                                    )
                                                 }
                                             }
                                             selectedTimelineEventId = null
@@ -921,9 +939,11 @@ fun AppRoot(
                                                     NameSort.Asc -> ctx.getString(
                                                         R.string.main_sort_ascending
                                                     )
+
                                                     NameSort.Desc -> ctx.getString(
                                                         R.string.main_sort_descending
                                                     )
+
                                                     else -> ctx.getString(R.string.main_sort_manual)
                                                 }
                                             )
@@ -1020,7 +1040,12 @@ fun AppRoot(
                             showStopButton = showStopButton,
                             onShowStopButtonChange = ::updateShowStopButton,
                             showNotification = notificationSettings.showNotification,
-                            onShowNotificationChange = { TaskNotificationPreferences.setShowNotification(ctx, it) },
+                            onShowNotificationChange = {
+                                TaskNotificationPreferences.setShowNotification(
+                                    ctx,
+                                    it
+                                )
+                            },
                             showTemporaryOnLockScreen = notificationSettings.showTemporaryOnLockScreen,
                             onShowTemporaryOnLockScreenChange = {
                                 TaskNotificationPreferences.setShowTemporaryOnLockScreen(ctx, it)
@@ -1038,8 +1063,15 @@ fun AppRoot(
                             WorkHistoryScreen(
                                 entries = entries,
                                 restoring = restoring,
-                                onRestore = { id, latestId -> taskVm.restoreWorkHistory(id, latestId) },
-                                modifier = Modifier.padding(innerPadding).fillMaxSize()
+                                onRestore = { id, latestId ->
+                                    taskVm.restoreWorkHistory(
+                                        id,
+                                        latestId
+                                    )
+                                },
+                                modifier = Modifier
+                                    .padding(innerPadding)
+                                    .fillMaxSize()
                             )
                         }
 
@@ -1608,9 +1640,12 @@ fun DBTaskScreen(
                                         Text(
                                             p.parent.name,
                                             style = MaterialTheme.typography.titleMedium,
-                                            modifier = Modifier.weight(1f).combinedClickable(
-                                                onClick = {}, onLongClick = { menuForParentId = p.parent.id }
-                                            )
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .combinedClickable(
+                                                    onClick = {},
+                                                    onLongClick = { menuForParentId = p.parent.id }
+                                                )
                                         )
                                         IconButton(onClick = {
                                             menuForParentId = p.parent.id
@@ -1782,27 +1817,29 @@ fun DBTaskScreen(
                                                             }
                                                     else
                                                         Modifier.combinedClickable(
-                                                            onLongClick = { menuForChildTaskId = child.id },
+                                                            onLongClick = {
+                                                                menuForChildTaskId = child.id
+                                                            },
                                                             onClick = {
-                                                            selectedTaskId = child.id
-                                                            lastInteractionTime =
-                                                                System.currentTimeMillis()
-                                                            scope.launch {
-                                                                val has =
-                                                                    taskVm.hasChildren(child.id)
-                                                                if (has) {
-                                                                    ui =
-                                                                        TaskCenterUiState.SubtaskSelect(
-                                                                            parentTitle = child.name,
-                                                                            parentId = child.id,
-                                                                            color = parentColor
-                                                                        )
-                                                                } else {
-                                                                    // ▼ ここは結果判定せず、ViewModel に任せる
-                                                                    taskVm.onTaskPressed(child.id)
+                                                                selectedTaskId = child.id
+                                                                lastInteractionTime =
+                                                                    System.currentTimeMillis()
+                                                                scope.launch {
+                                                                    val has =
+                                                                        taskVm.hasChildren(child.id)
+                                                                    if (has) {
+                                                                        ui =
+                                                                            TaskCenterUiState.SubtaskSelect(
+                                                                                parentTitle = child.name,
+                                                                                parentId = child.id,
+                                                                                color = parentColor
+                                                                            )
+                                                                    } else {
+                                                                        // ▼ ここは結果判定せず、ViewModel に任せる
+                                                                        taskVm.onTaskPressed(child.id)
+                                                                    }
                                                                 }
-                                                            }
-                                                        })
+                                                            })
                                                 ),
                                             colors = CardDefaults.cardColors(
                                                 containerColor = if (isDragging) MaterialTheme.colorScheme.surfaceVariant else bg
@@ -2415,7 +2452,10 @@ private fun SubtaskPicker(
         ) {
             if (subtasksForView.isNotEmpty()) {
                 item {
-                    TextButton(onClick = { selectedSubId = null; onPick(parentId) }, modifier = Modifier.fillMaxWidth()) {
+                    TextButton(
+                        onClick = { selectedSubId = null; onPick(parentId) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Text(stringResource(R.string.subtask_none))
                     }
                 }
@@ -2522,7 +2562,9 @@ private fun TimelineScreen(
 
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(externalRefreshTick) {
-        while (true) { nowMs = System.currentTimeMillis(); delay(30_000) }
+        while (true) {
+            nowMs = System.currentTimeMillis(); delay(30_000)
+        }
     }
     val range = com.example.timerecorder.ui.rememberTimelineRange(nowMs)
     val startMs = range.startMs
@@ -2749,7 +2791,11 @@ private fun MultiDayTimeline(
         Row(
             Modifier
                 .weight(1f)
-                .then(if (dayCount > 7) Modifier.horizontalScroll(rememberScrollState()).width(110.dp * dayCount) else Modifier)
+                .then(
+                    if (dayCount > 7) Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .width(110.dp * dayCount) else Modifier
+                )
                 .fillMaxHeight()
                 .pointerInput(dayCount, hourHeight) {
                     awaitEachGesture {
@@ -2945,7 +2991,14 @@ private fun colorToHex(color: Color, withAlpha: Boolean = false): String {
     val g = (color.green * 255).roundToInt().coerceIn(0, 255)
     val b = (color.blue * 255).roundToInt().coerceIn(0, 255)
     val a = (color.alpha * 255).roundToInt().coerceIn(0, 255)
-    return if (withAlpha) String.format(java.util.Locale.getDefault(), "#%02X%02X%02X%02X", a, r, g, b)
+    return if (withAlpha) String.format(
+        java.util.Locale.getDefault(),
+        "#%02X%02X%02X%02X",
+        a,
+        r,
+        g,
+        b
+    )
     else String.format(java.util.Locale.getDefault(), "#%02X%02X%02X", r, g, b)
 }
 
@@ -3248,7 +3301,10 @@ internal fun StatsScreen(
         Text(stringResource(R.string.stats_title), style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(12.dp))
 
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             StatisticsPeriod.entries.forEach { option ->
                 SegButton(stringResource(option.label), active = period == option) {
                     if (option == StatisticsPeriod.Custom) showCustomRange = true
@@ -3260,8 +3316,12 @@ internal fun StatsScreen(
         if (period == StatisticsPeriod.Custom) {
             val dateFormat = DateFormat.getDateInstance(DateFormat.MEDIUM)
             TextButton(onClick = { showCustomRange = true }) {
-                Text(stringResource(R.string.date_range,
-                    dateFormat.format(Date(customStartMs)), dateFormat.format(Date(customEndMs))))
+                Text(
+                    stringResource(
+                        R.string.date_range,
+                        dateFormat.format(Date(customStartMs)), dateFormat.format(Date(customEndMs))
+                    )
+                )
             }
         }
 
@@ -3580,6 +3640,7 @@ fun AdaptiveBottomBar(
                         StatsAggMode.Project -> stringResource(
                             R.string.bottom_aggregate_project
                         )
+
                         StatsAggMode.Task -> stringResource(R.string.bottom_aggregate_task)
                         StatsAggMode.Leaf -> stringResource(R.string.bottom_aggregate_leaf)
                     }

@@ -38,7 +38,8 @@ class TaskActionReceiver : BroadcastReceiver() {
             try {
                 mutex.withLock {
                     val db = AppDatabase.get(app, scope)
-                    val repository = TaskRepository(db, db.sessionDao(), db.taskDao(), app::getString)
+                    val repository =
+                        TaskRepository(db, db.sessionDao(), db.taskDao(), app::getString)
                     executeTaskAction(app, repository, intent, pressedAt)
                 }
             } catch (cancelled: CancellationException) {
@@ -61,9 +62,15 @@ class TaskActionReceiver : BroadcastReceiver() {
             ActiveTaskNotificationContract.ACTION_SWITCH_TO
         )
 
-        internal fun pendingIntent(context: Context, intent: Intent, requestCode: Int): PendingIntent =
+        internal fun pendingIntent(
+            context: Context,
+            intent: Intent,
+            requestCode: Int
+        ): PendingIntent =
             PendingIntent.getBroadcast(
-                context, requestCode, Intent(intent).setClass(context, TaskActionReceiver::class.java),
+                context,
+                requestCode,
+                Intent(intent).setClass(context, TaskActionReceiver::class.java),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
     }
@@ -80,6 +87,7 @@ internal suspend fun executeTaskAction(
             repository.startTemporaryTask(pressedAt)
             Toast.makeText(context, R.string.temporary_task_started, Toast.LENGTH_SHORT).show()
         }
+
         ActiveTaskNotificationContract.ACTION_NEXT -> repository.switchToPredictedNext(pressedAt)
         ActiveTaskNotificationContract.ACTION_SWITCH_TO -> {
             val id = intent.getLongExtra(ActiveTaskNotificationContract.EXTRA_TASK_ID, -1L)

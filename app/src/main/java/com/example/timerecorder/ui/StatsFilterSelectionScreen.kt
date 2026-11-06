@@ -4,7 +4,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -194,7 +193,12 @@ private fun StatsFilterRootList(
                             hasChildren = group.children.isNotEmpty(),
                             titleStyle = true,
                             onToggle = { onToggleTask(group.parent.id) },
-                            onLongClick = { viewModel.requestTaskEdit(group.parent.id, group.parent.name) }
+                            onLongClick = {
+                                viewModel.requestTaskEdit(
+                                    group.parent.id,
+                                    group.parent.name
+                                )
+                            }
                         )
                         Spacer(Modifier.height(8.dp))
                         group.children.forEach { child ->
@@ -298,7 +302,7 @@ private fun StatsFilterSubtaskList(
                         checked = child.id in selectedTaskIds,
                         hasChildren = hasChildren,
                         onToggle = { onToggleTask(child.id) },
-                                onLongClick = { viewModel.requestTaskEdit(child.id, child.name) },
+                        onLongClick = { viewModel.requestTaskEdit(child.id, child.name) },
                         onOpenChild = if (hasChildren) {
                             { onOpenChild(choice) }
                         } else {
@@ -333,7 +337,10 @@ private fun StatsFilterTaskRow(
 
             }
         )
-        .combinedClickable(onClick = { onOpenChild?.invoke() ?: onToggle() }, onLongClick = onLongClick)
+        .combinedClickable(
+            onClick = { onOpenChild?.invoke() ?: onToggle() },
+            onLongClick = onLongClick
+        )
         .padding(horizontal = if (titleStyle) 0.dp else 12.dp)
 
     Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) {

@@ -1,10 +1,10 @@
 package com.example.timerecorder.data
 
-import java.util.Calendar
-import java.util.TimeZone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Calendar
+import java.util.TimeZone
 
 class TaskAnalysisEngineTest {
     private val utcId = "UTC"
@@ -67,7 +67,13 @@ class TaskAnalysisEngineTest {
         val day = utcMillis(2026, 8, 14)
         val result = TaskAnalysisEngine.analyze(
             events = listOf(
-                AnalysisEvent(10L, 3L, listOf(project, task, feature), day + 9 * hour, day + 10 * hour + hour / 2),
+                AnalysisEvent(
+                    10L,
+                    3L,
+                    listOf(project, task, feature),
+                    day + 9 * hour,
+                    day + 10 * hour + hour / 2
+                ),
                 AnalysisEvent(11L, 4L, listOf(other), day + 12 * hour, day + 13 * hour)
             ),
             request = request(2L, "開発", TaskAnalysisPeriod.Day, day + 12 * hour)

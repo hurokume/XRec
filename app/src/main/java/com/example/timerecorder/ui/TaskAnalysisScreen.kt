@@ -5,7 +5,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,8 +29,8 @@ import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.IndeterminateCheckBox
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Card
@@ -66,21 +65,21 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.timerecorder.R
 import com.example.timerecorder.NameSort
+import com.example.timerecorder.R
 import com.example.timerecorder.data.TaskAnalysisDayGroup
 import com.example.timerecorder.data.TaskAnalysisEngine
 import com.example.timerecorder.data.TaskAnalysisPeriod
 import com.example.timerecorder.data.TaskAnalysisRequest
 import com.example.timerecorder.data.TaskAnalysisResult
-import com.example.timerecorder.data.db.TaskEntity
 import com.example.timerecorder.data.db.ParentWithChildren
+import com.example.timerecorder.data.db.TaskEntity
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
-import kotlinx.coroutines.launch
 
 private enum class TaskAnalysisChartType {
     Total,
@@ -344,7 +343,12 @@ private fun AnalysisTaskPicker(
                             titleStyle = true,
                             hasChildren = group.children.isNotEmpty(),
                             onClick = null,
-                            onLongClick = { viewModel.requestTaskEdit(group.parent.id, group.parent.name) },
+                            onLongClick = {
+                                viewModel.requestTaskEdit(
+                                    group.parent.id,
+                                    group.parent.name
+                                )
+                            },
                             onAnalyze = { onAnalyze(rootChoice) }
                         )
                         Spacer(Modifier.height(8.dp))
@@ -603,7 +607,7 @@ private fun TaskAnalysisDetail(
             .orEmpty()
     }
     val allEventsSelected = selectableEventIds.isNotEmpty() &&
-        selectedEventIds.containsAll(selectableEventIds)
+            selectedEventIds.containsAll(selectableEventIds)
 
     LaunchedEffect(selectableEventIds) {
         selectedEventIds = selectedEventIds.intersect(selectableEventIds)
@@ -656,283 +660,285 @@ private fun TaskAnalysisDetail(
             )
         }
     ) { innerPadding ->
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding)
-    ) {
-        item {
-            Surface(color = MaterialTheme.colorScheme.primaryContainer) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = stringResource(R.string.action_back)
-                            )
-                        }
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                request.taskName,
-                                style = MaterialTheme.typography.titleLarge,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                if (result != null) {
-                                    formatAnalysisRange(result)
-                                } else {
-                                    stringResource(R.string.analysis_loading)
-                                },
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                        Text(
-                            result?.totalMs?.let(::formatDuration)
-                                ?: stringResource(R.string.label_empty_duration),
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                    Row(
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            item {
+                Surface(color = MaterialTheme.colorScheme.primaryContainer) {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
                     ) {
-                        TaskAnalysisPeriod.entries.forEach { item ->
-                            AnalysisChoiceChip(
-                                text = periodLabel(item),
-                                selected = request.period == item,
-                                onClick = { onPeriodChange(item) }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = onBack) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = stringResource(R.string.action_back)
+                                )
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    request.taskName,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    if (result != null) {
+                                        formatAnalysisRange(result)
+                                    } else {
+                                        stringResource(R.string.analysis_loading)
+                                    },
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            Text(
+                                result?.totalMs?.let(::formatDuration)
+                                    ?: stringResource(R.string.label_empty_duration),
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    if (request.period == TaskAnalysisPeriod.Custom) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.Center
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            AnalysisChoiceChip(
-                                text = stringResource(
-                                    R.string.analysis_custom_start,
-                                    formatDate(
-                                        request.customStartMs ?: request.anchorMs,
-                                        request.timeZoneId,
-                                        "yyyy/M/d"
-                                    )
-                                ),
-                                selected = false,
-                                onClick = {
-                                    showAnalysisDatePicker(
-                                        context = context,
-                                        initialMs = request.customStartMs ?: request.anchorMs,
-                                        onPicked = onCustomStartChange
-                                    )
-                                }
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            AnalysisChoiceChip(
-                                text = stringResource(
-                                    R.string.analysis_custom_end,
-                                    formatDate(
-                                        (request.customEndMs ?: request.anchorMs) - 1L,
-                                        request.timeZoneId,
-                                        "yyyy/M/d"
-                                    )
-                                ),
-                                selected = false,
-                                onClick = {
-                                    showAnalysisDatePicker(
-                                        context = context,
-                                        initialMs = (request.customEndMs ?: request.anchorMs) - 1L,
-                                        onPicked = onCustomEndChange
-                                    )
-                                }
-                            )
-                        }
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            IconButton(onClick = onPrevious) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.NavigateBefore,
-                                    contentDescription = stringResource(
-                                        R.string.analysis_previous_period
-                                    )
-                                )
-                            }
-                            AnalysisChoiceChip(
-                                stringResource(R.string.action_today),
-                                selected = false,
-                                onClick = onToday
-                            )
-                            IconButton(onClick = onNext) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.NavigateNext,
-                                    contentDescription = stringResource(R.string.analysis_next_period)
+                            TaskAnalysisPeriod.entries.forEach { item ->
+                                AnalysisChoiceChip(
+                                    text = periodLabel(item),
+                                    selected = request.period == item,
+                                    onClick = { onPeriodChange(item) }
                                 )
                             }
                         }
-                    }
-                }
-            }
-        }
-
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                TaskAnalysisChartType.entries.forEach { item ->
-                    AnalysisChoiceChip(
-                        text = chartTypeLabel(item),
-                        selected = chartType == item,
-                        onClick = { onChartTypeChange(item) }
-                    )
-                }
-            }
-        }
-
-        when {
-            !stateMatchesRequest || state.isLoading -> item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(280.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
-            }
-
-            state.errorMessage != null -> item {
-                Text(
-                    state.errorMessage.orEmpty(),
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
-
-            result != null -> {
-                item {
-                    when (chartType) {
-                        TaskAnalysisChartType.Total -> TotalBarChart(result, taskColor)
-                        TaskAnalysisChartType.CumulativeStacked -> CumulativeStackedChart(result)
-                        TaskAnalysisChartType.HeatMap -> ProbabilityHeatMap(result)
-                    }
-                }
-                item {
-                    val isCumulative = chartType == TaskAnalysisChartType.CumulativeStacked
-                    Surface(color = MaterialTheme.colorScheme.secondaryContainer) {
-                        Row(
-                            modifier = Modifier
-                                .testTag("task-analysis-statistic")
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = if (isCumulative) {
-                                    stringResource(R.string.analysis_cumulative_total)
-                                } else {
-                                    analysisAverageLabel(request.period)
-                                },
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Text(
-                                text = formatDuration(
-                                    if (isCumulative) result.totalMs else result.averagePerBucketMs
-                                ),
-                                style = MaterialTheme.typography.titleLarge
-                            )
-                        }
-                    }
-                }
-                if (result.dayGroups.isEmpty()) {
-                    item {
-                        Text(
-                            stringResource(R.string.analysis_no_records),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(24.dp)
-                        )
-                    }
-                } else {
-                    result.dayGroups.forEach { group ->
-                        item(key = "day-${group.dayStartMs}") {
-                            AnalysisDayHeader(group, request.timeZoneId)
-                        }
-                        items(
-                            items = group.entries,
-                            key = { "${group.dayStartMs}-${it.eventId}-${it.startMs}" }
-                        ) { entry ->
-                            val editable = entry.eventId > 0L
+                        Spacer(Modifier.height(6.dp))
+                        if (request.period == TaskAnalysisPeriod.Custom) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                AnalysisChoiceChip(
+                                    text = stringResource(
+                                        R.string.analysis_custom_start,
+                                        formatDate(
+                                            request.customStartMs ?: request.anchorMs,
+                                            request.timeZoneId,
+                                            "yyyy/M/d"
+                                        )
+                                    ),
+                                    selected = false,
+                                    onClick = {
+                                        showAnalysisDatePicker(
+                                            context = context,
+                                            initialMs = request.customStartMs ?: request.anchorMs,
+                                            onPicked = onCustomStartChange
+                                        )
+                                    }
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                AnalysisChoiceChip(
+                                    text = stringResource(
+                                        R.string.analysis_custom_end,
+                                        formatDate(
+                                            (request.customEndMs ?: request.anchorMs) - 1L,
+                                            request.timeZoneId,
+                                            "yyyy/M/d"
+                                        )
+                                    ),
+                                    selected = false,
+                                    onClick = {
+                                        showAnalysisDatePicker(
+                                            context = context,
+                                            initialMs = (request.customEndMs
+                                                ?: request.anchorMs) - 1L,
+                                            onPicked = onCustomEndChange
+                                        )
+                                    }
+                                )
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                IconButton(onClick = onPrevious) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.NavigateBefore,
+                                        contentDescription = stringResource(
+                                            R.string.analysis_previous_period
+                                        )
+                                    )
+                                }
+                                AnalysisChoiceChip(
+                                    stringResource(R.string.action_today),
+                                    selected = false,
+                                    onClick = onToday
+                                )
+                                IconButton(onClick = onNext) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.NavigateNext,
+                                        contentDescription = stringResource(R.string.analysis_next_period)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    TaskAnalysisChartType.entries.forEach { item ->
+                        AnalysisChoiceChip(
+                            text = chartTypeLabel(item),
+                            selected = chartType == item,
+                            onClick = { onChartTypeChange(item) }
+                        )
+                    }
+                }
+            }
+
+            when {
+                !stateMatchesRequest || state.isLoading -> item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(280.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+
+                state.errorMessage != null -> item {
+                    Text(
+                        state.errorMessage.orEmpty(),
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+
+                result != null -> {
+                    item {
+                        when (chartType) {
+                            TaskAnalysisChartType.Total -> TotalBarChart(result, taskColor)
+                            TaskAnalysisChartType.CumulativeStacked -> CumulativeStackedChart(result)
+                            TaskAnalysisChartType.HeatMap -> ProbabilityHeatMap(result)
+                        }
+                    }
+                    item {
+                        val isCumulative = chartType == TaskAnalysisChartType.CumulativeStacked
+                        Surface(color = MaterialTheme.colorScheme.secondaryContainer) {
+                            Row(
+                                modifier = Modifier
+                                    .testTag("task-analysis-statistic")
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                if (editMode) {
-                                    Checkbox(
-                                        checked = entry.eventId in selectedEventIds,
-                                        enabled = editable,
-                                        onCheckedChange = {
-                                            if (editable) {
-                                                selectedEventIds =
-                                                    if (entry.eventId in selectedEventIds) {
-                                                        selectedEventIds - entry.eventId
-                                                    } else {
-                                                        selectedEventIds + entry.eventId
-                                                    }
-                                            }
-                                        }
-                                    )
-                                }
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        entry.taskLabel,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        stringResource(
-                                            R.string.analysis_record_start,
-                                            formatClock(entry.startMs, request.timeZoneId)
-                                        ),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        stringResource(
-                                            R.string.analysis_record_end,
-                                            formatClock(entry.endMs, request.timeZoneId)
-                                        ),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                Spacer(Modifier.width(12.dp))
                                 Text(
-                                    formatDuration(entry.durationMs),
+                                    text = if (isCumulative) {
+                                        stringResource(R.string.analysis_cumulative_total)
+                                    } else {
+                                        analysisAverageLabel(request.period)
+                                    },
                                     style = MaterialTheme.typography.titleMedium,
-                                    textAlign = TextAlign.End
+                                    modifier = Modifier.weight(1f)
                                 )
+                                Text(
+                                    text = formatDuration(
+                                        if (isCumulative) result.totalMs else result.averagePerBucketMs
+                                    ),
+                                    style = MaterialTheme.typography.titleLarge
+                                )
+                            }
+                        }
+                    }
+                    if (result.dayGroups.isEmpty()) {
+                        item {
+                            Text(
+                                stringResource(R.string.analysis_no_records),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(24.dp)
+                            )
+                        }
+                    } else {
+                        result.dayGroups.forEach { group ->
+                            item(key = "day-${group.dayStartMs}") {
+                                AnalysisDayHeader(group, request.timeZoneId)
+                            }
+                            items(
+                                items = group.entries,
+                                key = { "${group.dayStartMs}-${it.eventId}-${it.startMs}" }
+                            ) { entry ->
+                                val editable = entry.eventId > 0L
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (editMode) {
+                                        Checkbox(
+                                            checked = entry.eventId in selectedEventIds,
+                                            enabled = editable,
+                                            onCheckedChange = {
+                                                if (editable) {
+                                                    selectedEventIds =
+                                                        if (entry.eventId in selectedEventIds) {
+                                                            selectedEventIds - entry.eventId
+                                                        } else {
+                                                            selectedEventIds + entry.eventId
+                                                        }
+                                                }
+                                            }
+                                        )
+                                    }
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            entry.taskLabel,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            stringResource(
+                                                R.string.analysis_record_start,
+                                                formatClock(entry.startMs, request.timeZoneId)
+                                            ),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            stringResource(
+                                                R.string.analysis_record_end,
+                                                formatClock(entry.endMs, request.timeZoneId)
+                                            ),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(
+                                        formatDuration(entry.durationMs),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        textAlign = TextAlign.End
+                                    )
+                                }
                             }
                         }
                     }
@@ -940,7 +946,6 @@ private fun TaskAnalysisDetail(
             }
         }
     }
-}
 }
 
 @Composable
@@ -1062,6 +1067,7 @@ private fun chartTypeLabel(type: TaskAnalysisChartType): String = when (type) {
     TaskAnalysisChartType.Total -> stringResource(R.string.analysis_chart_period_total)
     TaskAnalysisChartType.CumulativeStacked ->
         stringResource(R.string.analysis_chart_cumulative_stacked)
+
     TaskAnalysisChartType.HeatMap -> stringResource(R.string.analysis_chart_heatmap)
 }
 
@@ -1084,6 +1090,7 @@ private fun formatAnalysisRange(result: TaskAnalysisResult): String {
             zone,
             stringResource(R.string.date_pattern_day_full)
         )
+
         TaskAnalysisPeriod.Week -> {
             val inclusiveEnd = result.range.endMs - 1L
             stringResource(
@@ -1106,11 +1113,13 @@ private fun formatAnalysisRange(result: TaskAnalysisResult): String {
             zone,
             stringResource(R.string.date_pattern_month)
         )
+
         TaskAnalysisPeriod.Year -> formatDate(
             result.range.startMs,
             zone,
             stringResource(R.string.date_pattern_year)
         )
+
         TaskAnalysisPeriod.Custom -> {
             stringResource(
                 R.string.date_range,

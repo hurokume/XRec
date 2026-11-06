@@ -7,6 +7,7 @@ import java.util.TimeZone
 
 class WeeklyReportEngineTest {
     private val utc = TimeZone.getTimeZone("UTC")
+
     @Test
     fun weekRangeContaining_usesSundayThroughSaturday() {
         val wednesday = utcMillis(2026, 8, 5, 15)

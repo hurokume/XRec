@@ -12,9 +12,9 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:text="@string/app_name"
-        android:maxLines="1"
         android:ellipsize="end"
+        android:maxLines="1"
+        android:text="@string/app_name"
         android:textAppearance="@android:style/TextAppearance.Material.Medium" />
 
     <Chronometer
@@ -28,9 +28,9 @@
         android:id="@+id/btn_temporary"
         android:layout_width="wrap_content"
         android:layout_height="48dp"
-        android:minWidth="64dp"
         android:layout_marginStart="8dp"
+        android:contentDescription="@string/temporary_task_description"
+        android:minWidth="64dp"
         android:paddingHorizontal="8dp"
-        android:text="@string/notification_temporary"
-        android:contentDescription="@string/temporary_task_description" />
+        android:text="@string/notification_temporary" />
 </LinearLayout>

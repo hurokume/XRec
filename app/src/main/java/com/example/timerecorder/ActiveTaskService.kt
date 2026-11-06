@@ -1,7 +1,7 @@
 package com.example.timerecorder
 
-import android.app.PendingIntent
 import android.app.KeyguardManager
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -14,8 +14,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.example.timerecorder.data.TaskRepository
-import com.example.timerecorder.data.db.AppDatabase
 import com.example.timerecorder.data.db.ActiveWithTask
+import com.example.timerecorder.data.db.AppDatabase
 import com.example.timerecorder.data.db.TaskDao
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -47,7 +47,9 @@ class ActiveTaskService : LifecycleService() {
     private lateinit var repository: TaskRepository
     private lateinit var taskDao: TaskDao
     private lateinit var notificationFactory: ActiveTaskNotificationFactory
+
     private data class Command(val intent: Intent?, val pressedAt: Long)
+
     private val commands = Channel<Command>(Channel.UNLIMITED)
     private val pendingCommands = MutableStateFlow(0)
     private var observation: Job? = null
@@ -70,6 +72,7 @@ class ActiveTaskService : LifecycleService() {
             }
         }
     }
+
     private data class NotificationState(
         val active: ActiveWithTask?,
         val pending: Int,
@@ -98,12 +101,21 @@ class ActiveTaskService : LifecycleService() {
         lifecycleScope.launch {
             for (command in commands) {
                 try {
-                    executeTaskAction(this@ActiveTaskService, repository, command.intent, command.pressedAt)
+                    executeTaskAction(
+                        this@ActiveTaskService,
+                        repository,
+                        command.intent,
+                        command.pressedAt
+                    )
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
                     Log.e("ActiveTaskService", "Could not switch task", error)
-                    Toast.makeText(this@ActiveTaskService, R.string.task_switch_failed, Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        this@ActiveTaskService,
+                        R.string.task_switch_failed,
+                        Toast.LENGTH_LONG
+                    ).show()
                 } finally {
                     pendingCommands.value -= 1
                 }
@@ -143,12 +155,20 @@ class ActiveTaskService : LifecycleService() {
             val state = combine(
                 repository.observeActive(), pendingCommands,
                 TaskNotificationPreferences.observe(this@ActiveTaskService), screenLocked
-            ) { active, pending, settings, locked -> NotificationState(active, pending, settings, locked) }
+            ) { active, pending, settings, locked ->
+                NotificationState(
+                    active,
+                    pending,
+                    settings,
+                    locked
+                )
+            }
             state.collectLatest { (active, pending, settings, locked) ->
                 if (!settings.showNotification) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     if (pending == 0 && pendingCommands.value == 0 &&
-                        !TaskNotificationPreferences.read(this@ActiveTaskService).showNotification) {
+                        !TaskNotificationPreferences.read(this@ActiveTaskService).showNotification
+                    ) {
                         stopSelf()
                     }
                     return@collectLatest

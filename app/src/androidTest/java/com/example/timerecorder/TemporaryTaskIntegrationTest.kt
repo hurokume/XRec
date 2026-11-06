@@ -14,7 +14,10 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -23,14 +26,17 @@ class TemporaryTaskIntegrationTest {
     private lateinit var db: AppDatabase
     private lateinit var repo: TaskRepository
 
-    @Before fun setup() {
+    @Before
+    fun setup() {
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
         repo = TaskRepository(db, db.sessionDao(), db.taskDao(), context::getString)
     }
 
-    @After fun close() = db.close()
+    @After
+    fun close() = db.close()
 
-    @Test fun repeatedPressesKeepOneTaskAndEveryShortIntervalIncludingTheReturn() = runBlocking {
+    @Test
+    fun repeatedPressesKeepOneTaskAndEveryShortIntervalIncludingTheReturn() = runBlocking {
         val normal = db.taskDao().insertTask(TaskEntity(name = "Work"))
         repo.startOrSwitch(normal, 1_000)
         repo.startTemporaryTask(2_000)
@@ -40,8 +46,9 @@ class TemporaryTaskIntegrationTest {
         repo.startOrSwitch(normal, 2_300)
 
         assertEquals(1, db.taskDao().getAllTasksOnce().count { it.isTemporary })
-        val events = db.taskDao().getAllEventsForCsv().map { db.taskDao().getEventById(it.eventId)!! }
-            .sortedBy { it.pressedAtEpochMs }
+        val events =
+            db.taskDao().getAllEventsForCsv().map { db.taskDao().getEventById(it.eventId)!! }
+                .sortedBy { it.pressedAtEpochMs }
         assertEquals(listOf(normal, temporary, temporary, temporary), events.map { it.taskId })
         assertEquals(listOf(1_000L, 2_000L, 2_100L, 2_200L), events.map { it.pressedAtEpochMs })
         assertEquals(listOf(1_000L, 100L, 100L, 100L), events.map { it.durationMillis })
@@ -49,7 +56,8 @@ class TemporaryTaskIntegrationTest {
         assertEquals(2_300L, db.taskDao().getActiveOrNull()!!.startedAtEpochMs)
     }
 
-    @Test fun coldStartAndConcurrentPressesDoNotDuplicateTheTemporaryTaskOrLoseRecords() = runBlocking {
+    @Test
+    fun coldStartAndConcurrentPressesDoNotDuplicateTheTemporaryTaskOrLoseRecords() = runBlocking {
         coroutineScope {
             (0 until 5).map { async { repo.startTemporaryTask(10_000) } }.awaitAll()
         }
@@ -57,14 +65,18 @@ class TemporaryTaskIntegrationTest {
         assertEquals(4, db.taskDao().getAllEventsForCsv().size)
         assertEquals(10_000L, db.sessionDao().getActive()!!.startedAt)
         assertEquals(5, repo.observeWorkHistory().first().size)
-        assertTrue(repo.observeWorkHistory().first().all { it.action == WorkHistoryAction.StartTemporary.name })
-        db.openHelper.readableDatabase.query("SELECT COUNT(*) FROM task_sessions WHERE endedAt IS NULL").use {
-            assertTrue(it.moveToFirst())
-            assertEquals(1, it.getInt(0))
-        }
+        assertTrue(
+            repo.observeWorkHistory().first()
+                .all { it.action == WorkHistoryAction.StartTemporary.name })
+        db.openHelper.readableDatabase.query("SELECT COUNT(*) FROM task_sessions WHERE endedAt IS NULL")
+            .use {
+                assertTrue(it.moveToFirst())
+                assertEquals(1, it.getInt(0))
+            }
     }
 
-    @Test fun renamingAndReopeningRepositoryKeepTheSameTemporaryTask() = runBlocking {
+    @Test
+    fun renamingAndReopeningRepositoryKeepTheSameTemporaryTask() = runBlocking {
         // A normal user-created task with the same label must not be repurposed.
         db.taskDao().insertTask(TaskEntity(name = context.getString(R.string.temporary_task_name)))
         repo.startTemporaryTask(1_000)
@@ -77,12 +89,16 @@ class TemporaryTaskIntegrationTest {
         assertEquals("Interruptions", db.taskDao().getTaskById(taskId)!!.name)
     }
 
-    @Test fun eachPressCanBeUndoneAtomicallyWithItsTaskAndSession() = runBlocking {
+    @Test
+    fun eachPressCanBeUndoneAtomicallyWithItsTaskAndSession() = runBlocking {
         repo.startTemporaryTask(1_000)
         val firstChange = repo.observeWorkHistory().first().single().id
         repo.startTemporaryTask(2_000)
         val secondChange = repo.observeWorkHistory().first().first().id
-        assertEquals(RestoreWorkResult.Restored, repo.restoreWorkHistory(secondChange, secondChange))
+        assertEquals(
+            RestoreWorkResult.Restored,
+            repo.restoreWorkHistory(secondChange, secondChange)
+        )
         assertEquals(1_000L, db.sessionDao().getActive()!!.startedAt)
         assertTrue(db.taskDao().getAllEventsForCsv().isEmpty())
         assertTrue(db.taskDao().getAllTasksOnce().single().isTemporary)
@@ -93,19 +109,27 @@ class TemporaryTaskIntegrationTest {
         assertNull(db.taskDao().getActiveOrNull())
     }
 
-    @Test fun oldWorkHistoryWithoutTemporaryColumnCanStillBeRestored() = runBlocking {
+    @Test
+    fun oldWorkHistoryWithoutTemporaryColumnCanStillBeRestored() = runBlocking {
         db.taskDao().insertTask(TaskEntity(id = 7, name = "New name"))
-        db.workHistoryDao().insert(WorkHistoryEntity(
-            createdAt = 1, action = WorkHistoryAction.RenameTask.name, details = "", taskCount = 1,
-            recordCount = 0, changesJson = """{"version":1,"changes":[{"table":"tasks","id":7,"before":[7,"Old name",null,null,0,0],"after":[7,"New name",null,null,0,0]}]}"""
-        ))
+        db.workHistoryDao().insert(
+            WorkHistoryEntity(
+                createdAt = 1,
+                action = WorkHistoryAction.RenameTask.name,
+                details = "",
+                taskCount = 1,
+                recordCount = 0,
+                changesJson = """{"version":1,"changes":[{"table":"tasks","id":7,"before":[7,"Old name",null,null,0,0],"after":[7,"New name",null,null,0,0]}]}"""
+            )
+        )
         val change = repo.observeWorkHistory().first().single().id
         assertEquals(RestoreWorkResult.Restored, repo.restoreWorkHistory(change, change))
         assertEquals("Old name", db.taskDao().getTaskById(7)!!.name)
         assertFalse(db.taskDao().getTaskById(7)!!.isTemporary)
     }
 
-    @Test fun temporaryMarkerSurvivesTaskExportAndImport() = runBlocking {
+    @Test
+    fun temporaryMarkerSurvivesTaskExportAndImport() = runBlocking {
         repo.startTemporaryTask(1_000)
         repo.stopActive(2_000)
         val json = repo.exportTasksJson()

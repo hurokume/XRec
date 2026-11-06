@@ -380,14 +380,17 @@ private fun formatAxisDuration(context: Context, valueMs: Long): String {
     return when {
         valueMs >= hour && valueMs % hour == 0L ->
             context.getString(R.string.analysis_axis_hours, valueMs / hour)
+
         valueMs >= hour -> context.getString(
             R.string.analysis_axis_hours_decimal,
             valueMs.toDouble() / hour
         )
+
         valueMs >= minute -> context.getString(
             R.string.analysis_axis_minutes,
             valueMs / minute
         )
+
         else -> context.getString(R.string.analysis_axis_seconds, valueMs / 1_000L)
     }
 }
@@ -483,7 +486,11 @@ internal fun ProbabilityHeatMap(result: TaskAnalysisResult) {
                 }
             }
         }
-        Row(modifier = Modifier.padding(start = 24.dp).fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .padding(start = 24.dp)
+                .fillMaxWidth()
+        ) {
             hourLabels.forEach { label ->
                 Text(
                     label,

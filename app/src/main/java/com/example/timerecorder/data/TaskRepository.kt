@@ -1,8 +1,8 @@
 package com.example.timerecorder.data
 
 import androidx.room.withTransaction
-import com.example.timerecorder.R
 import com.example.timerecorder.NextTaskPredictor
+import com.example.timerecorder.R
 import com.example.timerecorder.data.db.ActiveTaskEntity
 import com.example.timerecorder.data.db.ActiveWithTask
 import com.example.timerecorder.data.db.AppDatabase
@@ -91,6 +91,7 @@ class TaskRepository(
             ?.asReversed()
             ?.joinToString(" / ")
     }
+
     fun observeActive(): Flow<ActiveWithTask?> = taskDao.observeActiveWithTask()
 
     // ---------------- 操作系（短時間統合スイッチ） ----------------
@@ -215,42 +216,68 @@ class TaskRepository(
     }
 
     // ---------------- タスク CRUD / 並び順 / 色 ----------------
-    suspend fun addTask(name: String, parentId: Long?): Long = workHistory.record(WorkHistoryAction.AddTask) {
-        val next = taskDao.getMaxSortOrder(parentId) + 1
-        taskDao.insertTask(TaskEntity(name = name, parentId = parentId, sortOrder = next))
-    }
+    suspend fun addTask(name: String, parentId: Long?): Long =
+        workHistory.record(WorkHistoryAction.AddTask) {
+            val next = taskDao.getMaxSortOrder(parentId) + 1
+            taskDao.insertTask(TaskEntity(name = name, parentId = parentId, sortOrder = next))
+        }
 
-    suspend fun changeColor(id: Long, colorInt: Int) = workHistory.record(WorkHistoryAction.ChangeColor) {
-        taskDao.updateTaskColor(id, colorInt)
-    }
-    suspend fun changeRunningTask(expectedTaskId: Long, expectedStart: Long, newTaskId: Long): Boolean = workHistory.record(WorkHistoryAction.ChangeRunningTask) {
+    suspend fun changeColor(id: Long, colorInt: Int) =
+        workHistory.record(WorkHistoryAction.ChangeColor) {
+            taskDao.updateTaskColor(id, colorInt)
+        }
+
+    suspend fun changeRunningTask(
+        expectedTaskId: Long,
+        expectedStart: Long,
+        newTaskId: Long
+    ): Boolean = workHistory.record(WorkHistoryAction.ChangeRunningTask) {
         val active = sessionDao.getActive() ?: return@record false
         if (active.taskId != expectedTaskId || active.startedAt != expectedStart) return@record false
         val target = taskDao.getTaskById(newTaskId) ?: return@record false
         if (target.isArchived) return@record false
         sessionDao.changeActiveTask(active.id, newTaskId)
-        taskDao.upsertActive(ActiveTaskEntity(taskId = newTaskId, startedAtEpochMs = active.startedAt))
+        taskDao.upsertActive(
+            ActiveTaskEntity(
+                taskId = newTaskId,
+                startedAtEpochMs = active.startedAt
+            )
+        )
         true
     }
 
-    private suspend fun resolveTaskName(parentId: Long?, name: String, sourceId: Long?, decisions: Map<String, TaskNameDecision>): Pair<Long?, String> {
+    private suspend fun resolveTaskName(
+        parentId: Long?,
+        name: String,
+        sourceId: Long?,
+        decisions: Map<String, TaskNameDecision>
+    ): Pair<Long?, String> {
         val siblings = taskDao.getChildrenOnce(parentId).filter { it.id != sourceId }
         val duplicate = siblings.firstOrNull { sameTaskName(it.name, name) } ?: return null to name
         val key = "$parentId/$sourceId/$name"
         val choice = decisions[key] ?: decisions["*"]
-            ?: throw TaskNameConflict(key, name, parentId?.let { getTaskPathLabel(it) }.orEmpty())
+        ?: throw TaskNameConflict(key, name, parentId?.let { getTaskPathLabel(it) }.orEmpty())
         if (choice.merge) return duplicate.id to name
-        val renamed = choice.newName.trim().take(128).takeIf { it.isNotEmpty() && siblings.none { t -> sameTaskName(t.name, it) } }
+        val renamed = choice.newName.trim().take(128)
+            .takeIf { it.isNotEmpty() && siblings.none { t -> sameTaskName(t.name, it) } }
             ?: uniqueTaskName(name, siblings.map { it.name })
         return null to renamed
     }
 
-    suspend fun addTaskResolving(name: String, parentId: Long?, decisions: Map<String, TaskNameDecision>): Long = workHistory.record(WorkHistoryAction.AddTask) {
+    suspend fun addTaskResolving(
+        name: String,
+        parentId: Long?,
+        decisions: Map<String, TaskNameDecision>
+    ): Long = workHistory.record(WorkHistoryAction.AddTask) {
         val (existing, resolved) = resolveTaskName(parentId, name, null, decisions)
         existing ?: addTask(resolved, parentId)
     }
 
-    suspend fun renameTask(taskId: Long, newName: String, decisions: Map<String, TaskNameDecision>): Map<Long, Long> = workHistory.record(WorkHistoryAction.RenameTask) {
+    suspend fun renameTask(
+        taskId: Long,
+        newName: String,
+        decisions: Map<String, TaskNameDecision>
+    ): Map<Long, Long> = workHistory.record(WorkHistoryAction.RenameTask) {
         val remapped = mutableMapOf<Long, Long>()
         suspend fun merge(source: Long, target: Long) {
             taskDao.getChildrenIncludingArchived(source).forEach { child ->
@@ -264,19 +291,23 @@ class TaskRepository(
             taskDao.deleteTaskById(source)
             remapped[source] = target
         }
+
         val source = taskDao.getTaskById(taskId) ?: return@record emptyMap()
         val (target, resolved) = resolveTaskName(source.parentId, newName, taskId, decisions)
         if (target == null) taskDao.updateTaskName(taskId, resolved) else merge(taskId, target)
         remapped
     }
-    suspend fun updateSortOrdersForParent(parentId: Long, idsInOrder: List<Long>) = workHistory.record(WorkHistoryAction.ReorderTasks) {
-        taskDao.updateSortOrdersForParent(parentId, idsInOrder)
-    }
+
+    suspend fun updateSortOrdersForParent(parentId: Long, idsInOrder: List<Long>) =
+        workHistory.record(WorkHistoryAction.ReorderTasks) {
+            taskDao.updateSortOrdersForParent(parentId, idsInOrder)
+        }
 
     // 親（ルート＝プロジェクト）の並び替え
-    suspend fun reorderParents(idsInOrder: List<Long>) = workHistory.record(WorkHistoryAction.ReorderTasks) {
-        taskDao.updateSortOrdersForRoot(idsInOrder)
-    }
+    suspend fun reorderParents(idsInOrder: List<Long>) =
+        workHistory.record(WorkHistoryAction.ReorderTasks) {
+            taskDao.updateSortOrdersForRoot(idsInOrder)
+        }
 
     // ---------------- 履歴（task_events） ----------------
     suspend fun loadHistoryPage(page: Int, pageSize: Int): List<HistoryRowDb> {
@@ -370,7 +401,8 @@ class TaskRepository(
         replacementTaskId: Long? = null,
         nowMs: Long = System.currentTimeMillis()
     ) = workHistory.record(WorkHistoryAction.DeleteTask) {
-        val root = requireNotNull(taskDao.getTaskById(rootId)) { stringResolver(R.string.error_delete_missing) }
+        val root =
+            requireNotNull(taskDao.getTaskById(rootId)) { stringResolver(R.string.error_delete_missing) }
         check(!root.isArchived) { stringResolver(R.string.error_delete_archived) }
         val ids = getTaskTreeIds(rootId)
         if (ids.isEmpty()) return@record
@@ -465,7 +497,11 @@ class TaskRepository(
         }.toString(2)
     }
 
-    suspend fun importTasksJson(json: String, replaceAll: Boolean, decisions: Map<String, TaskNameDecision> = emptyMap()) = workHistory.record(WorkHistoryAction.ImportTasks) {
+    suspend fun importTasksJson(
+        json: String,
+        replaceAll: Boolean,
+        decisions: Map<String, TaskNameDecision> = emptyMap()
+    ) = workHistory.record(WorkHistoryAction.ImportTasks) {
         val current = observeTree().first()
 
         if (replaceAll) {
@@ -510,81 +546,83 @@ class TaskRepository(
      * 履歴画面は task_events を参照しているため、events も必ず追加する。
      * セッション表（task_sessions）にも“終了済み”として残す。
      */
-    suspend fun addManualRecord(taskId: Long, startedAt: Long, endedAt: Long) = workHistory.record(WorkHistoryAction.AddRecord) {
-        require(endedAt > startedAt) { "end must be after start" }
+    suspend fun addManualRecord(taskId: Long, startedAt: Long, endedAt: Long) =
+        workHistory.record(WorkHistoryAction.AddRecord) {
+            require(endedAt > startedAt) { "end must be after start" }
 
-        val start = startedAt
-        val end = endedAt
+            val start = startedAt
+            val end = endedAt
 
-        // 1) 重複している既存イベントを取得
-        val overlaps = taskDao.getEventsInRange(start, end)
+            // 1) 重複している既存イベントを取得
+            val overlaps = taskDao.getEventsInRange(start, end)
 
-        // 2) 既存イベントを「追加イベントを優先」で上書き調整
-        overlaps.forEach { e ->
-            val es = e.pressedAtEpochMs
-            val ee = e.pressedAtEpochMs + kotlin.math.max(0L, e.durationMillis)
+            // 2) 既存イベントを「追加イベントを優先」で上書き調整
+            overlaps.forEach { e ->
+                val es = e.pressedAtEpochMs
+                val ee = e.pressedAtEpochMs + kotlin.math.max(0L, e.durationMillis)
 
-            when {
-                // 追加区間が完全に覆う：削除（Case1 の B/C）
-                es >= start && ee <= end -> {
-                    taskDao.deleteEventById(e.eventId)
-                }
-                // 右側が食い込む：右端を切り詰め（...～start）
-                es < start && ee <= end -> {
-                    val newDur = start - es
-                    if (newDur > 0) taskDao.updateEventTime(e.eventId, es, newDur)
-                    else taskDao.deleteEventById(e.eventId)
-                }
-                // 左側が食い込む：左端を切り詰め（end～...）（Case2 の C）
-                es >= start && ee > end -> {
-                    val newStart = end
-                    val newDur = ee - end
-                    if (newDur > 0) taskDao.updateEventTime(e.eventId, newStart, newDur)
-                    else taskDao.deleteEventById(e.eventId)
-                }
-                // 追加区間が中央に刺さる：左右で分割（...～start）と（end～...）
-                es < start && ee > end -> {
-                    val leftDur = start - es
-                    val rightDur = ee - end
-
-                    if (leftDur > 0) {
-                        // 既存イベント本体は左側に縮める
-                        taskDao.updateEventTime(e.eventId, es, leftDur)
-                    } else {
-                        // 左が0なら消して右を別イベントで作る
+                when {
+                    // 追加区間が完全に覆う：削除（Case1 の B/C）
+                    es >= start && ee <= end -> {
                         taskDao.deleteEventById(e.eventId)
                     }
-                    if (rightDur > 0) {
-                        taskDao.insertEvent(
-                            TaskEventEntity(
-                                taskId = e.taskId,
-                                pressedAtEpochMs = end,
-                                durationMillis = rightDur
+                    // 右側が食い込む：右端を切り詰め（...～start）
+                    es < start && ee <= end -> {
+                        val newDur = start - es
+                        if (newDur > 0) taskDao.updateEventTime(e.eventId, es, newDur)
+                        else taskDao.deleteEventById(e.eventId)
+                    }
+                    // 左側が食い込む：左端を切り詰め（end～...）（Case2 の C）
+                    es >= start && ee > end -> {
+                        val newStart = end
+                        val newDur = ee - end
+                        if (newDur > 0) taskDao.updateEventTime(e.eventId, newStart, newDur)
+                        else taskDao.deleteEventById(e.eventId)
+                    }
+                    // 追加区間が中央に刺さる：左右で分割（...～start）と（end～...）
+                    es < start && ee > end -> {
+                        val leftDur = start - es
+                        val rightDur = ee - end
+
+                        if (leftDur > 0) {
+                            // 既存イベント本体は左側に縮める
+                            taskDao.updateEventTime(e.eventId, es, leftDur)
+                        } else {
+                            // 左が0なら消して右を別イベントで作る
+                            taskDao.deleteEventById(e.eventId)
+                        }
+                        if (rightDur > 0) {
+                            taskDao.insertEvent(
+                                TaskEventEntity(
+                                    taskId = e.taskId,
+                                    pressedAtEpochMs = end,
+                                    durationMillis = rightDur
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
-        }
 
-        // 3) 追加イベントを最後に挿入（最優先）
-        taskDao.insertEvent(
-            TaskEventEntity(
-                taskId = taskId,
-                pressedAtEpochMs = start,
-                durationMillis = end - start
+            // 3) 追加イベントを最後に挿入（最優先）
+            taskDao.insertEvent(
+                TaskEventEntity(
+                    taskId = taskId,
+                    pressedAtEpochMs = start,
+                    durationMillis = end - start
+                )
             )
-        )
-    }
+        }
 
     suspend fun hasOverlap(startedAt: Long, endedAt: Long): Boolean {
         if (endedAt <= startedAt) return false
         return taskDao.getEventsInRange(startedAt, endedAt).isNotEmpty()
     }
 
-    suspend fun deleteEventById(eventId: Long) = workHistory.record(WorkHistoryAction.DeleteRecord) {
-        taskDao.deleteEventById(eventId)
-    }
+    suspend fun deleteEventById(eventId: Long) =
+        workHistory.record(WorkHistoryAction.DeleteRecord) {
+            taskDao.deleteEventById(eventId)
+        }
 
     // === CSV Export ===
     suspend fun exportEventsCsv(): String {
@@ -627,36 +665,37 @@ class TaskRepository(
     }
 
     // === CSV Import ===
-    suspend fun importEventsFromCsv(csv: String, replaceAll: Boolean) = workHistory.record(WorkHistoryAction.ImportRecords) {
-        if (replaceAll) {
-            taskDao.clearAllEvents()
+    suspend fun importEventsFromCsv(csv: String, replaceAll: Boolean) =
+        workHistory.record(WorkHistoryAction.ImportRecords) {
+            if (replaceAll) {
+                taskDao.clearAllEvents()
+            }
+            val lines = csv.lineSequence()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .toList()
+            if (lines.isEmpty()) return@record
+
+            // 先頭行がヘッダーならスキップ
+            var idx = 0
+            val head = lines.first().lowercase()
+            if (head.contains("start_epoch_ms") && head.contains("end_epoch_ms")) idx = 1
+
+            for (i in idx until lines.size) {
+                val cols = parseCsvLine(lines[i])
+                // 想定: event_id, task_id, task_name, start_epoch_ms, end_epoch_ms, duration_ms, start_iso, end_iso
+                if (cols.size < 6) continue
+
+                val taskId = cols.getOrNull(1)?.toLongOrNull() ?: continue
+                val start = cols.getOrNull(3)?.toLongOrNull() ?: continue
+                val end = cols.getOrNull(4)?.toLongOrNull()
+                    ?: (start + (cols.getOrNull(5)?.toLongOrNull() ?: 0L))
+                if (end <= start) continue
+
+                // 既存重複の調整は既存ロジックに委譲（新規を優先して調整）
+                addManualRecord(taskId, start, end)
+            }
         }
-        val lines = csv.lineSequence()
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .toList()
-        if (lines.isEmpty()) return@record
-
-        // 先頭行がヘッダーならスキップ
-        var idx = 0
-        val head = lines.first().lowercase()
-        if (head.contains("start_epoch_ms") && head.contains("end_epoch_ms")) idx = 1
-
-        for (i in idx until lines.size) {
-            val cols = parseCsvLine(lines[i])
-            // 想定: event_id, task_id, task_name, start_epoch_ms, end_epoch_ms, duration_ms, start_iso, end_iso
-            if (cols.size < 6) continue
-
-            val taskId = cols.getOrNull(1)?.toLongOrNull() ?: continue
-            val start = cols.getOrNull(3)?.toLongOrNull() ?: continue
-            val end = cols.getOrNull(4)?.toLongOrNull()
-                ?: (start + (cols.getOrNull(5)?.toLongOrNull() ?: 0L))
-            if (end <= start) continue
-
-            // 既存重複の調整は既存ロジックに委譲（新規を優先して調整）
-            addManualRecord(taskId, start, end)
-        }
-    }
 
     // --- 行内カンマ＆ダブルクォート対応の簡易CSVパーサ ---
     private fun parseCsvLine(line: String): List<String> {
@@ -741,7 +780,12 @@ class TaskRepository(
         suspend fun resolveImported(parent: Long?, name: String): Long {
             val key = parent to name.trim().lowercase(java.util.Locale.ROOT)
             importedNames[key]?.let { return it }
-            val (existing, resolved) = resolveTaskName(parent, name.trim().take(128), null, decisions)
+            val (existing, resolved) = resolveTaskName(
+                parent,
+                name.trim().take(128),
+                null,
+                decisions
+            )
             val id = existing ?: run {
                 check(createMissingTasks) { "Task '$name' not found" }
                 addTask(resolved, parent)
@@ -761,7 +805,10 @@ class TaskRepository(
             val projectId = resolveImported(null, eventName)
             if (taskName.isNullOrBlank() && subtaskName.isNullOrBlank()) return projectId
             val childId = resolveImported(projectId, taskName ?: requireNotNull(subtaskName))
-            return if (!subtaskName.isNullOrBlank()) resolveImported(childId, subtaskName) else childId
+            return if (!subtaskName.isNullOrBlank()) resolveImported(
+                childId,
+                subtaskName
+            ) else childId
         }
 
         // 1行ずつ

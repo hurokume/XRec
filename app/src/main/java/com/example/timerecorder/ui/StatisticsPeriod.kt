@@ -23,6 +23,7 @@ internal fun statisticsBounds(
         set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
         set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
     }
+
     val today = midnightAt(nowMs)
     val midnight = today.timeInMillis
     return when (period) {
@@ -36,15 +37,18 @@ internal fun statisticsBounds(
             end.add(Calendar.DAY_OF_MONTH, 1)
             start.timeInMillis to end.timeInMillis
         }
+
         else -> {
             when (period) {
                 StatisticsPeriod.OneYear -> today.add(Calendar.YEAR, -1)
-                else -> today.add(Calendar.DAY_OF_MONTH, -when (period) {
-                    StatisticsPeriod.SevenDays -> 7
-                    StatisticsPeriod.ThirtyDays -> 30
-                    StatisticsPeriod.NinetyDays -> 90
-                    else -> 1
-                })
+                else -> today.add(
+                    Calendar.DAY_OF_MONTH, -when (period) {
+                        StatisticsPeriod.SevenDays -> 7
+                        StatisticsPeriod.ThirtyDays -> 30
+                        StatisticsPeriod.NinetyDays -> 90
+                        else -> 1
+                    }
+                )
             }
             today.timeInMillis to midnight
         }

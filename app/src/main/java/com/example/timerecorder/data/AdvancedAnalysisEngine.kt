@@ -254,7 +254,8 @@ object AdvancedAnalysisEngine {
                 coverageRate = coverageByDay[validProfileWindows[index].startMs] ?: 0.0
             )
         }
-        val patterns = buildTypicalPatterns(distanceMatrix, validProfileWindows, representativeIndex)
+        val patterns =
+            buildTypicalPatterns(distanceMatrix, validProfileWindows, representativeIndex)
         val transitions = calculateTransitions(validEvents, windows, ::targetFor)
         val dailyAchievements = DailyAchievementEngine.calculate(
             events = validEvents,
@@ -442,11 +443,15 @@ object AdvancedAnalysisEngine {
                 if (overlaps.isEmpty()) {
                     null
                 } else {
-                    val durationByTarget = overlaps.groupBy { it.target.id }.mapValues { (_, values) ->
-                        values.sumOf {
-                            (minOf(it.endMs, slotEnd) - maxOf(it.startMs, slotStart)).coerceAtLeast(0L)
+                    val durationByTarget =
+                        overlaps.groupBy { it.target.id }.mapValues { (_, values) ->
+                            values.sumOf {
+                                (minOf(it.endMs, slotEnd) - maxOf(
+                                    it.startMs,
+                                    slotStart
+                                )).coerceAtLeast(0L)
+                            }
                         }
-                    }
                     val winningId = durationByTarget.maxByOrNull { it.value }!!.key
                     val winningSlice = overlaps.first { it.target.id == winningId }
                     SlotAssignment(winningSlice.target, winningSlice.event.path)
@@ -475,7 +480,8 @@ object AdvancedAnalysisEngine {
             val counts = assignments.groupingBy { it.target.id }.eachCount()
             val denominator = assignments.size.toDouble()
             counts.forEach { (id, count) ->
-                probabilitiesById.getOrPut(id) { DoubleArray(slotCount) }[slot] = count / denominator
+                probabilitiesById.getOrPut(id) { DoubleArray(slotCount) }[slot] =
+                    count / denominator
             }
             val winner = counts.maxByOrNull { it.value }!!.key
             modal[slot] = assignments.first { it.target.id == winner }.target.pathLabel
@@ -576,7 +582,8 @@ object AdvancedAnalysisEngine {
         var assignments = IntArray(distanceMatrix.size)
         repeat(10) {
             assignments = IntArray(distanceMatrix.size) { day ->
-                medoids.indices.minByOrNull { cluster -> distanceMatrix[day][medoids[cluster]] } ?: 0
+                medoids.indices.minByOrNull { cluster -> distanceMatrix[day][medoids[cluster]] }
+                    ?: 0
             }
             var changed = false
             medoids.indices.forEach { cluster ->
@@ -659,7 +666,8 @@ object AdvancedAnalysisEngine {
                 count = count,
                 probability = count.toDouble() / (outgoing[key.fromId] ?: 1)
             )
-        }.sortedWith(compareByDescending<AnalysisTransition> { it.count }.thenByDescending { it.probability })
+        }
+            .sortedWith(compareByDescending<AnalysisTransition> { it.count }.thenByDescending { it.probability })
     }
 
     private fun resolveTarget(
@@ -682,7 +690,10 @@ object AdvancedAnalysisEngine {
                 Target(
                     id = node?.id ?: syntheticId(parent.id, 2),
                     name = node?.name ?: unspecifiedLabel,
-                    pathLabel = listOf(parent.name, node?.name ?: unspecifiedLabel).joinToString(" / "),
+                    pathLabel = listOf(
+                        parent.name,
+                        node?.name ?: unspecifiedLabel
+                    ).joinToString(" / "),
                     parentId = parent.id
                 )
             }

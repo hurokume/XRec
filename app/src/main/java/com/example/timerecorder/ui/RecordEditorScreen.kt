@@ -217,28 +217,28 @@ fun AddTaskScreen(
             }
 
             if (!isRunning) {
-            TimeField(
-                label = stringResource(R.string.label_start),
-                valueText = dfFull.format(java.util.Date(startMs)),
-                onClick = {
-                    showRecordDateTimePicker(ctx, startMs) { picked ->
-                        startMs = picked
-                        if (endMs <= startMs) endMs = startMs + 5 * 60 * 1000L
+                TimeField(
+                    label = stringResource(R.string.label_start),
+                    valueText = dfFull.format(java.util.Date(startMs)),
+                    onClick = {
+                        showRecordDateTimePicker(ctx, startMs) { picked ->
+                            startMs = picked
+                            if (endMs <= startMs) endMs = startMs + 5 * 60 * 1000L
+                        }
                     }
-                }
-            )
+                )
 
-            // 終了日時
-            TimeField(
-                label = stringResource(R.string.label_end),
-                valueText = dfFull.format(java.util.Date(endMs)),
-                onClick = {
-                    showRecordDateTimePicker(ctx, endMs) { picked ->
-                        endMs = picked
-                        if (endMs <= startMs) startMs = endMs - 5 * 60 * 1000L
+                // 終了日時
+                TimeField(
+                    label = stringResource(R.string.label_end),
+                    valueText = dfFull.format(java.util.Date(endMs)),
+                    onClick = {
+                        showRecordDateTimePicker(ctx, endMs) { picked ->
+                            endMs = picked
+                            if (endMs <= startMs) startMs = endMs - 5 * 60 * 1000L
+                        }
                     }
-                }
-            )
+                )
 
             } else {
                 Text(stringResource(R.string.record_running_description))
@@ -279,9 +279,17 @@ fun AddTaskScreen(
                         else -> {
                             if (isRunning) {
                                 scope.launch {
-                                    if (viewModel.changeRunningTask(requireNotNull(initialTaskId),
-                                            requireNotNull(initialStartMs), requireNotNull(finalTaskId))) onBack()
-                                    else Toast.makeText(ctx, ctx.getString(R.string.record_running_changed), Toast.LENGTH_LONG).show()
+                                    if (viewModel.changeRunningTask(
+                                            requireNotNull(initialTaskId),
+                                            requireNotNull(initialStartMs),
+                                            requireNotNull(finalTaskId)
+                                        )
+                                    ) onBack()
+                                    else Toast.makeText(
+                                        ctx,
+                                        ctx.getString(R.string.record_running_changed),
+                                        Toast.LENGTH_LONG
+                                    ).show()
                                 }
                             } else if (isEditing) {
                                 viewModel.editEventAbsorbNeighbors(

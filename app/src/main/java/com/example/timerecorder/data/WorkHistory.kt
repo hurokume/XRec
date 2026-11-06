@@ -58,14 +58,22 @@ class WorkHistory(
     }
 
     private val tables = listOf(
-        Table("tasks", listOf("id", "name", "parentId", "colorInt", "sortOrder", "isArchived", "isTemporary")),
+        Table(
+            "tasks",
+            listOf("id", "name", "parentId", "colorInt", "sortOrder", "isArchived", "isTemporary")
+        ),
         Table("task_events", listOf("id", "taskId", "pressedAtEpochMs", "durationMillis")),
         Table("task_sessions", listOf("id", "taskId", "startedAt", "endedAt")),
         Table("active_task_singleton", listOf("singletonId", "taskId", "startedAtEpochMs"))
     )
 
     private data class Snapshot(val rows: Map<String, Map<Long, List<Any?>>>)
-    private data class Change(val table: String, val id: Long, val before: List<Any?>?, val after: List<Any?>?)
+    private data class Change(
+        val table: String,
+        val id: Long,
+        val before: List<Any?>?,
+        val after: List<Any?>?
+    )
 
     fun observe() = db.workHistoryDao().observe()
 
@@ -81,30 +89,32 @@ class WorkHistory(
         }
     }
 
-    suspend fun restoreBefore(id: Long, expectedLatestId: Long): RestoreWorkResult = db.withTransaction {
-        val dao = db.workHistoryDao()
-        if (dao.latestId() != expectedLatestId) return@withTransaction RestoreWorkResult.HistoryChanged
-        val entries = dao.changesSince(id)
-        if (entries.none { it.id == id }) return@withTransaction RestoreWorkResult.Missing
-        val before = snapshot()
-        entries.forEach { entry -> applyBefore(decode(entry.changesJson)) }
-        save(WorkHistoryAction.Restore, before, snapshot())
-        RestoreWorkResult.Restored
-    }
+    suspend fun restoreBefore(id: Long, expectedLatestId: Long): RestoreWorkResult =
+        db.withTransaction {
+            val dao = db.workHistoryDao()
+            if (dao.latestId() != expectedLatestId) return@withTransaction RestoreWorkResult.HistoryChanged
+            val entries = dao.changesSince(id)
+            if (entries.none { it.id == id }) return@withTransaction RestoreWorkResult.Missing
+            val before = snapshot()
+            entries.forEach { entry -> applyBefore(decode(entry.changesJson)) }
+            save(WorkHistoryAction.Restore, before, snapshot())
+            RestoreWorkResult.Restored
+        }
 
     private fun snapshot(): Snapshot = Snapshot(tables.associate { table ->
         val rows = linkedMapOf<Long, List<Any?>>()
-        db.openHelper.writableDatabase.query("SELECT ${table.columns.joinToString()} FROM ${table.name}").use { cursor ->
-            while (cursor.moveToNext()) {
-                rows[cursor.getLong(0)] = table.columns.indices.map { index ->
-                    when {
-                        cursor.isNull(index) -> null
-                        table.columns[index] == "name" -> cursor.getString(index)
-                        else -> cursor.getLong(index)
+        db.openHelper.writableDatabase.query("SELECT ${table.columns.joinToString()} FROM ${table.name}")
+            .use { cursor ->
+                while (cursor.moveToNext()) {
+                    rows[cursor.getLong(0)] = table.columns.indices.map { index ->
+                        when {
+                            cursor.isNull(index) -> null
+                            table.columns[index] == "name" -> cursor.getString(index)
+                            else -> cursor.getLong(index)
+                        }
                     }
                 }
             }
-        }
         table.name to rows
     })
 
@@ -142,6 +152,7 @@ class WorkHistory(
             }
             return names.asReversed().joinToString(" / ")
         }
+
         val formatter = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM)
         fun label(table: String, row: List<Any?>?, snapshot: Snapshot): String {
             if (row == null) return "—"
@@ -150,9 +161,15 @@ class WorkHistory(
                 "task_events" -> {
                     val start = row[2] as Long
                     "${path(snapshot, row[1] as Long)}\n${formatter.format(Date(start))} – " +
-                        formatter.format(Date(start + (row[3] as Long)))
+                            formatter.format(Date(start + (row[3] as Long)))
                 }
-                else -> "${path(snapshot, row[1] as Long)} (${formatter.format(Date(row[2] as Long))})"
+
+                else -> "${
+                    path(
+                        snapshot,
+                        row[1] as Long
+                    )
+                } (${formatter.format(Date(row[2] as Long))})"
             }
         }
         return changes.asSequence().filter { it.table != "task_sessions" }.take(20).map { change ->
@@ -164,7 +181,11 @@ class WorkHistory(
                     "#%08X".format(it.toInt())
                 } ?: "—"
                 if (change.before[3] != change.after[3]) {
-                    lines += "${stringResolver(R.string.work_history_color)}: ${color(change.before[3])} → ${color(change.after[3])}"
+                    lines += "${stringResolver(R.string.work_history_color)}: ${color(change.before[3])} → ${
+                        color(
+                            change.after[3]
+                        )
+                    }"
                 }
                 if (change.before[4] != change.after[4]) {
                     lines += "${stringResolver(R.string.work_history_order)}: ${(change.before[4] as Long) + 1} → ${(change.after[4] as Long) + 1}"
@@ -226,7 +247,9 @@ class WorkHistory(
                     row.toTypedArray()
                 )
                 sql.execSQL(
-                    "UPDATE ${table.name} SET ${table.columns.drop(1).joinToString { "$it = ?" }} WHERE ${table.key} = ?",
+                    "UPDATE ${table.name} SET ${
+                        table.columns.drop(1).joinToString { "$it = ?" }
+                    } WHERE ${table.key} = ?",
                     (row.drop(1) + change.id).toTypedArray()
                 )
             }

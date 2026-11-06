@@ -17,7 +17,11 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 
@@ -26,17 +30,22 @@ class WorkHistoryIntegrationTest {
     private lateinit var db: AppDatabase
     private lateinit var repo: TaskRepository
 
-    @Before fun setup() {
+    @Before
+    fun setup() {
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
         repo = TaskRepository(db, db.sessionDao(), db.taskDao())
     }
 
-    @After fun close() { db.close() }
+    @After
+    fun close() {
+        db.close()
+    }
 
     private suspend fun entries() = repo.observeWorkHistory().first()
     private suspend fun restore(id: Long) = repo.restoreWorkHistory(id, entries().first().id)
 
-    @Test fun keepsExactlyLatest100AndRestoresOldestRetainedChange() = runBlocking {
+    @Test
+    fun keepsExactlyLatest100AndRestoresOldestRetainedChange() = runBlocking {
         val task = db.taskDao().insertTask(TaskEntity(name = "Initial"))
         repeat(105) { repo.renameTask(task, "Name $it", emptyMap()) }
         val history = entries()
@@ -51,9 +60,11 @@ class WorkHistoryIntegrationTest {
         assertEquals("Name 104", db.taskDao().getTaskById(task)!!.name)
     }
 
-    @Test fun overlappingRecordChangesUndoTogetherAndRestorationCanBeUndone() = runBlocking {
+    @Test
+    fun overlappingRecordChangesUndoTogetherAndRestorationCanBeUndone() = runBlocking {
         val task = db.taskDao().insertTask(TaskEntity(name = "Task"))
-        val original = TaskEventEntity(id = 1, taskId = task, pressedAtEpochMs = 100, durationMillis = 900)
+        val original =
+            TaskEventEntity(id = 1, taskId = task, pressedAtEpochMs = 100, durationMillis = 900)
         db.taskDao().insertEvent(original)
         repo.addManualRecord(task, 400, 600)
         assertEquals(3, db.taskDao().getAllEventsForCsv().size)
@@ -73,27 +84,42 @@ class WorkHistoryIntegrationTest {
         assertEquals("Task", db.taskDao().getTaskById(task)!!.name)
     }
 
-    @Test fun restoresMergedTasksSessionsRecordsAndActiveStartWithoutCascadingUnchangedRecords() = runBlocking {
-        val a = db.taskDao().insertTask(TaskEntity(name = "A"))
-        val b = db.taskDao().insertTask(TaskEntity(name = "B"))
-        val child = db.taskDao().insertTask(TaskEntity(name = "Child", parentId = a))
-        val event = db.taskDao().insertEvent(TaskEventEntity(taskId = a, pressedAtEpochMs = 100, durationMillis = 500))
-        val unchanged = db.taskDao().insertEvent(TaskEventEntity(taskId = b, pressedAtEpochMs = 700, durationMillis = 200))
-        repo.startOrSwitch(a, 1_000)
-        repo.renameTask(a, "B", mapOf("*" to TaskNameDecision(true)))
-        assertNull(db.taskDao().getTaskById(a))
-        assertEquals(RestoreWorkResult.Restored, restore(entries().first().id))
-        assertEquals("A", db.taskDao().getTaskById(a)!!.name)
-        assertEquals(a, db.taskDao().getTaskById(child)!!.parentId)
-        assertEquals(a, db.taskDao().getEventById(event)!!.taskId)
-        assertEquals(b, db.taskDao().getEventById(unchanged)!!.taskId)
-        assertEquals(a, db.sessionDao().getActive()!!.taskId)
-        assertEquals(a, db.taskDao().getActiveOrNull()!!.taskId)
-        assertEquals(1_000L, db.sessionDao().getActive()!!.startedAt)
-        assertEquals(1_000L, db.taskDao().getActiveOrNull()!!.startedAtEpochMs)
-    }
+    @Test
+    fun restoresMergedTasksSessionsRecordsAndActiveStartWithoutCascadingUnchangedRecords() =
+        runBlocking {
+            val a = db.taskDao().insertTask(TaskEntity(name = "A"))
+            val b = db.taskDao().insertTask(TaskEntity(name = "B"))
+            val child = db.taskDao().insertTask(TaskEntity(name = "Child", parentId = a))
+            val event = db.taskDao().insertEvent(
+                TaskEventEntity(
+                    taskId = a,
+                    pressedAtEpochMs = 100,
+                    durationMillis = 500
+                )
+            )
+            val unchanged = db.taskDao().insertEvent(
+                TaskEventEntity(
+                    taskId = b,
+                    pressedAtEpochMs = 700,
+                    durationMillis = 200
+                )
+            )
+            repo.startOrSwitch(a, 1_000)
+            repo.renameTask(a, "B", mapOf("*" to TaskNameDecision(true)))
+            assertNull(db.taskDao().getTaskById(a))
+            assertEquals(RestoreWorkResult.Restored, restore(entries().first().id))
+            assertEquals("A", db.taskDao().getTaskById(a)!!.name)
+            assertEquals(a, db.taskDao().getTaskById(child)!!.parentId)
+            assertEquals(a, db.taskDao().getEventById(event)!!.taskId)
+            assertEquals(b, db.taskDao().getEventById(unchanged)!!.taskId)
+            assertEquals(a, db.sessionDao().getActive()!!.taskId)
+            assertEquals(a, db.taskDao().getActiveOrNull()!!.taskId)
+            assertEquals(1_000L, db.sessionDao().getActive()!!.startedAt)
+            assertEquals(1_000L, db.taskDao().getActiveOrNull()!!.startedAtEpochMs)
+        }
 
-    @Test fun importIsOneChangeAndFailuresAndNoOpsDoNotConsumeHistory() = runBlocking {
+    @Test
+    fun importIsOneChangeAndFailuresAndNoOpsDoNotConsumeHistory() = runBlocking {
         val task = db.taskDao().insertTask(TaskEntity(name = "Existing"))
         repo.renameTask(task, "Existing", emptyMap())
         repo.stopActive(5_000)
@@ -101,7 +127,8 @@ class WorkHistoryIntegrationTest {
         try {
             repo.importTasksJson("""[{"name":"New"},{"name":"Existing"}]""", false)
             fail("Expected name conflict")
-        } catch (_: TaskNameConflict) { }
+        } catch (_: TaskNameConflict) {
+        }
         assertEquals(1, db.taskDao().getAllTasksOnce().size)
         assertTrue(entries().isEmpty())
         repo.importEventsTsv("event_name\ttask_name\tsubtask_name\tstart\tend\tduration\nNew\tChild\t\t100\t200\t100\nNew\tChild\t\t300\t400\t100")
@@ -112,7 +139,8 @@ class WorkHistoryIntegrationTest {
         assertTrue(db.taskDao().getAllEventsForCsv().isEmpty())
     }
 
-    @Test fun deletionAndTimerStopRestoreConsistently() = runBlocking {
+    @Test
+    fun deletionAndTimerStopRestoreConsistently() = runBlocking {
         val parent = db.taskDao().insertTask(TaskEntity(name = "Parent"))
         val child = db.taskDao().insertTask(TaskEntity(name = "Child", parentId = parent))
         repo.startOrSwitch(child, 1_000)
@@ -129,9 +157,12 @@ class WorkHistoryIntegrationTest {
         assertEquals(1_000L, db.taskDao().getActiveOrNull()!!.startedAtEpochMs)
     }
 
-    @Test fun concurrentOperationsAreSeparateAndStaleConfirmationDoesNotRestore() = runBlocking {
+    @Test
+    fun concurrentOperationsAreSeparateAndStaleConfirmationDoesNotRestore() = runBlocking {
         coroutineScope {
-            listOf(async { repo.addTask("A", null) }, async { repo.addTask("B", null) }).forEach { it.await() }
+            listOf(
+                async { repo.addTask("A", null) },
+                async { repo.addTask("B", null) }).forEach { it.await() }
         }
         assertEquals(2, entries().size)
         val selected = entries().first().id
@@ -142,23 +173,32 @@ class WorkHistoryIntegrationTest {
         assertEquals(3, entries().size)
     }
 
-    @Test fun failedRestorationRollsBackRowsAlreadyRestoredInTheSameTransaction() = runBlocking {
+    @Test
+    fun failedRestorationRollsBackRowsAlreadyRestoredInTheSameTransaction() = runBlocking {
         val task = db.taskDao().insertTask(TaskEntity(name = "Initial"))
-        db.workHistoryDao().insert(WorkHistoryEntity(
-            createdAt = 1, action = WorkHistoryAction.RenameTask.name, details = "", taskCount = 0,
-            recordCount = 0, changesJson = "invalid payload"
-        ))
+        db.workHistoryDao().insert(
+            WorkHistoryEntity(
+                createdAt = 1,
+                action = WorkHistoryAction.RenameTask.name,
+                details = "",
+                taskCount = 0,
+                recordCount = 0,
+                changesJson = "invalid payload"
+            )
+        )
         val brokenEntry = entries().single().id
         repo.renameTask(task, "Latest", emptyMap())
         try {
             restore(brokenEntry)
             fail("Expected invalid history to reject restoration")
-        } catch (_: org.json.JSONException) { }
+        } catch (_: org.json.JSONException) {
+        }
         assertEquals("Latest", db.taskDao().getTaskById(task)!!.name)
         assertEquals(2, entries().size)
     }
 
-    @Test fun historySurvivesDatabaseReopen() = runBlocking {
+    @Test
+    fun historySurvivesDatabaseReopen() = runBlocking {
         val name = "work-history-test-${System.nanoTime()}.db"
         db.close()
         try {
@@ -178,7 +218,8 @@ class WorkHistoryIntegrationTest {
         }
     }
 
-    @Test fun migrationFromVersion3PreservesExistingDataAndStartsWithEmptyWorkHistory() = runBlocking {
+    @Test
+    fun migrationFromVersion3PreservesExistingDataAndStartsWithEmptyWorkHistory() = runBlocking {
         val name = "work-history-migration-${System.nanoTime()}.db"
         db.close()
         try {

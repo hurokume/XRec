@@ -1,34 +1,58 @@
 package com.example.timerecorder.ui
 
 import android.content.Context
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DateRangePickerState
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDateRangePickerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Modifier
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.timerecorder.R
 import java.text.DateFormat
+import java.text.DateFormatSymbols
+import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.TimeZone
-import java.text.SimpleDateFormat
-import java.text.DateFormatSymbols
 
 enum class TimelinePeriod(val label: Int) {
     Today(R.string.action_today), ThreeDays(R.string.timeline_three_days),
@@ -63,7 +87,13 @@ internal fun calendarDay(ms: Long, offset: Int = 0): Long = Calendar.getInstance
     add(Calendar.DAY_OF_MONTH, offset)
 }.timeInMillis
 
-internal fun timelineBounds(period: TimelinePeriod, now: Long, offset: Int, customStart: Long, customEnd: Long): Pair<Long, Long> {
+internal fun timelineBounds(
+    period: TimelinePeriod,
+    now: Long,
+    offset: Int,
+    customStart: Long,
+    customEnd: Long
+): Pair<Long, Long> {
     val cal = Calendar.getInstance().apply { timeInMillis = calendarDay(now) }
     return when (period) {
         TimelinePeriod.Custom -> calendarDay(customStart) to calendarDay(customEnd, 1)
@@ -72,8 +102,11 @@ internal fun timelineBounds(period: TimelinePeriod, now: Long, offset: Int, cust
             cal.add(Calendar.WEEK_OF_YEAR, offset)
             cal.timeInMillis to calendarDay(cal.timeInMillis, 7)
         }
+
         else -> {
-            val days = when (period) { TimelinePeriod.ThreeDays -> 3; TimelinePeriod.FiveDays -> 5; else -> 1 }
+            val days = when (period) {
+                TimelinePeriod.ThreeDays -> 3; TimelinePeriod.FiveDays -> 5; else -> 1
+            }
             val start = calendarDay(now, offset * days - days + 1)
             start to calendarDay(start, days)
         }
@@ -85,11 +118,16 @@ internal class TimelineRange(
     val select: (TimelinePeriod) -> Unit, val shift: (Int) -> Unit,
     val custom: (Long, Long) -> Unit
 ) {
-    val dayCount: Int get() {
-        var count = 0; var day = startMs
-        while (day < endMs) { count++; day = calendarDay(day, 1) }
-        return count
-    }
+    val dayCount: Int
+        get() {
+            var count = 0;
+            var day = startMs
+            while (day < endMs) {
+                count++; day = calendarDay(day, 1)
+            }
+            return count
+        }
+
     fun dayStart(index: Int) = calendarDay(startMs, index)
 }
 
@@ -97,24 +135,52 @@ internal class TimelineRange(
 internal fun rememberTimelineRange(now: Long): TimelineRange {
     val ctx = LocalContext.current
     val prefs = remember(ctx) { ctx.getSharedPreferences("app_settings", Context.MODE_PRIVATE) }
-    var period by rememberSaveable { mutableStateOf(timelinePeriodFromPreference(prefs.getString("timeline_period", null))) }
+    var period by rememberSaveable {
+        mutableStateOf(
+            timelinePeriodFromPreference(
+                prefs.getString(
+                    "timeline_period",
+                    null
+                )
+            )
+        )
+    }
     var offset by rememberSaveable { mutableIntStateOf(0) }
-    var customStart by rememberSaveable { mutableLongStateOf(prefs.getLong("timeline_custom_start", calendarDay(now, -2))) }
-    var customEnd by rememberSaveable { mutableLongStateOf(prefs.getLong("timeline_custom_end", calendarDay(now))) }
+    var customStart by rememberSaveable {
+        mutableLongStateOf(
+            prefs.getLong(
+                "timeline_custom_start",
+                calendarDay(now, -2)
+            )
+        )
+    }
+    var customEnd by rememberSaveable {
+        mutableLongStateOf(
+            prefs.getLong(
+                "timeline_custom_end",
+                calendarDay(now)
+            )
+        )
+    }
     val (start, end) = timelineBounds(period, now, offset, customStart, customEnd)
-    return TimelineRange(period, start, end,
+    return TimelineRange(
+        period, start, end,
         select = { period = it; offset = 0 },
         shift = { step ->
             if (period == TimelinePeriod.Custom) {
-                var days = 0; var day = start
-                while (day < end) { days++; day = calendarDay(day, 1) }
+                var days = 0;
+                var day = start
+                while (day < end) {
+                    days++; day = calendarDay(day, 1)
+                }
                 customStart = calendarDay(customStart, days * step)
                 customEnd = calendarDay(customEnd, days * step)
             } else offset += step
         },
         custom = { s, e ->
             customStart = s; customEnd = e; period = TimelinePeriod.Custom
-            prefs.edit().putLong("timeline_custom_start", s).putLong("timeline_custom_end", e).apply()
+            prefs.edit().putLong("timeline_custom_start", s).putLong("timeline_custom_end", e)
+                .apply()
         })
 }
 
@@ -125,15 +191,30 @@ internal fun TimelineRangeControls(range: TimelineRange) {
     var showCustomRange by rememberSaveable { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = { range.shift(-1) }) {
-            Icon(Icons.Filled.ChevronLeft, contentDescription = stringResource(R.string.timeline_previous))
+            Icon(
+                Icons.Filled.ChevronLeft,
+                contentDescription = stringResource(R.string.timeline_previous)
+            )
         }
-        Text(stringResource(R.string.date_range, formatter.format(Date(range.startMs)), formatter.format(Date(range.endMs - 1))),
-            style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        Text(
+            stringResource(
+                R.string.date_range,
+                formatter.format(Date(range.startMs)),
+                formatter.format(Date(range.endMs - 1))
+            ),
+            style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f)
+        )
         IconButton(onClick = { range.shift(1) }) {
-            Icon(Icons.Filled.ChevronRight, contentDescription = stringResource(R.string.timeline_next))
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = stringResource(R.string.timeline_next)
+            )
         }
     }
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         TimelinePeriod.entries.forEach { period ->
             FilterChip(selected = range.period == period, onClick = {
                 if (period == TimelinePeriod.Custom) {
@@ -207,26 +288,43 @@ private fun RangeCalendar(state: DateRangePickerState, modifier: Modifier = Modi
             clear(); set(newYear, newMonth, 1)
         }.timeInMillis
     }
+
     val dateFormat = DateFormat.getDateInstance(DateFormat.MEDIUM, locale).apply { timeZone = utc }
     val fullDate = DateFormat.getDateInstance(DateFormat.FULL, locale).apply { timeZone = utc }
     val monthNames = DateFormatSymbols(locale).months
-    Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
-        Text(stringResource(R.string.timeline_select_range), style = MaterialTheme.typography.titleMedium)
-        Text(stringResource(R.string.timeline_range_start,
-            state.selectedStartDateMillis?.let { dateFormat.format(Date(it)) } ?: "—"))
-        Text(stringResource(R.string.timeline_range_end,
-            state.selectedEndDateMillis?.let { dateFormat.format(Date(it)) } ?: "—"))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween) {
-            IconButton(enabled = year > state.yearRange.first || monthIndex > 0,
+    Column(
+        modifier
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+    ) {
+        Text(
+            stringResource(R.string.timeline_select_range),
+            style = MaterialTheme.typography.titleMedium
+        )
+        Text(
+            stringResource(
+                R.string.timeline_range_start,
+                state.selectedStartDateMillis?.let { dateFormat.format(Date(it)) } ?: "—"))
+        Text(
+            stringResource(
+                R.string.timeline_range_end,
+                state.selectedEndDateMillis?.let { dateFormat.format(Date(it)) } ?: "—"))
+        Row(
+            Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            IconButton(
+                enabled = year > state.yearRange.first || monthIndex > 0,
                 onClick = { changeMonth(newMonth = monthIndex - 1) }) {
                 Icon(Icons.Filled.ChevronLeft, stringResource(R.string.timeline_previous))
             }
             TextButton(onClick = { selectingYear = true }) {
-                Text(SimpleDateFormat("yyyy", locale).apply { timeZone = utc }.format(Date(monthMillis)))
+                Text(SimpleDateFormat("yyyy", locale).apply { timeZone = utc }
+                    .format(Date(monthMillis)))
             }
             TextButton(onClick = { selectingMonth = true }) { Text(monthNames[monthIndex]) }
-            IconButton(enabled = year < state.yearRange.last || monthIndex < 11,
+            IconButton(
+                enabled = year < state.yearRange.last || monthIndex < 11,
                 onClick = { changeMonth(newMonth = monthIndex + 1) }) {
                 Icon(Icons.Filled.ChevronRight, stringResource(R.string.timeline_next))
             }
@@ -248,14 +346,22 @@ private fun RangeCalendar(state: DateRangePickerState, modifier: Modifier = Modi
                     val day = row * 7 + column - leading + 1
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         if (day in 1..days) {
-                            val date = (month.clone() as Calendar).apply { set(Calendar.DAY_OF_MONTH, day) }.timeInMillis
+                            val date = (month.clone() as Calendar).apply {
+                                set(
+                                    Calendar.DAY_OF_MONTH,
+                                    day
+                                )
+                            }.timeInMillis
                             val start = state.selectedStartDateMillis
                             val end = state.selectedEndDateMillis
                             val selected = date == start || date == end
                             val inRange = start != null && end != null && date in start..end
                             TextButton(
                                 onClick = {
-                                    if (start == null || end != null || date < start) state.setSelection(date, null)
+                                    if (start == null || end != null || date < start) state.setSelection(
+                                        date,
+                                        null
+                                    )
                                     else state.setSelection(start, date)
                                 },
                                 modifier = Modifier.heightIn(min = 48.dp),
@@ -268,9 +374,11 @@ private fun RangeCalendar(state: DateRangePickerState, modifier: Modifier = Modi
                                     },
                                     contentColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                                 )
-                            ) { Text(day.toString(), Modifier.semantics {
-                                contentDescription = fullDate.format(Date(date))
-                            }) }
+                            ) {
+                                Text(day.toString(), Modifier.semantics {
+                                    contentDescription = fullDate.format(Date(date))
+                                })
+                            }
                         }
                     }
                 }
@@ -278,21 +386,35 @@ private fun RangeCalendar(state: DateRangePickerState, modifier: Modifier = Modi
         }
     }
     if (selectingYear) {
-        AlertDialog(onDismissRequest = { selectingYear = false },
+        AlertDialog(
+            onDismissRequest = { selectingYear = false },
             title = { Text(stringResource(R.string.timeline_select_year)) },
             text = {
-                LazyColumn(Modifier.heightIn(max = 320.dp),
-                    state = rememberLazyListState((year - state.yearRange.first - 2).coerceAtLeast(0))) {
+                LazyColumn(
+                    Modifier.heightIn(max = 320.dp),
+                    state = rememberLazyListState((year - state.yearRange.first - 2).coerceAtLeast(0))
+                ) {
                     items(state.yearRange.toList()) { candidate ->
-                        TextButton(onClick = { changeMonth(newYear = candidate); selectingYear = false },
-                            modifier = Modifier.fillMaxWidth()) { Text(candidate.toString()) }
+                        TextButton(
+                            onClick = { changeMonth(newYear = candidate); selectingYear = false },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(candidate.toString()) }
                     }
                 }
             }, confirmButton = {},
-            dismissButton = { TextButton(onClick = { selectingYear = false }) { Text(stringResource(R.string.action_cancel)) } })
+            dismissButton = {
+                TextButton(onClick = { selectingYear = false }) {
+                    Text(
+                        stringResource(
+                            R.string.action_cancel
+                        )
+                    )
+                }
+            })
     }
     if (selectingMonth) {
-        AlertDialog(onDismissRequest = { selectingMonth = false },
+        AlertDialog(
+            onDismissRequest = { selectingMonth = false },
             title = { Text(stringResource(R.string.timeline_select_month)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -300,13 +422,21 @@ private fun RangeCalendar(state: DateRangePickerState, modifier: Modifier = Modi
                         Row {
                             repeat(3) { column ->
                                 val candidate = row * 3 + column
-                                TextButton(onClick = { changeMonth(newMonth = candidate); selectingMonth = false },
-                                    modifier = Modifier.weight(1f)) { Text(monthNames[candidate]) }
+                                TextButton(
+                                    onClick = {
+                                        changeMonth(newMonth = candidate); selectingMonth = false
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text(monthNames[candidate]) }
                             }
                         }
                     }
                 }
             }, confirmButton = {},
-            dismissButton = { TextButton(onClick = { selectingMonth = false }) { Text(stringResource(R.string.action_cancel)) } })
+            dismissButton = {
+                TextButton(onClick = {
+                    selectingMonth = false
+                }) { Text(stringResource(R.string.action_cancel)) }
+            })
     }
 }

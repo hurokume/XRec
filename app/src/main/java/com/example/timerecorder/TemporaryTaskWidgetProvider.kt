@@ -12,10 +12,22 @@ class TemporaryTaskWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, appWidgetIds: IntArray) {
         appWidgetIds.forEach { id ->
             val views = RemoteViews(context.packageName, R.layout.widget_temporary_task).apply {
-                setTextViewText(R.id.widget_temporary_title, context.getString(R.string.notification_temporary))
-                setTextViewText(R.id.widget_temporary_hint, context.getString(R.string.temporary_widget_hint))
-                setContentDescription(R.id.widget_temporary_button, context.getString(R.string.temporary_task_description))
-                setOnClickPendingIntent(R.id.widget_temporary_button, ActiveTaskService.temporaryPendingIntent(context))
+                setTextViewText(
+                    R.id.widget_temporary_title,
+                    context.getString(R.string.notification_temporary)
+                )
+                setTextViewText(
+                    R.id.widget_temporary_hint,
+                    context.getString(R.string.temporary_widget_hint)
+                )
+                setContentDescription(
+                    R.id.widget_temporary_button,
+                    context.getString(R.string.temporary_task_description)
+                )
+                setOnClickPendingIntent(
+                    R.id.widget_temporary_button,
+                    ActiveTaskService.temporaryPendingIntent(context)
+                )
             }
             manager.updateAppWidget(id, views)
         }

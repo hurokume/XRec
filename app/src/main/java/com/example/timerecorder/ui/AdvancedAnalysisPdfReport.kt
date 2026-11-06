@@ -64,7 +64,11 @@ internal class AdvancedAnalysisPdfWriter(
     private val pageBreakBeforeProbability: Boolean = false
 ) {
     private fun text(id: Int, vararg args: Any): String =
-        if (args.isEmpty()) stringResolver(id) else String.format(Locale.getDefault(), stringResolver(id), *args)
+        if (args.isEmpty()) stringResolver(id) else String.format(
+            Locale.getDefault(),
+            stringResolver(id),
+            *args
+        )
 
     private val pageWidth = A4_WIDTH_POINTS.toFloat()
     private val pageHeight = A4_HEIGHT_POINTS.toFloat()
@@ -137,7 +141,13 @@ internal class AdvancedAnalysisPdfWriter(
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 0.6f
         paint.color = Color.rgb(205, 213, 222)
-        requireCanvas().drawLine(margin, pageHeight - 31f, pageWidth - margin, pageHeight - 31f, paint)
+        requireCanvas().drawLine(
+            margin,
+            pageHeight - 31f,
+            pageWidth - margin,
+            pageHeight - 31f,
+            paint
+        )
         paint.style = Paint.Style.FILL
         drawText(
             text = "${text(R.string.app_name)} | $generatedAt",
@@ -179,8 +189,22 @@ internal class AdvancedAnalysisPdfWriter(
             text(R.string.pdf_analysis_period),
             "${dateFormat.format(Date(result.range.startMs))} - ${dateFormat.format(Date(result.range.endMs))}"
         )
-        keyValue(text(R.string.advanced_analysis_target_days), text(R.string.advanced_analysis_target_days_value, result.quality.analyzedDays, result.quality.calendarDays))
-        keyValue(text(R.string.pdf_boundary_slots), text(R.string.pdf_boundary_value, formatClock(result.timeProfile.boundaryMinutes), result.timeProfile.slotMinutes))
+        keyValue(
+            text(R.string.advanced_analysis_target_days),
+            text(
+                R.string.advanced_analysis_target_days_value,
+                result.quality.analyzedDays,
+                result.quality.calendarDays
+            )
+        )
+        keyValue(
+            text(R.string.pdf_boundary_slots),
+            text(
+                R.string.pdf_boundary_value,
+                formatClock(result.timeProfile.boundaryMinutes),
+                result.timeProfile.slotMinutes
+            )
+        )
         keyValue(text(R.string.pdf_generated), generatedAt)
         y += 8f
     }
@@ -188,13 +212,25 @@ internal class AdvancedAnalysisPdfWriter(
     private fun drawQualitySection(result: AdvancedAnalysisResult) {
         sectionTitle(text(R.string.advanced_analysis_section_data_quality))
         val quality = result.quality
-        keyValue(text(R.string.advanced_analysis_coverage_rate), formatPercent(quality.coverageRate))
+        keyValue(
+            text(R.string.advanced_analysis_coverage_rate),
+            formatPercent(quality.coverageRate)
+        )
         keyValue(text(R.string.advanced_analysis_recorded_time), formatDuration(quality.recordedMs))
         keyValue(text(R.string.advanced_analysis_missing_time), formatDuration(quality.missingMs))
         keyValue(text(R.string.advanced_analysis_overlap_time), formatDuration(quality.overlapMs))
-        keyValue(text(R.string.advanced_analysis_unspecified), formatDuration(quality.unspecifiedMs))
-        keyValue(text(R.string.advanced_analysis_short_records), text(R.string.label_item_count, quality.shortEventCount))
-        keyValue(text(R.string.advanced_analysis_days_95), text(R.string.advanced_analysis_days, quality.daysAtLeast95Percent))
+        keyValue(
+            text(R.string.advanced_analysis_unspecified),
+            formatDuration(quality.unspecifiedMs)
+        )
+        keyValue(
+            text(R.string.advanced_analysis_short_records),
+            text(R.string.label_item_count, quality.shortEventCount)
+        )
+        keyValue(
+            text(R.string.advanced_analysis_days_95),
+            text(R.string.advanced_analysis_days, quality.daysAtLeast95Percent)
+        )
         y += 8f
     }
 
@@ -208,7 +244,10 @@ internal class AdvancedAnalysisPdfWriter(
             categoryMetric(index + 1, metric)
         }
         if (result.categoryMetrics.size > 20) {
-            paragraph(text(R.string.pdf_top_twenty, result.categoryMetrics.size), color = Color.DKGRAY)
+            paragraph(
+                text(R.string.pdf_top_twenty, result.categoryMetrics.size),
+                color = Color.DKGRAY
+            )
         }
         y += 8f
     }
@@ -219,8 +258,13 @@ internal class AdvancedAnalysisPdfWriter(
         drawEllipsizedText(label, margin, y + 10f, contentWidth, 10f, Color.rgb(36, 48, 61), true)
         y += 15f
         drawText(
-            text = text(R.string.pdf_metric_summary, formatDuration(metric.totalMs), formatDuration(metric.averagePerDayMs),
-                formatPercent(metric.share), formatPercent(metric.activeDayRate)),
+            text = text(
+                R.string.pdf_metric_summary,
+                formatDuration(metric.totalMs),
+                formatDuration(metric.averagePerDayMs),
+                formatPercent(metric.share),
+                formatPercent(metric.activeDayRate)
+            ),
             x = margin,
             baseline = y + 9f,
             size = 8f,
@@ -252,7 +296,9 @@ internal class AdvancedAnalysisPdfWriter(
         paragraph(text(R.string.advanced_analysis_probability_description))
         val palettes = selectedAnalysisPalettes(paletteMask)
         paragraph(
-            text(R.string.pdf_palettes, palettes.joinToString(" / ") { stringResolver(it.labelRes) }),
+            text(
+                R.string.pdf_palettes,
+                palettes.joinToString(" / ") { stringResolver(it.labelRes) }),
             size = 8f,
             color = Color.rgb(82, 95, 109)
         )
@@ -297,8 +343,14 @@ internal class AdvancedAnalysisPdfWriter(
             }
         }
         y += 5f
-        keyValue(text(R.string.advanced_analysis_regularity), formatPercent(result.timeProfile.regularity))
-        keyValue(text(R.string.advanced_analysis_average_entropy), String.format(Locale.getDefault(), "%.2f", result.timeProfile.averageEntropy))
+        keyValue(
+            text(R.string.advanced_analysis_regularity),
+            formatPercent(result.timeProfile.regularity)
+        )
+        keyValue(
+            text(R.string.advanced_analysis_average_entropy),
+            String.format(Locale.getDefault(), "%.2f", result.timeProfile.averageEntropy)
+        )
         val modal = modalDaySummaryForReport(result)
         if (modal.isNotEmpty()) {
             y += 4f
@@ -328,9 +380,18 @@ internal class AdvancedAnalysisPdfWriter(
         val formatter = SimpleDateFormat("yyyy/MM/dd (EEE)", Locale.getDefault())
         result.representativeDay?.let { representative ->
             paragraph(text(R.string.advanced_analysis_representative_day), medium = true)
-            keyValue(text(R.string.advanced_analysis_date), formatter.format(Date(representative.dayStartMs)))
-            keyValue(text(R.string.advanced_analysis_mean_distance), String.format(Locale.getDefault(), "%.2f", representative.meanDistance))
-            keyValue(text(R.string.advanced_analysis_coverage_rate), formatPercent(representative.coverageRate))
+            keyValue(
+                text(R.string.advanced_analysis_date),
+                formatter.format(Date(representative.dayStartMs))
+            )
+            keyValue(
+                text(R.string.advanced_analysis_mean_distance),
+                String.format(Locale.getDefault(), "%.2f", representative.meanDistance)
+            )
+            keyValue(
+                text(R.string.advanced_analysis_coverage_rate),
+                formatPercent(representative.coverageRate)
+            )
         } ?: paragraph(text(R.string.advanced_analysis_no_representative_day))
 
         if (result.typicalPatterns.isNotEmpty()) {
@@ -338,8 +399,15 @@ internal class AdvancedAnalysisPdfWriter(
             paragraph(text(R.string.advanced_analysis_typical_patterns), medium = true)
             result.typicalPatterns.forEachIndexed { index, pattern ->
                 paragraph(
-                    text(R.string.advanced_analysis_pattern_row, index + 1, formatter.format(Date(pattern.medoidDayStartMs)),
-                        pattern.dayCount, formatPercent(pattern.share), pattern.weekdayCount, pattern.weekendCount),
+                    text(
+                        R.string.advanced_analysis_pattern_row,
+                        index + 1,
+                        formatter.format(Date(pattern.medoidDayStartMs)),
+                        pattern.dayCount,
+                        formatPercent(pattern.share),
+                        pattern.weekdayCount,
+                        pattern.weekendCount
+                    ),
                     size = 8.5f
                 )
             }
@@ -382,8 +450,10 @@ internal class AdvancedAnalysisPdfWriter(
         }
         result.transitions.take(15).forEachIndexed { index, transition ->
             paragraph(
-                "${index + 1}. " + text(R.string.advanced_analysis_transition_row, transition.fromName,
-                    transition.toName, transition.count, formatPercent(transition.probability)),
+                "${index + 1}. " + text(
+                    R.string.advanced_analysis_transition_row, transition.fromName,
+                    transition.toName, transition.count, formatPercent(transition.probability)
+                ),
                 size = 8.5f
             )
         }

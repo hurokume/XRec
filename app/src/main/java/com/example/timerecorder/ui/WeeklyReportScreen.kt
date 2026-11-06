@@ -50,13 +50,13 @@ import com.example.timerecorder.data.AnalysisLevel
 import com.example.timerecorder.data.AnalysisRequest
 import com.example.timerecorder.data.DailyPlans
 import com.example.timerecorder.data.WeeklyReportEngine
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 fun WeeklyReportScreen(
@@ -257,9 +257,11 @@ fun WeeklyReportScreen(
                                         AnalysisLevel.Large -> stringResource(
                                             R.string.analysis_level_large
                                         )
+
                                         AnalysisLevel.Middle -> stringResource(
                                             R.string.analysis_level_middle
                                         )
+
                                         AnalysisLevel.Small -> stringResource(
                                             R.string.analysis_level_small
                                         )

@@ -1,11 +1,6 @@
 package com.example.timerecorder.ui
 
 import android.app.Application
-import com.example.timerecorder.data.TaskNameConflict
-import com.example.timerecorder.data.TaskNameDecision
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -16,21 +11,27 @@ import com.example.timerecorder.data.AdvancedAnalysisEngine
 import com.example.timerecorder.data.AdvancedAnalysisResult
 import com.example.timerecorder.data.AnalysisRequest
 import com.example.timerecorder.data.DailyPlans
+import com.example.timerecorder.data.RestoreWorkResult
 import com.example.timerecorder.data.SwitchResult
 import com.example.timerecorder.data.TaskAnalysisEngine
 import com.example.timerecorder.data.TaskAnalysisRequest
 import com.example.timerecorder.data.TaskAnalysisResult
 import com.example.timerecorder.data.TaskDeletionMode
+import com.example.timerecorder.data.TaskNameConflict
+import com.example.timerecorder.data.TaskNameDecision
 import com.example.timerecorder.data.TaskRepository
-import com.example.timerecorder.data.WorkHistoryAction
-import com.example.timerecorder.data.RestoreWorkResult
 import com.example.timerecorder.data.WeeklyReportData
 import com.example.timerecorder.data.WeeklyReportEngine
+import com.example.timerecorder.data.WorkHistoryAction
 import com.example.timerecorder.data.db.ActiveWithTask
 import com.example.timerecorder.data.db.AppDatabase
 import com.example.timerecorder.data.db.ParentWithChildren
 import com.example.timerecorder.data.db.TaskDao
 import com.example.timerecorder.data.db.TaskEventEntity
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -38,10 +39,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 data class HistoryItemUi(
@@ -82,33 +82,42 @@ data class TaskAnalysisUiState(
     val errorMessage: String? = null
 )
 
-class TaskViewModel @JvmOverloads constructor(app: Application, database: AppDatabase? = null) : AndroidViewModel(app) {
+class TaskViewModel @JvmOverloads constructor(app: Application, database: AppDatabase? = null) :
+    AndroidViewModel(app) {
     private val conflictMutex = Mutex()
     val nameConflict = MutableStateFlow<TaskNameConflict?>(null)
     val editingTask = MutableStateFlow<Pair<Long, String>?>(null)
     private var conflictAnswer: CompletableDeferred<TaskNameDecision>? = null
-    fun requestTaskEdit(id: Long, name: String) { editingTask.value = id to name }
+    fun requestTaskEdit(id: Long, name: String) {
+        editingTask.value = id to name
+    }
+
     fun answerNameConflict(answer: TaskNameDecision?) {
         if (answer == null) conflictAnswer?.cancel() else conflictAnswer?.complete(answer)
     }
-    private suspend fun <T> resolveNames(action: suspend (Map<String, TaskNameDecision>) -> T): T = conflictMutex.withLock {
-        val decisions = mutableMapOf<String, TaskNameDecision>()
-        while (true) {
-            try { return@withLock action(decisions) }
-            catch (conflict: TaskNameConflict) {
-                // Transaction rolled back before the prompt; recording remains available.
-                val answer = CompletableDeferred<TaskNameDecision>()
-                conflictAnswer = answer
-                nameConflict.value = conflict
+
+    private suspend fun <T> resolveNames(action: suspend (Map<String, TaskNameDecision>) -> T): T =
+        conflictMutex.withLock {
+            val decisions = mutableMapOf<String, TaskNameDecision>()
+            while (true) {
                 try {
-                    val choice = answer.await()
-                    decisions[conflict.key] = choice
-                    if (choice.applyAll) decisions["*"] = choice.copy(newName = "")
-                } finally { nameConflict.value = null; conflictAnswer = null }
+                    return@withLock action(decisions)
+                } catch (conflict: TaskNameConflict) {
+                    // Transaction rolled back before the prompt; recording remains available.
+                    val answer = CompletableDeferred<TaskNameDecision>()
+                    conflictAnswer = answer
+                    nameConflict.value = conflict
+                    try {
+                        val choice = answer.await()
+                        decisions[conflict.key] = choice
+                        if (choice.applyAll) decisions["*"] = choice.copy(newName = "")
+                    } finally {
+                        nameConflict.value = null; conflictAnswer = null
+                    }
+                }
             }
+            @Suppress("UNREACHABLE_CODE") error("unreachable")
         }
-        @Suppress("UNREACHABLE_CODE") error("unreachable")
-    }
 
     private fun text(@StringRes resourceId: Int, vararg formatArgs: Any): String =
         getApplication<Application>().getString(resourceId, *formatArgs)
@@ -146,6 +155,7 @@ class TaskViewModel @JvmOverloads constructor(app: Application, database: AppDat
                     _events.emit(UiEvent.DataRestored)
                     _events.emit(UiEvent.ShowMessage(text(R.string.work_history_restored)))
                 }
+
                 RestoreWorkResult.HistoryChanged, RestoreWorkResult.Missing ->
                     _events.emit(UiEvent.ShowMessage(text(R.string.work_history_changed)))
             }
@@ -207,8 +217,13 @@ class TaskViewModel @JvmOverloads constructor(app: Application, database: AppDat
     fun children(parentId: Long) = repo.observeChildren(parentId)
     suspend fun recordForEdit(eventId: Long) = taskDao.getEventById(eventId)
 
-    suspend fun changeRunningTask(expectedTaskId: Long, expectedStart: Long, newTaskId: Long): Boolean =
+    suspend fun changeRunningTask(
+        expectedTaskId: Long,
+        expectedStart: Long,
+        newTaskId: Long
+    ): Boolean =
         repo.changeRunningTask(expectedTaskId, expectedStart, newTaskId)
+
     suspend fun hasChildren(taskId: Long) = repo.hasChildren(taskId)
 
     private val _historyItems = MutableStateFlow<List<HistoryItemUi>>(emptyList())
@@ -286,9 +301,26 @@ class TaskViewModel @JvmOverloads constructor(app: Application, database: AppDat
         }
     }
 
-    fun addParentTask(name: String) = viewModelScope.launch { resolveNames { repo.addTaskResolving(name.trim().take(128), null, it) } }
+    fun addParentTask(name: String) = viewModelScope.launch {
+        resolveNames {
+            repo.addTaskResolving(
+                name.trim().take(128),
+                null,
+                it
+            )
+        }
+    }
+
     fun addChildTask(parentId: Long, name: String) =
-        viewModelScope.launch { resolveNames { repo.addTaskResolving(name.trim().take(128), parentId, it) } }
+        viewModelScope.launch {
+            resolveNames {
+                repo.addTaskResolving(
+                    name.trim().take(128),
+                    parentId,
+                    it
+                )
+            }
+        }
 
     fun changeParentColor(parentId: Long, color: Color) =
         viewModelScope.launch { repo.changeColor(parentId, color.toArgb()) }
@@ -299,15 +331,34 @@ class TaskViewModel @JvmOverloads constructor(app: Application, database: AppDat
             val mapping = resolveNames { repo.renameTask(taskId, trimmed, it) }
             if (mapping.isNotEmpty()) {
                 val prefs = getApplication<Application>().getSharedPreferences("app_settings", 0)
-                val plans = com.example.timerecorder.data.DailyPlansCodec.decode(prefs.getString("daily_plans", null))
+                val plans = com.example.timerecorder.data.DailyPlansCodec.decode(
+                    prefs.getString(
+                        "daily_plans",
+                        null
+                    )
+                )
                 val updated = plans.copy(
-                    weekdays = plans.weekdays.map { it.copy(targetTaskId = mapping[it.targetTaskId] ?: it.targetTaskId) },
-                    holidays = plans.holidays.map { it.copy(targetTaskId = mapping[it.targetTaskId] ?: it.targetTaskId) })
-                prefs.edit().putString("daily_plans", com.example.timerecorder.data.DailyPlansCodec.encode(updated)).apply()
+                    weekdays = plans.weekdays.map {
+                        it.copy(
+                            targetTaskId = mapping[it.targetTaskId] ?: it.targetTaskId
+                        )
+                    },
+                    holidays = plans.holidays.map {
+                        it.copy(
+                            targetTaskId = mapping[it.targetTaskId] ?: it.targetTaskId
+                        )
+                    })
+                prefs.edit().putString(
+                    "daily_plans",
+                    com.example.timerecorder.data.DailyPlansCodec.encode(updated)
+                ).apply()
                 val stats = getApplication<Application>().getSharedPreferences("stats_prefs", 0)
                 stats.getString("stats_included_leaf_ids", null)?.let { csv ->
-                    stats.edit().putString("stats_included_leaf_ids", csv.split(',').mapNotNull { it.toLongOrNull() }
-                        .map { mapping[it] ?: it }.distinct().joinToString(",")).apply()
+                    stats.edit().putString(
+                        "stats_included_leaf_ids",
+                        csv.split(',').mapNotNull { it.toLongOrNull() }
+                            .map { mapping[it] ?: it }.distinct().joinToString(",")
+                    ).apply()
                 }
                 _events.emit(UiEvent.TasksMerged)
             }
@@ -338,6 +389,7 @@ class TaskViewModel @JvmOverloads constructor(app: Application, database: AppDat
             )
         }
     }
+
     fun reorderChildren(parentId: Long, idsInOrder: List<Long>) =
         viewModelScope.launch { repo.updateSortOrdersForParent(parentId, idsInOrder) }
 
@@ -412,7 +464,12 @@ class TaskViewModel @JvmOverloads constructor(app: Application, database: AppDat
                     nowMs = request.nowMs
                 )
                 val result = withContext(Dispatchers.Default) {
-                    AdvancedAnalysisEngine.analyze(records, request, dailyPlans, unspecifiedLabel = text(R.string.label_unspecified))
+                    AdvancedAnalysisEngine.analyze(
+                        records,
+                        request,
+                        dailyPlans,
+                        unspecifiedLabel = text(R.string.label_unspecified)
+                    )
                 }
                 _advancedAnalysis.value = AdvancedAnalysisUiState(result = result)
             } catch (cancelled: CancellationException) {

@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    tools:targetApi="31"
+    android:description="@string/temporary_task_description"
+    android:initialLayout="@layout/widget_temporary_task"
     android:minWidth="110dp"
     android:minHeight="56dp"
     android:minResizeWidth="110dp"
     android:minResizeHeight="56dp"
+    android:previewLayout="@layout/widget_temporary_task"
+    android:resizeMode="horizontal|vertical"
     android:targetCellWidth="2"
     android:targetCellHeight="1"
     android:updatePeriodMillis="0"
-    android:initialLayout="@layout/widget_temporary_task"
-    android:previewLayout="@layout/widget_temporary_task"
-    android:description="@string/temporary_task_description"
-    android:resizeMode="horizontal|vertical"
-    android:widgetCategory="home_screen" />
+    android:widgetCategory="home_screen"
+    tools:targetApi="31" />

@@ -389,14 +389,27 @@ object TaskAnalysisEngine {
             timeInMillis = startMs
         }
         return when (period) {
-            TaskAnalysisPeriod.Day -> String.format(java.util.Locale.getDefault(), "%02d", calendar.get(Calendar.HOUR_OF_DAY))
-            TaskAnalysisPeriod.Week -> java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()).apply {
+            TaskAnalysisPeriod.Day -> String.format(
+                java.util.Locale.getDefault(),
+                "%02d",
+                calendar.get(Calendar.HOUR_OF_DAY)
+            )
+
+            TaskAnalysisPeriod.Week -> java.text.SimpleDateFormat(
+                "EEE",
+                java.util.Locale.getDefault()
+            ).apply {
                 timeZone = calendar.timeZone
             }.format(calendar.time)
+
             TaskAnalysisPeriod.Month -> calendar.get(Calendar.DAY_OF_MONTH).toString()
-            TaskAnalysisPeriod.Year -> java.text.SimpleDateFormat("MMM", java.util.Locale.getDefault()).apply {
+            TaskAnalysisPeriod.Year -> java.text.SimpleDateFormat(
+                "MMM",
+                java.util.Locale.getDefault()
+            ).apply {
                 timeZone = calendar.timeZone
             }.format(calendar.time)
+
             TaskAnalysisPeriod.Custom ->
                 "${calendar.get(Calendar.MONTH) + 1}/${calendar.get(Calendar.DAY_OF_MONTH)}"
         }

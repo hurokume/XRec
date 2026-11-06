@@ -34,7 +34,8 @@ abstract class AppDatabase : RoomDatabase() {
 
         internal val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("""
+                db.execSQL(
+                    """
                     CREATE TABLE IF NOT EXISTS work_history (
                         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                         createdAt INTEGER NOT NULL,
@@ -44,7 +45,8 @@ abstract class AppDatabase : RoomDatabase() {
                         recordCount INTEGER NOT NULL,
                         changesJson TEXT NOT NULL
                     )
-                """.trimIndent())
+                """.trimIndent()
+                )
             }
         }
 

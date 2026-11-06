@@ -3,8 +3,8 @@ package com.example.timerecorder.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -348,8 +348,16 @@ private fun ReplacementSubtaskList(
             LazyColumn(modifier = Modifier.weight(1f)) {
                 if (subtasks.isNotEmpty() && state.taskId !in excludedTaskIds) {
                     item {
-                        SelectionCard(label = stringResource(R.string.subtask_none), color = state.color, cornerRadius = 8,
-                            onClick = { onPick(state.taskId, "${state.projectName} / ${state.taskName}") })
+                        SelectionCard(
+                            label = stringResource(R.string.subtask_none),
+                            color = state.color,
+                            cornerRadius = 8,
+                            onClick = {
+                                onPick(
+                                    state.taskId,
+                                    "${state.projectName} / ${state.taskName}"
+                                )
+                            })
                     }
                 }
                 items(availableSubtasks, key = { it.id }) { subtask ->
@@ -392,7 +400,11 @@ private fun ProjectCard(title: String, content: @Composable ColumnScope.() -> Un
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.RoundedCornerShape(2.dp)),
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.primary,
+                androidx.compose.foundation.shape.RoundedCornerShape(2.dp)
+            ),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
     ) {

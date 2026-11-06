@@ -142,14 +142,27 @@ internal class ActiveTaskNotificationFactory(
         }
     }
 
-    private fun collapsedViews(title: String, startedAtMs: Long, showTemporaryButton: Boolean): RemoteViews =
+    private fun collapsedViews(
+        title: String,
+        startedAtMs: Long,
+        showTemporaryButton: Boolean
+    ): RemoteViews =
         RemoteViews(context.packageName, R.layout.notification_active_collapsed).apply {
             setTextViewText(R.id.title_small, title)
             setChronometer(R.id.chrono_small, chronometerBase(startedAtMs), null, true)
-            setViewVisibility(R.id.btn_temporary, if (showTemporaryButton) View.VISIBLE else View.GONE)
+            setViewVisibility(
+                R.id.btn_temporary,
+                if (showTemporaryButton) View.VISIBLE else View.GONE
+            )
             setTextViewText(R.id.btn_temporary, context.getString(R.string.notification_temporary))
-            setContentDescription(R.id.btn_temporary, context.getString(R.string.temporary_task_description))
-            setOnClickPendingIntent(R.id.btn_temporary, ActiveTaskService.temporaryPendingIntent(context))
+            setContentDescription(
+                R.id.btn_temporary,
+                context.getString(R.string.temporary_task_description)
+            )
+            setOnClickPendingIntent(
+                R.id.btn_temporary,
+                ActiveTaskService.temporaryPendingIntent(context)
+            )
         }
 
     private fun pendingNext(): PendingIntent {
