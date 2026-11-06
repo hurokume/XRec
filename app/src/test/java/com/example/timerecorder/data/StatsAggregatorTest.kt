@@ -26,10 +26,22 @@ class StatsAggregatorTest {
             records = records,
             windowStartMs = 25L,
             windowEndMs = 150L,
-            includedLeafIds = setOf(2L)
+            includedTaskIds = setOf(2L)
         ) { StatsTarget(id = 100L, name = "Project") }
 
         assertEquals(listOf(StatsTotal(100L, "Project", 100L)), result)
+    }
+
+    @Test
+    fun emptySelectionExcludesEveryRecord() {
+        val result = StatsAggregator.aggregate(
+            records = records,
+            windowStartMs = 25L,
+            windowEndMs = 150L,
+            includedTaskIds = emptySet()
+        ) { StatsTarget(id = it.taskId, name = it.taskName) }
+
+        assertEquals(emptyList<StatsTotal>(), result)
     }
 
     @Test

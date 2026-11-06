@@ -34,4 +34,27 @@ class TaskSwitchPolicyTest {
         assertEquals(TaskSwitchAction.SwitchNormal, result.action)
         assertEquals(60_001L, result.previousDurationMs)
     }
+
+    @Test
+    fun temporaryBoundaryPreservesShortPreviousRecord() {
+        val result =
+            TaskSwitchPolicy.decide(10L, 1_000L, 20L, 1_500L, 60_000L, preserveBoundary = true)
+        assertEquals(TaskSwitchAction.SwitchNormal, result.action)
+        assertEquals(500L, result.previousDurationMs)
+    }
+
+    @Test
+    fun repeatedTemporaryPressSplitsSameTaskEvenAtSameTimestamp() {
+        val result =
+            TaskSwitchPolicy.decide(10L, 1_000L, 10L, 1_000L, 60_000L, restartCurrent = true)
+        assertEquals(TaskSwitchAction.SwitchNormal, result.action)
+        assertEquals(0L, result.previousDurationMs)
+    }
+
+    @Test
+    fun ordinarySelectionOfTemporaryTaskStillDoesNotRestartIt() {
+        val result =
+            TaskSwitchPolicy.decide(10L, 1_000L, 10L, 2_000L, 60_000L, preserveBoundary = true)
+        assertEquals(TaskSwitchAction.NoChange, result.action)
+    }
 }

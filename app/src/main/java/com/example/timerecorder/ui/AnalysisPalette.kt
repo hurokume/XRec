@@ -1,38 +1,40 @@
 package com.example.timerecorder.ui
 
+import androidx.annotation.StringRes
+import com.example.timerecorder.R
 import kotlin.math.roundToInt
 
 enum class AnalysisPalette(
     val bit: Int,
-    val label: String,
+    @param:StringRes val labelRes: Int,
     val lowColor: Int,
     val middleColor: Int,
     val highColor: Int
 ) {
     Ocean(
         bit = 1 shl 0,
-        label = "海",
+        labelRes = R.string.analysis_palette_ocean,
         lowColor = 0xFFE3F2FD.toInt(),
         middleColor = 0xFF42A5F5.toInt(),
         highColor = 0xFF0D47A1.toInt()
     ),
     Sunset(
         bit = 1 shl 1,
-        label = "夕焼け",
+        labelRes = R.string.analysis_palette_sunset,
         lowColor = 0xFFFFF8E1.toInt(),
         middleColor = 0xFFFFA726.toInt(),
         highColor = 0xFFB71C1C.toInt()
     ),
     Forest(
         bit = 1 shl 2,
-        label = "森林",
+        labelRes = R.string.analysis_palette_forest,
         lowColor = 0xFFE8F5E9.toInt(),
         middleColor = 0xFF66BB6A.toInt(),
         highColor = 0xFF1B5E20.toInt()
     ),
     Violet(
         bit = 1 shl 3,
-        label = "紫",
+        labelRes = R.string.analysis_palette_violet,
         lowColor = 0xFFF3E5F5.toInt(),
         middleColor = 0xFFAB47BC.toInt(),
         highColor = 0xFF4A148C.toInt()

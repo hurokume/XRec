@@ -115,7 +115,8 @@ data class AdvancedAnalysisResult(
     val timeProfile: AnalysisTimeProfile,
     val representativeDay: AnalysisRepresentativeDay?,
     val typicalPatterns: List<AnalysisTypicalPattern>,
-    val transitions: List<AnalysisTransition>
+    val transitions: List<AnalysisTransition>,
+    val dailyAchievements: List<DailyAchievement>
 )
 
 object AdvancedAnalysisEngine {
@@ -169,7 +170,10 @@ object AdvancedAnalysisEngine {
 
     fun analyze(
         events: List<AnalysisEvent>,
-        request: AnalysisRequest
+        request: AnalysisRequest,
+        dailyPlans: DailyPlans = DailyPlans(),
+        completedThroughMs: Long = Long.MAX_VALUE,
+        unspecifiedLabel: String = ""
     ): AdvancedAnalysisResult {
         val range = rangeFor(request)
         val timeZone = TimeZone.getTimeZone(request.timeZoneId)
@@ -184,7 +188,7 @@ object AdvancedAnalysisEngine {
         val windowByStart = windows.associateBy { it.startMs }
         val targetCache = mutableMapOf<Long, Target>()
         fun targetFor(event: AnalysisEvent): Target = targetCache.getOrPut(event.taskId) {
-            resolveTarget(event.path, request.level)
+            resolveTarget(event.path, request.level, unspecifiedLabel)
         }
 
         val validEvents = events
@@ -250,8 +254,17 @@ object AdvancedAnalysisEngine {
                 coverageRate = coverageByDay[validProfileWindows[index].startMs] ?: 0.0
             )
         }
-        val patterns = buildTypicalPatterns(distanceMatrix, validProfileWindows, representativeIndex)
+        val patterns =
+            buildTypicalPatterns(distanceMatrix, validProfileWindows, representativeIndex)
         val transitions = calculateTransitions(validEvents, windows, ::targetFor)
+        val dailyAchievements = DailyAchievementEngine.calculate(
+            events = validEvents,
+            range = range,
+            plans = dailyPlans,
+            timeZoneId = request.timeZoneId,
+            completedThroughMs = minOf(completedThroughMs, range.endMs),
+            dayType = request.dayType
+        )
 
         // Referencing the map here also guarantees that only selected analysis days contribute.
         check(slices.all { it.dayStartMs in windowByStart })
@@ -263,7 +276,8 @@ object AdvancedAnalysisEngine {
             timeProfile = timeProfile,
             representativeDay = representativeDay,
             typicalPatterns = patterns,
-            transitions = transitions
+            transitions = transitions,
+            dailyAchievements = dailyAchievements
         )
     }
 
@@ -429,11 +443,15 @@ object AdvancedAnalysisEngine {
                 if (overlaps.isEmpty()) {
                     null
                 } else {
-                    val durationByTarget = overlaps.groupBy { it.target.id }.mapValues { (_, values) ->
-                        values.sumOf {
-                            (minOf(it.endMs, slotEnd) - maxOf(it.startMs, slotStart)).coerceAtLeast(0L)
+                    val durationByTarget =
+                        overlaps.groupBy { it.target.id }.mapValues { (_, values) ->
+                            values.sumOf {
+                                (minOf(it.endMs, slotEnd) - maxOf(
+                                    it.startMs,
+                                    slotStart
+                                )).coerceAtLeast(0L)
+                            }
                         }
-                    }
                     val winningId = durationByTarget.maxByOrNull { it.value }!!.key
                     val winningSlice = overlaps.first { it.target.id == winningId }
                     SlotAssignment(winningSlice.target, winningSlice.event.path)
@@ -462,7 +480,8 @@ object AdvancedAnalysisEngine {
             val counts = assignments.groupingBy { it.target.id }.eachCount()
             val denominator = assignments.size.toDouble()
             counts.forEach { (id, count) ->
-                probabilitiesById.getOrPut(id) { DoubleArray(slotCount) }[slot] = count / denominator
+                probabilitiesById.getOrPut(id) { DoubleArray(slotCount) }[slot] =
+                    count / denominator
             }
             val winner = counts.maxByOrNull { it.value }!!.key
             modal[slot] = assignments.first { it.target.id == winner }.target.pathLabel
@@ -563,7 +582,8 @@ object AdvancedAnalysisEngine {
         var assignments = IntArray(distanceMatrix.size)
         repeat(10) {
             assignments = IntArray(distanceMatrix.size) { day ->
-                medoids.indices.minByOrNull { cluster -> distanceMatrix[day][medoids[cluster]] } ?: 0
+                medoids.indices.minByOrNull { cluster -> distanceMatrix[day][medoids[cluster]] }
+                    ?: 0
             }
             var changed = false
             medoids.indices.forEach { cluster ->
@@ -646,12 +666,14 @@ object AdvancedAnalysisEngine {
                 count = count,
                 probability = count.toDouble() / (outgoing[key.fromId] ?: 1)
             )
-        }.sortedWith(compareByDescending<AnalysisTransition> { it.count }.thenByDescending { it.probability })
+        }
+            .sortedWith(compareByDescending<AnalysisTransition> { it.count }.thenByDescending { it.probability })
     }
 
     private fun resolveTarget(
         path: List<AnalysisCategoryNode>,
-        level: AnalysisLevel
+        level: AnalysisLevel,
+        unspecifiedLabel: String
     ): Target {
         require(path.isNotEmpty()) { "category path must not be empty" }
         return when (level) {
@@ -667,8 +689,11 @@ object AdvancedAnalysisEngine {
                 val node = path.getOrNull(1)
                 Target(
                     id = node?.id ?: syntheticId(parent.id, 2),
-                    name = node?.name ?: "未指定",
-                    pathLabel = listOf(parent.name, node?.name ?: "未指定").joinToString(" / "),
+                    name = node?.name ?: unspecifiedLabel,
+                    pathLabel = listOf(
+                        parent.name,
+                        node?.name ?: unspecifiedLabel
+                    ).joinToString(" / "),
                     parentId = parent.id
                 )
             }
@@ -678,12 +703,12 @@ object AdvancedAnalysisEngine {
                 val node = path.getOrNull(2)
                 val names = buildList {
                     add(path.first().name)
-                    add(path.getOrNull(1)?.name ?: "未指定")
-                    add(node?.name ?: "未指定")
+                    add(path.getOrNull(1)?.name ?: unspecifiedLabel)
+                    add(node?.name ?: unspecifiedLabel)
                 }
                 Target(
                     id = node?.id ?: syntheticId(parent.id, 3),
-                    name = node?.name ?: "未指定",
+                    name = node?.name ?: unspecifiedLabel,
                     pathLabel = names.joinToString(" / "),
                     parentId = parent.id
                 )

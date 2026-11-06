@@ -72,14 +72,15 @@ class AdvancedAnalysisEngineTest {
         )
         val small = AdvancedAnalysisEngine.analyze(
             events,
-            request(start + 24 * hour, days = 1, level = AnalysisLevel.Small)
+            request(start + 24 * hour, days = 1, level = AnalysisLevel.Small),
+            unspecifiedLabel = "Unspecified"
         )
 
         assertEquals(1, middle.categoryMetrics.size)
         assertEquals(3 * hour, middle.categoryMetrics.single().totalMs)
         assertEquals(2, small.categoryMetrics.size)
         assertEquals(1 * hour, small.quality.unspecifiedMs)
-        assertTrue(small.categoryMetrics.any { it.name == "未指定" && it.totalMs == hour })
+        assertTrue(small.categoryMetrics.any { it.name == "Unspecified" && it.totalMs == hour })
     }
 
     @Test

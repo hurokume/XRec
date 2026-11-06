@@ -24,16 +24,16 @@ object StatsAggregator {
         records: List<StatsRecord>,
         windowStartMs: Long,
         windowEndMs: Long,
-        includedLeafIds: Set<Long> = emptySet(),
+        includedTaskIds: Set<Long>? = null,
         targetFor: (StatsRecord) -> StatsTarget
     ): List<StatsTotal> {
         if (windowEndMs <= windowStartMs) return emptyList()
 
-        val includeAll = includedLeafIds.isEmpty()
+        val includeAll = includedTaskIds == null
         val totals = linkedMapOf<Long, StatsTotal>()
 
         records.forEach { record ->
-            if (!includeAll && record.taskId !in includedLeafIds) return@forEach
+            if (!includeAll && record.taskId !in requireNotNull(includedTaskIds)) return@forEach
 
             val start = maxOf(record.startMs, windowStartMs)
             val end = minOf(record.endMs, windowEndMs)
