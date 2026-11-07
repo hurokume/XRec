@@ -48,22 +48,22 @@ tasks.configureEach {
 }
 
 android {
-    namespace = "com.example.timerecorder"
+    namespace = "io.github.hurokume.xrec"
     compileSdk = 37
 
     defaultConfig {
         applicationId = "io.github.hurokume.xrec"
         minSdk = 24
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.0.1"
+        versionCode = 4
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -82,6 +82,8 @@ android {
     buildFeatures {
         compose = true
     }
+
+    sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
 }
 
 // Room のスキーマを出力

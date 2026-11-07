@@ -17,13 +17,18 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.XRec">
+            android:theme="@style/Theme.XRec" />
+        <!-- Preserve existing launcher shortcuts while the implementation uses the XRec package. -->
+        <activity-alias
+            android:name="com.example.timerecorder.MainActivity"
+            android:targetActivity=".MainActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
         <service
             android:name=".ActiveTaskService"
             android:exported="false"
@@ -33,11 +38,24 @@
                 android:value="User-started task time tracking with an ongoing elapsed-time notification and immediate task switching from the lock screen." />
         </service>
 
+        <!-- Compatibility entry points for notifications and widgets created before the rename. -->
+        <service
+            android:name="com.example.timerecorder.ActiveTaskService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Compatibility entry point for user-started task tracking notifications from earlier XRec releases." />
+        </service>
+
         <receiver
             android:name=".TaskActionReceiver"
             android:exported="false" />
         <receiver
-            android:name=".TemporaryTaskWidgetProvider"
+            android:name="com.example.timerecorder.TaskActionReceiver"
+            android:exported="false" />
+        <receiver
+            android:name="com.example.timerecorder.TemporaryTaskWidgetProvider"
             android:exported="false"
             android:label="@string/temporary_widget_name">
             <intent-filter>
