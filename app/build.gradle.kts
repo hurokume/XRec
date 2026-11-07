@@ -48,7 +48,7 @@ tasks.configureEach {
 }
 
 android {
-    namespace = "com.example.timerecorder"
+    namespace = "io.github.hurokume.xrec"
     compileSdk = 37
 
     defaultConfig {
@@ -82,6 +82,8 @@ android {
     buildFeatures {
         compose = true
     }
+
+    sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
 }
 
 // Room のスキーマを出力
