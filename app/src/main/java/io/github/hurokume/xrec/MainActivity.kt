@@ -51,6 +51,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
@@ -195,6 +196,7 @@ private const val PREFS_NAME = "stats_prefs"
 private const val KEY_STATS_INCLUDED = "stats_included_leaf_ids" // CSVのLong ID群
 private const val SETTINGS_PREFS_NAME = "app_settings"
 private const val KEY_SHOW_STOP_BUTTON = "show_stop_button"
+private const val KEY_SHOW_TASK_ADD_BUTTONS = "show_task_add_buttons"
 private const val KEY_DAILY_PLANS = "daily_plans"
 
 /**
@@ -318,6 +320,9 @@ fun AppRoot(
             settingsPreferences.getBoolean(KEY_SHOW_STOP_BUTTON, true)
         )
     }
+    var showTaskAddButtons by rememberSaveable {
+        mutableStateOf(settingsPreferences.getBoolean(KEY_SHOW_TASK_ADD_BUTTONS, true))
+    }
     var dailyPlans by remember {
         mutableStateOf(DailyPlansCodec.decode(settingsPreferences.getString(KEY_DAILY_PLANS, null)))
     }
@@ -344,6 +349,13 @@ fun AppRoot(
         showStopButton = show
         settingsPreferences.edit()
             .putBoolean(KEY_SHOW_STOP_BUTTON, show)
+            .apply()
+    }
+
+    fun updateShowTaskAddButtons(show: Boolean) {
+        showTaskAddButtons = show
+        settingsPreferences.edit()
+            .putBoolean(KEY_SHOW_TASK_ADD_BUTTONS, show)
             .apply()
     }
 
@@ -977,6 +989,7 @@ fun AppRoot(
                                     pagerState = pagerState,
                                     taskVm = taskVm,
                                     sortMode = sortMode,
+                                    showTaskAddButtons = showTaskAddButtons,
                                     onNavigateAddTask = onNavigateAddTask,
                                     selectedTimelineTaskId = selectedTimelineTaskId,
                                     selectedTimelineEventId = selectedTimelineEventId,
@@ -1039,6 +1052,8 @@ fun AppRoot(
                                 .fillMaxSize(),
                             showStopButton = showStopButton,
                             onShowStopButtonChange = ::updateShowStopButton,
+                            showTaskAddButtons = showTaskAddButtons,
+                            onShowTaskAddButtonsChange = ::updateShowTaskAddButtons,
                             showNotification = notificationSettings.showNotification,
                             onShowNotificationChange = {
                                 TaskNotificationPreferences.setShowNotification(
@@ -1353,7 +1368,8 @@ fun MainPager(
     nameSort: NameSort,
     timelineRefreshTick: Long,
     statsIncludedTaskIds: Set<Long>?,
-    aggMode: StatsAggMode
+    aggMode: StatsAggMode,
+    showTaskAddButtons: Boolean = true
 ) {
     HorizontalPager(state = pagerState, modifier = modifier.fillMaxSize()) { page ->
         when (page) {
@@ -1368,7 +1384,12 @@ fun MainPager(
                 externalRefreshTick = timelineRefreshTick
             )
 
-            1 -> DBTaskScreen(taskVm = taskVm, sortMode = sortMode, nameSort = nameSort)
+            1 -> DBTaskScreen(
+                taskVm = taskVm,
+                sortMode = sortMode,
+                nameSort = nameSort,
+                showTaskAddButtons = showTaskAddButtons
+            )
             2 -> StatsScreen(
                 viewModel = taskVm,
                 includedTaskIds = statsIncludedTaskIds,
@@ -1393,7 +1414,7 @@ private sealed interface TaskCenterUiState {
 /**
  * 中央ページ：タスク一覧画面。
  * - クリックで開始/サブタスク選択
- * - 長押しドラッグで並び替え
+ * - 長押しで名前変更、並び替えモードでは長押しドラッグで並び替え
  * - FAB で親/子タスクの追加
  */
 @Composable
@@ -1401,7 +1422,8 @@ fun DBTaskScreen(
     taskVm: TaskViewModel,
     modifier: Modifier = Modifier,
     sortMode: Boolean,
-    nameSort: NameSort
+    nameSort: NameSort,
+    showTaskAddButtons: Boolean = true
 ) {
     val parents by taskVm.parents.collectAsStateWithLifecycle()
     val activeUi by taskVm.activeUi.collectAsStateWithLifecycle()
@@ -1477,8 +1499,26 @@ fun DBTaskScreen(
         }
     }
 
-    var renameIsParent by rememberSaveable { mutableStateOf(false) }
     var renameError by rememberSaveable { mutableStateOf<String?>(null) }
+
+    fun requestRename(taskId: Long, currentName: String) {
+        menuForParentId = null
+        menuForChildTaskId = null
+        renameTaskId = taskId
+        renameTaskCurrentName = currentName
+        renameTaskText = currentName
+        renameError = null
+        lastInteractionTime = System.currentTimeMillis()
+    }
+
+    fun requestAddChild(parentId: Long) {
+        menuForParentId = null
+        menuForChildTaskId = null
+        newChildName = ""
+        addChildError = null
+        showAddChildDialogFor = parentId
+        lastInteractionTime = System.currentTimeMillis()
+    }
 
     // 実行中タスクに合わせてハイライトを更新（サブ状態はリセット）
     LaunchedEffect(activeUi, parents) {
@@ -1644,9 +1684,18 @@ fun DBTaskScreen(
                                                 .weight(1f)
                                                 .combinedClickable(
                                                     onClick = {},
-                                                    onLongClick = { menuForParentId = p.parent.id }
+                                                    onLongClickLabel = stringResource(R.string.task_rename),
+                                                    onLongClick = { requestRename(p.parent.id, p.parent.name) }
                                                 )
                                         )
+                                        if (showTaskAddButtons && !sortMode) {
+                                            IconButton(onClick = { requestAddChild(p.parent.id) }) {
+                                                Icon(
+                                                    Icons.Filled.Add,
+                                                    contentDescription = stringResource(R.string.task_add)
+                                                )
+                                            }
+                                        }
                                         IconButton(onClick = {
                                             menuForParentId = p.parent.id
                                             lastInteractionTime = System.currentTimeMillis()
@@ -1668,23 +1717,13 @@ fun DBTaskScreen(
                                             DropdownMenuItem(
                                                 text = { Text(stringResource(R.string.task_add)) },
                                                 onClick = {
-                                                    menuForParentId = null
-                                                    newChildName = ""
-                                                    addChildError = null
-                                                    showAddChildDialogFor = p.parent.id
-                                                    lastInteractionTime = System.currentTimeMillis()
+                                                    requestAddChild(p.parent.id)
                                                 }
                                             )
                                             DropdownMenuItem(
                                                 text = { Text(stringResource(R.string.task_rename)) },
                                                 onClick = {
-                                                    menuForParentId = null
-                                                    renameIsParent = true           // ★親の改名フラグをON
-                                                    renameTaskId = p.parent.id
-                                                    renameTaskCurrentName = p.parent.name
-                                                    renameTaskText = p.parent.name
-                                                    renameError = null
-                                                    lastInteractionTime = System.currentTimeMillis()
+                                                    requestRename(p.parent.id, p.parent.name)
                                                 }
                                             )
                                             DropdownMenuItem(
@@ -1817,8 +1856,9 @@ fun DBTaskScreen(
                                                             }
                                                     else
                                                         Modifier.combinedClickable(
+                                                            onLongClickLabel = stringResource(R.string.task_rename),
                                                             onLongClick = {
-                                                                menuForChildTaskId = child.id
+                                                                requestRename(child.id, child.name)
                                                             },
                                                             onClick = {
                                                                 selectedTaskId = child.id
@@ -1875,6 +1915,14 @@ fun DBTaskScreen(
                                                 )
                                                 Spacer(Modifier.width(8.dp))
                                                 if (!sortMode) {
+                                                    if (showTaskAddButtons) {
+                                                        IconButton(onClick = { requestAddChild(child.id) }) {
+                                                            Icon(
+                                                                Icons.Filled.Add,
+                                                                contentDescription = stringResource(R.string.task_add_subtask)
+                                                            )
+                                                        }
+                                                    }
                                                     IconButton(onClick = {
                                                         menuForChildTaskId = child.id
                                                         renameTaskCurrentName = child.name
@@ -1928,12 +1976,7 @@ fun DBTaskScreen(
                                                                 )
                                                             },
                                                             onClick = {
-                                                                menuForChildTaskId = null
-                                                                newChildName = ""
-                                                                addChildError = null
-                                                                showAddChildDialogFor = child.id
-                                                                lastInteractionTime =
-                                                                    System.currentTimeMillis()
+                                                                requestAddChild(child.id)
                                                             }
                                                         )
                                                         DropdownMenuItem(
@@ -1941,14 +1984,7 @@ fun DBTaskScreen(
                                                                 Text(stringResource(R.string.task_rename))
                                                             },
                                                             onClick = {
-                                                                menuForChildTaskId = null
-                                                                renameIsParent = false
-                                                                renameTaskId = child.id
-                                                                renameTaskCurrentName = child.name
-                                                                renameTaskText = child.name
-                                                                renameError = null
-                                                                lastInteractionTime =
-                                                                    System.currentTimeMillis()
+                                                                requestRename(child.id, child.name)
                                                             }
                                                         )
                                                         DropdownMenuItem(
@@ -2007,14 +2043,9 @@ fun DBTaskScreen(
                             ui = TaskCenterUiState.List
                             lastInteractionTime = System.currentTimeMillis()
                         },
-                        onRenameRequest = { taskId, currentName ->
-                            renameIsParent = false
-                            renameTaskId = taskId
-                            renameTaskCurrentName = currentName
-                            renameTaskText = currentName
-                            renameError = null
-                            lastInteractionTime = System.currentTimeMillis()
-                        },
+                        onRenameRequest = ::requestRename,
+                        showTaskAddButtons = showTaskAddButtons,
+                        onAddRequest = { requestAddChild(s.parentId) },
                         onDeleteRequest = { taskId, name ->
                             requestTaskDeletion(taskId, name, isRoot = false)
                             lastInteractionTime = System.currentTimeMillis()
@@ -2408,7 +2439,9 @@ private fun SubtaskPicker(
     onRenameRequest: (Long, String) -> Unit,
     onDeleteRequest: (Long, String) -> Unit,
     taskVm: TaskViewModel,
-    nameSort: NameSort
+    nameSort: NameSort,
+    showTaskAddButtons: Boolean,
+    onAddRequest: () -> Unit
 ) {
 
     val subtasks by taskVm.children(parentId)
@@ -2473,6 +2506,7 @@ private fun SubtaskPicker(
                         .padding(vertical = 4.dp)
                         .border(1.dp, border, RoundedCornerShape(8.dp))
                         .combinedClickable(
+                            onLongClickLabel = stringResource(R.string.task_rename),
                             onLongClick = { onRenameRequest(t.id, t.name) },
                             onClick = { selectedSubId = t.id; onPick(t.id) }
                         ),
@@ -2502,6 +2536,14 @@ private fun SubtaskPicker(
                         Spacer(Modifier.width(8.dp))
 
                         var menuExpanded by remember { mutableStateOf(false) }
+                        if (showTaskAddButtons) {
+                            IconButton(onClick = onAddRequest) {
+                                Icon(
+                                    Icons.Filled.Add,
+                                    contentDescription = stringResource(R.string.task_add_subtask)
+                                )
+                            }
+                        }
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(
                                 Icons.Filled.Menu,

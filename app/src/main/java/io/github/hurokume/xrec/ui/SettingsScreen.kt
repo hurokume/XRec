@@ -93,7 +93,9 @@ fun SettingsScreen(
     showNotification: Boolean = true,
     onShowNotificationChange: (Boolean) -> Unit = {},
     showTemporaryOnLockScreen: Boolean = true,
-    onShowTemporaryOnLockScreenChange: (Boolean) -> Unit = {}
+    onShowTemporaryOnLockScreenChange: (Boolean) -> Unit = {},
+    showTaskAddButtons: Boolean = true,
+    onShowTaskAddButtonsChange: (Boolean) -> Unit = {}
 ) {
     var section by rememberSaveable { mutableStateOf<String?>(null) }
     val ctx = LocalContext.current
@@ -184,6 +186,16 @@ fun SettingsScreen(
                 stringResource(R.string.settings_show_temporary_on_lock_screen),
                 showTemporaryOnLockScreen, onShowTemporaryOnLockScreenChange,
                 enabled = showNotification
+            )
+
+            Text(
+                stringResource(R.string.settings_task_title),
+                style = MaterialTheme.typography.titleMedium
+            )
+            SettingsSwitchRow(
+                stringResource(R.string.settings_show_task_add_buttons),
+                showTaskAddButtons,
+                onShowTaskAddButtonsChange
             )
 
             ExposedDropdownMenuBox(
