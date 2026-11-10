@@ -95,7 +95,9 @@ fun SettingsScreen(
     showTemporaryOnLockScreen: Boolean = true,
     onShowTemporaryOnLockScreenChange: (Boolean) -> Unit = {},
     showTaskAddButtons: Boolean = true,
-    onShowTaskAddButtonsChange: (Boolean) -> Unit = {}
+    onShowTaskAddButtonsChange: (Boolean) -> Unit = {},
+    showTaskPlaybackButtons: Boolean = true,
+    onShowTaskPlaybackButtonsChange: (Boolean) -> Unit = {}
 ) {
     var section by rememberSaveable { mutableStateOf<String?>(null) }
     val ctx = LocalContext.current
@@ -196,6 +198,11 @@ fun SettingsScreen(
                 stringResource(R.string.settings_show_task_add_buttons),
                 showTaskAddButtons,
                 onShowTaskAddButtonsChange
+            )
+            SettingsSwitchRow(
+                stringResource(R.string.settings_show_task_playback_buttons),
+                showTaskPlaybackButtons,
+                onShowTaskPlaybackButtonsChange
             )
 
             ExposedDropdownMenuBox(

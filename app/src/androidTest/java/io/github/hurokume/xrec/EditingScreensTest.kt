@@ -98,11 +98,11 @@ class EditingScreensTest {
         compose.onNodeWithText(text(R.string.settings_stop_button_title)).assertIsDisplayed()
         compose.onNodeWithText(text(R.string.daily_plan_title)).assertDoesNotExist()
         compose.onNodeWithText(text(R.string.timeline_custom)).assertDoesNotExist()
-        compose.onNodeWithText(text(R.string.settings_timeline_default)).performClick()
+        compose.onNodeWithText(text(R.string.settings_timeline_default)).performScrollTo().performClick()
         compose.onNodeWithText(text(R.string.timeline_custom)).assertIsDisplayed()
         compose.onNodeWithText("Monthly").assertDoesNotExist()
         androidx.test.espresso.Espresso.pressBack()
-        compose.onNodeWithText(text(R.string.action_back)).performClick()
+        compose.onNodeWithText(text(R.string.action_back)).performScrollTo().performClick()
         compose.onNodeWithText(text(R.string.daily_plan_title)).assertIsDisplayed()
     }
 
@@ -201,6 +201,66 @@ class EditingScreensTest {
         compose.onNodeWithContentDescription(dateLabel.format(java.util.Date(end))).performClick()
         compose.onNodeWithText(text(R.string.action_apply)).performClick()
         Assert.assertEquals(start to end, selected.get())
+    }
+
+    @Test
+    fun playbackButtonsRecordTasksAndSubtasksAndCanBeHidden() = runBlocking {
+        val project = db.taskDao().insertTask(TaskEntity(name = "Playback project"))
+        val task = db.taskDao().insertTask(TaskEntity(name = "Playback task", parentId = project))
+        val subtask = db.taskDao().insertTask(TaskEntity(name = "Playback subtask", parentId = task))
+        val showPlayback = mutableStateOf(true)
+        compose.setContent {
+            MaterialTheme {
+                DBTaskScreen(
+                    vm,
+                    sortMode = false,
+                    nameSort = NameSort.None,
+                    showTaskPlaybackButtons = showPlayback.value
+                )
+            }
+        }
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("Playback task").fetchSemanticsNodes().isNotEmpty()
+        }
+        fun playbackLabel(running: Boolean, name: String) = app.getString(
+            if (running) R.string.task_stop_named else R.string.task_start_named, name
+        )
+
+        // The icon starts this task directly, even when the row opens a subtask picker.
+        compose.onNodeWithContentDescription(playbackLabel(false, "Playback task")).performClick()
+        compose.waitUntil(10_000) { vm.activeUi.value?.taskId == task }
+        Assert.assertEquals(task, db.taskDao().getActiveOrNull()!!.taskId)
+        compose.onNodeWithContentDescription(playbackLabel(true, "Playback task")).performClick()
+        compose.waitUntil(10_000) { vm.activeUi.value == null }
+        Assert.assertNull(db.taskDao().getActiveOrNull())
+
+        // Hiding the controls leaves task browsing available at both levels.
+        compose.runOnIdle { showPlayback.value = false }
+        compose.onNodeWithContentDescription(playbackLabel(false, "Playback task"))
+            .assertDoesNotExist()
+        compose.onNodeWithText("Playback task").performClick()
+        compose.onNodeWithText("Playback subtask").assertIsDisplayed()
+        compose.onNodeWithContentDescription(playbackLabel(false, "Playback subtask"))
+            .assertDoesNotExist()
+        compose.runOnIdle { showPlayback.value = true }
+        compose.onNodeWithContentDescription(playbackLabel(false, "Playback subtask")).performClick()
+        compose.waitUntil(10_000) { vm.activeUi.value?.taskId == subtask }
+
+        // A running subtask can also be stopped from its parent task's row.
+        compose.onNodeWithContentDescription(playbackLabel(true, "Playback task")).performClick()
+        compose.waitUntil(10_000) { vm.activeUi.value == null }
+        Assert.assertNull(db.taskDao().getActiveOrNull())
+
+        compose.onNodeWithText("Playback task").performClick()
+        compose.onNodeWithContentDescription(playbackLabel(false, "Playback subtask")).performClick()
+        compose.waitUntil(10_000) { vm.activeUi.value?.taskId == subtask }
+        compose.onNodeWithText("Playback task").performClick()
+        compose.onNodeWithContentDescription(playbackLabel(true, "Playback subtask")).performClick()
+        compose.waitUntil(10_000) { vm.activeUi.value == null }
+        Assert.assertNull(db.taskDao().getActiveOrNull())
+        val recordedTasks = db.taskDao().getAllEventsForCsv().map { it.taskId }
+        Assert.assertEquals(1, recordedTasks.count { it == task })
+        Assert.assertEquals(2, recordedTasks.count { it == subtask })
     }
 
     @Test

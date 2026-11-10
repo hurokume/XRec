@@ -60,6 +60,8 @@ import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
@@ -197,6 +199,7 @@ private const val KEY_STATS_INCLUDED = "stats_included_leaf_ids" // CSVのLong I
 private const val SETTINGS_PREFS_NAME = "app_settings"
 private const val KEY_SHOW_STOP_BUTTON = "show_stop_button"
 private const val KEY_SHOW_TASK_ADD_BUTTONS = "show_task_add_buttons"
+private const val KEY_SHOW_TASK_PLAYBACK_BUTTONS = "show_task_playback_buttons"
 private const val KEY_DAILY_PLANS = "daily_plans"
 
 /**
@@ -323,6 +326,9 @@ fun AppRoot(
     var showTaskAddButtons by rememberSaveable {
         mutableStateOf(settingsPreferences.getBoolean(KEY_SHOW_TASK_ADD_BUTTONS, true))
     }
+    var showTaskPlaybackButtons by rememberSaveable {
+        mutableStateOf(settingsPreferences.getBoolean(KEY_SHOW_TASK_PLAYBACK_BUTTONS, true))
+    }
     var dailyPlans by remember {
         mutableStateOf(DailyPlansCodec.decode(settingsPreferences.getString(KEY_DAILY_PLANS, null)))
     }
@@ -356,6 +362,13 @@ fun AppRoot(
         showTaskAddButtons = show
         settingsPreferences.edit()
             .putBoolean(KEY_SHOW_TASK_ADD_BUTTONS, show)
+            .apply()
+    }
+
+    fun updateShowTaskPlaybackButtons(show: Boolean) {
+        showTaskPlaybackButtons = show
+        settingsPreferences.edit()
+            .putBoolean(KEY_SHOW_TASK_PLAYBACK_BUTTONS, show)
             .apply()
     }
 
@@ -990,6 +1003,7 @@ fun AppRoot(
                                     taskVm = taskVm,
                                     sortMode = sortMode,
                                     showTaskAddButtons = showTaskAddButtons,
+                                    showTaskPlaybackButtons = showTaskPlaybackButtons,
                                     onNavigateAddTask = onNavigateAddTask,
                                     selectedTimelineTaskId = selectedTimelineTaskId,
                                     selectedTimelineEventId = selectedTimelineEventId,
@@ -1054,6 +1068,8 @@ fun AppRoot(
                             onShowStopButtonChange = ::updateShowStopButton,
                             showTaskAddButtons = showTaskAddButtons,
                             onShowTaskAddButtonsChange = ::updateShowTaskAddButtons,
+                            showTaskPlaybackButtons = showTaskPlaybackButtons,
+                            onShowTaskPlaybackButtonsChange = ::updateShowTaskPlaybackButtons,
                             showNotification = notificationSettings.showNotification,
                             onShowNotificationChange = {
                                 TaskNotificationPreferences.setShowNotification(
@@ -1369,7 +1385,8 @@ fun MainPager(
     timelineRefreshTick: Long,
     statsIncludedTaskIds: Set<Long>?,
     aggMode: StatsAggMode,
-    showTaskAddButtons: Boolean = true
+    showTaskAddButtons: Boolean = true,
+    showTaskPlaybackButtons: Boolean = true
 ) {
     HorizontalPager(state = pagerState, modifier = modifier.fillMaxSize()) { page ->
         when (page) {
@@ -1388,7 +1405,8 @@ fun MainPager(
                 taskVm = taskVm,
                 sortMode = sortMode,
                 nameSort = nameSort,
-                showTaskAddButtons = showTaskAddButtons
+                showTaskAddButtons = showTaskAddButtons,
+                showTaskPlaybackButtons = showTaskPlaybackButtons
             )
             2 -> StatsScreen(
                 viewModel = taskVm,
@@ -1423,7 +1441,8 @@ fun DBTaskScreen(
     modifier: Modifier = Modifier,
     sortMode: Boolean,
     nameSort: NameSort,
-    showTaskAddButtons: Boolean = true
+    showTaskAddButtons: Boolean = true,
+    showTaskPlaybackButtons: Boolean = true
 ) {
     val parents by taskVm.parents.collectAsStateWithLifecycle()
     val activeUi by taskVm.activeUi.collectAsStateWithLifecycle()
@@ -1434,6 +1453,10 @@ fun DBTaskScreen(
 
     var ui by remember { mutableStateOf<TaskCenterUiState>(TaskCenterUiState.List) }
     var selectedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+    // Keep playback state separate from a row selected to browse its subtasks.
+    var runningTaskRowId by remember(activeUi?.taskId, parents) {
+        mutableStateOf(activeUi?.taskId)
+    }
 
     var showAddDialog by rememberSaveable { mutableStateOf(false) }
     var newTaskName by rememberSaveable { mutableStateOf("") }
@@ -1520,6 +1543,15 @@ fun DBTaskScreen(
         lastInteractionTime = System.currentTimeMillis()
     }
 
+    fun toggleTaskPlayback(taskId: Long) {
+        lastInteractionTime = System.currentTimeMillis()
+        if (activeUi != null && (activeUi?.taskId == taskId || runningTaskRowId == taskId)) {
+            taskVm.onStopPressed()
+        } else {
+            taskVm.onTaskPressed(taskId)
+        }
+    }
+
     // 実行中タスクに合わせてハイライトを更新（サブ状態はリセット）
     LaunchedEffect(activeUi, parents) {
         selectedTaskId = null
@@ -1546,6 +1578,7 @@ fun DBTaskScreen(
             }
         }
         selectedTaskId = highlightParentChildId
+        runningTaskRowId = highlightParentChildId
     }
 
     val reorderLists = remember(sortMode, parents) {
@@ -1915,6 +1948,13 @@ fun DBTaskScreen(
                                                 )
                                                 Spacer(Modifier.width(8.dp))
                                                 if (!sortMode) {
+                                                    if (showTaskPlaybackButtons) {
+                                                        TaskPlaybackButton(
+                                                            taskName = child.name,
+                                                            isRunning = runningTaskRowId == child.id,
+                                                            onClick = { toggleTaskPlayback(child.id) }
+                                                        )
+                                                    }
                                                     if (showTaskAddButtons) {
                                                         IconButton(onClick = { requestAddChild(child.id) }) {
                                                             Icon(
@@ -2045,6 +2085,8 @@ fun DBTaskScreen(
                         },
                         onRenameRequest = ::requestRename,
                         showTaskAddButtons = showTaskAddButtons,
+                        showTaskPlaybackButtons = showTaskPlaybackButtons,
+                        onPlaybackRequest = ::toggleTaskPlayback,
                         onAddRequest = { requestAddChild(s.parentId) },
                         onDeleteRequest = { taskId, name ->
                             requestTaskDeletion(taskId, name, isRoot = false)
@@ -2424,6 +2466,20 @@ fun DBTaskScreen(
     }
 }
 
+@Composable
+private fun TaskPlaybackButton(taskName: String, isRunning: Boolean, onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(
+            imageVector = if (isRunning) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+            contentDescription = stringResource(
+                if (isRunning) R.string.task_stop_named else R.string.task_start_named,
+                taskName
+            ),
+            tint = if (isRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
 /**
  * サブタスク選択画面。
  * - 親の配色を右端の色チップで表示
@@ -2441,6 +2497,8 @@ private fun SubtaskPicker(
     taskVm: TaskViewModel,
     nameSort: NameSort,
     showTaskAddButtons: Boolean,
+    showTaskPlaybackButtons: Boolean,
+    onPlaybackRequest: (Long) -> Unit,
     onAddRequest: () -> Unit
 ) {
 
@@ -2536,6 +2594,13 @@ private fun SubtaskPicker(
                         Spacer(Modifier.width(8.dp))
 
                         var menuExpanded by remember { mutableStateOf(false) }
+                        if (showTaskPlaybackButtons) {
+                            TaskPlaybackButton(
+                                taskName = t.name,
+                                isRunning = activeUi?.taskId == t.id,
+                                onClick = { onPlaybackRequest(t.id) }
+                            )
+                        }
                         if (showTaskAddButtons) {
                             IconButton(onClick = onAddRequest) {
                                 Icon(

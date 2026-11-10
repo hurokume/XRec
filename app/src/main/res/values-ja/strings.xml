@@ -190,6 +190,9 @@
     <string name="settings_show_temporary_on_lock_screen">ロック画面に臨時タスクボタンを表示</string>
     <string name="settings_task_title">タスク設定</string>
     <string name="settings_show_task_add_buttons">タスクメニューの左に＋ボタンを表示</string>
+    <string name="settings_show_task_playback_buttons">タスク行に再生・停止ボタンを表示</string>
+    <string name="task_start_named">%1$sの計測を開始</string>
+    <string name="task_stop_named">%1$sの計測を停止</string>
     <string name="daily_plan_description">平日と休日（土日）の基本パターンを時間帯ごとに定義します。予定タスクまたはその配下タスクの記録時間から、日ごとの達成度を算出します。</string>
     <string name="daily_plan_title">日々の予定</string>
     <string name="daily_plan_timeline_title">タイムライン</string>
