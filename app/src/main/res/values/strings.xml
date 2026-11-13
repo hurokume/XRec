@@ -193,6 +193,10 @@
     <string name="settings_task_title">Task Settings</string>
     <string name="settings_show_task_add_buttons">Show + buttons next to task menus</string>
     <string name="settings_show_task_playback_buttons">Show play/stop buttons on task rows</string>
+    <string name="settings_show_task_menu_buttons">Show project, task, and subtask settings buttons</string>
+    <string name="settings_task_menu_customize">Customize settings</string>
+    <string name="settings_task_menu_description">Choose the items to show in settings menus. Each menu shows only the items it supports. A settings button is disabled when no items apply.</string>
+    <string name="settings_task_menu_add">Add tasks and subtasks</string>
     <string name="task_start_named">Start %1$s</string>
     <string name="task_stop_named">Stop %1$s</string>
     <string name="daily_plan_description">Define daily routines for weekdays and weekends. Achievement is calculated from time recorded for the planned task or its subtasks.</string>

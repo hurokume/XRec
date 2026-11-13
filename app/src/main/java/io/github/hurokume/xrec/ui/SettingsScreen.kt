@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import io.github.hurokume.xrec.R
+import io.github.hurokume.xrec.TaskMenuSettings
 import io.github.hurokume.xrec.TemporaryTaskWidgetProvider
 import io.github.hurokume.xrec.data.DailyPlanEntry
 import io.github.hurokume.xrec.data.DailyPlanType
@@ -97,7 +98,9 @@ fun SettingsScreen(
     showTaskAddButtons: Boolean = true,
     onShowTaskAddButtonsChange: (Boolean) -> Unit = {},
     showTaskPlaybackButtons: Boolean = true,
-    onShowTaskPlaybackButtonsChange: (Boolean) -> Unit = {}
+    onShowTaskPlaybackButtonsChange: (Boolean) -> Unit = {},
+    taskMenuSettings: TaskMenuSettings = TaskMenuSettings(),
+    onTaskMenuSettingsChange: (TaskMenuSettings) -> Unit = {}
 ) {
     var section by rememberSaveable { mutableStateOf<String?>(null) }
     val ctx = LocalContext.current
@@ -204,6 +207,8 @@ fun SettingsScreen(
                 showTaskPlaybackButtons,
                 onShowTaskPlaybackButtonsChange
             )
+
+            TaskMenuSettingsEditor(taskMenuSettings, onTaskMenuSettingsChange)
 
             ExposedDropdownMenuBox(
                 expanded = periodMenuExpanded,

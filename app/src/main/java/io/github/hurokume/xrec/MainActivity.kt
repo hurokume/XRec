@@ -329,6 +329,9 @@ fun AppRoot(
     var showTaskPlaybackButtons by rememberSaveable {
         mutableStateOf(settingsPreferences.getBoolean(KEY_SHOW_TASK_PLAYBACK_BUTTONS, true))
     }
+    var taskMenuSettings by remember(settingsPreferences) {
+        mutableStateOf(TaskMenuPreferences.read(settingsPreferences))
+    }
     var dailyPlans by remember {
         mutableStateOf(DailyPlansCodec.decode(settingsPreferences.getString(KEY_DAILY_PLANS, null)))
     }
@@ -377,6 +380,11 @@ fun AppRoot(
         settingsPreferences.edit()
             .putString(KEY_DAILY_PLANS, DailyPlansCodec.encode(updated))
             .apply()
+    }
+
+    fun updateTaskMenuSettings(updated: TaskMenuSettings) {
+        taskMenuSettings = updated
+        TaskMenuPreferences.write(settingsPreferences, updated)
     }
 
     // 通知許可のランチャ
@@ -1004,6 +1012,7 @@ fun AppRoot(
                                     sortMode = sortMode,
                                     showTaskAddButtons = showTaskAddButtons,
                                     showTaskPlaybackButtons = showTaskPlaybackButtons,
+                                    taskMenuSettings = taskMenuSettings,
                                     onNavigateAddTask = onNavigateAddTask,
                                     selectedTimelineTaskId = selectedTimelineTaskId,
                                     selectedTimelineEventId = selectedTimelineEventId,
@@ -1070,6 +1079,8 @@ fun AppRoot(
                             onShowTaskAddButtonsChange = ::updateShowTaskAddButtons,
                             showTaskPlaybackButtons = showTaskPlaybackButtons,
                             onShowTaskPlaybackButtonsChange = ::updateShowTaskPlaybackButtons,
+                            taskMenuSettings = taskMenuSettings,
+                            onTaskMenuSettingsChange = ::updateTaskMenuSettings,
                             showNotification = notificationSettings.showNotification,
                             onShowNotificationChange = {
                                 TaskNotificationPreferences.setShowNotification(
@@ -1386,7 +1397,8 @@ fun MainPager(
     statsIncludedTaskIds: Set<Long>?,
     aggMode: StatsAggMode,
     showTaskAddButtons: Boolean = true,
-    showTaskPlaybackButtons: Boolean = true
+    showTaskPlaybackButtons: Boolean = true,
+    taskMenuSettings: TaskMenuSettings = TaskMenuSettings()
 ) {
     HorizontalPager(state = pagerState, modifier = modifier.fillMaxSize()) { page ->
         when (page) {
@@ -1406,7 +1418,8 @@ fun MainPager(
                 sortMode = sortMode,
                 nameSort = nameSort,
                 showTaskAddButtons = showTaskAddButtons,
-                showTaskPlaybackButtons = showTaskPlaybackButtons
+                showTaskPlaybackButtons = showTaskPlaybackButtons,
+                taskMenuSettings = taskMenuSettings
             )
             2 -> StatsScreen(
                 viewModel = taskVm,
@@ -1442,7 +1455,8 @@ fun DBTaskScreen(
     sortMode: Boolean,
     nameSort: NameSort,
     showTaskAddButtons: Boolean = true,
-    showTaskPlaybackButtons: Boolean = true
+    showTaskPlaybackButtons: Boolean = true,
+    taskMenuSettings: TaskMenuSettings = TaskMenuSettings()
 ) {
     val parents by taskVm.parents.collectAsStateWithLifecycle()
     val activeUi by taskVm.activeUi.collectAsStateWithLifecycle()
@@ -1729,62 +1743,78 @@ fun DBTaskScreen(
                                                 )
                                             }
                                         }
-                                        IconButton(onClick = {
-                                            menuForParentId = p.parent.id
-                                            lastInteractionTime = System.currentTimeMillis()
-                                        }) {
-                                            Icon(
-                                                Icons.Filled.Menu,
-                                                contentDescription = stringResource(
-                                                    R.string.task_parent_menu
-                                                )
+                                        if (taskMenuSettings.showButtons) {
+                                            val menuEnabled = taskMenuSettings.hasAny(
+                                                TaskMenuAction.AddChild,
+                                                TaskMenuAction.Rename,
+                                                TaskMenuAction.Delete,
+                                                TaskMenuAction.ChangeColor
                                             )
-                                        }
-                                        DropdownMenu(
-                                            expanded = menuForParentId == p.parent.id,
-                                            onDismissRequest = {
-                                                menuForParentId = null
+                                            IconButton(enabled = menuEnabled, onClick = {
+                                                menuForParentId = p.parent.id
                                                 lastInteractionTime = System.currentTimeMillis()
+                                            }) {
+                                                Icon(
+                                                    Icons.Filled.Menu,
+                                                    contentDescription = stringResource(
+                                                        R.string.task_parent_menu
+                                                    )
+                                                )
                                             }
-                                        ) {
-                                            DropdownMenuItem(
-                                                text = { Text(stringResource(R.string.task_add)) },
-                                                onClick = {
-                                                    requestAddChild(p.parent.id)
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text(stringResource(R.string.task_rename)) },
-                                                onClick = {
-                                                    requestRename(p.parent.id, p.parent.name)
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = {
-                                                    Text(
-                                                        stringResource(R.string.task_delete_parent)
-                                                    )
-                                                },
-                                                onClick = {
+                                            DropdownMenu(
+                                                expanded = menuEnabled && menuForParentId == p.parent.id,
+                                                onDismissRequest = {
                                                     menuForParentId = null
-                                                    requestTaskDeletion(
-                                                        p.parent.id,
-                                                        p.parent.name,
-                                                        isRoot = true
-                                                    )
                                                     lastInteractionTime = System.currentTimeMillis()
                                                 }
-                                            )
-                                            DropdownMenuItem(
-                                                text = {
-                                                    Text(stringResource(R.string.task_change_color))
-                                                },
-                                                onClick = {
-                                                    menuForParentId = null
-                                                    colorPickForParentId = p.parent.id
-                                                    lastInteractionTime = System.currentTimeMillis()
+                                            ) {
+                                                if (TaskMenuAction.AddChild in taskMenuSettings.actions) {
+                                                    DropdownMenuItem(
+                                                        text = { Text(stringResource(R.string.task_add)) },
+                                                        onClick = {
+                                                            requestAddChild(p.parent.id)
+                                                        }
+                                                    )
                                                 }
-                                            )
+                                                if (TaskMenuAction.Rename in taskMenuSettings.actions) {
+                                                    DropdownMenuItem(
+                                                        text = { Text(stringResource(R.string.task_rename)) },
+                                                        onClick = {
+                                                            requestRename(p.parent.id, p.parent.name)
+                                                        }
+                                                    )
+                                                }
+                                                if (TaskMenuAction.Delete in taskMenuSettings.actions) {
+                                                    DropdownMenuItem(
+                                                        text = {
+                                                            Text(
+                                                                stringResource(R.string.task_delete_parent)
+                                                            )
+                                                        },
+                                                        onClick = {
+                                                            menuForParentId = null
+                                                            requestTaskDeletion(
+                                                                p.parent.id,
+                                                                p.parent.name,
+                                                                isRoot = true
+                                                            )
+                                                            lastInteractionTime = System.currentTimeMillis()
+                                                        }
+                                                    )
+                                                }
+                                                if (TaskMenuAction.ChangeColor in taskMenuSettings.actions) {
+                                                    DropdownMenuItem(
+                                                        text = {
+                                                            Text(stringResource(R.string.task_change_color))
+                                                        },
+                                                        onClick = {
+                                                            menuForParentId = null
+                                                            colorPickForParentId = p.parent.id
+                                                            lastInteractionTime = System.currentTimeMillis()
+                                                        }
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
 
@@ -1796,11 +1826,11 @@ fun DBTaskScreen(
 
                                         val isSelected = selectedTaskId == child.id && !sortMode
                                         val bg =
-                                            if (isSelected) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surface
+                                            if (isSelected) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surface
                                         val border =
-                                            if (isSelected) Color.Red else MaterialTheme.colorScheme.outline
-                                        val textColor =
-                                            if (isSelected) Color.Red else MaterialTheme.colorScheme.onSurface
+                                            if (isSelected) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
+                                        val contentColor =
+                                            if (isSelected) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurface
 
                                         val isDragging = draggingTaskId == child.id
                                         val z = if (isDragging) 1f else 0f
@@ -1915,7 +1945,8 @@ fun DBTaskScreen(
                                                             })
                                                 ),
                                             colors = CardDefaults.cardColors(
-                                                containerColor = if (isDragging) MaterialTheme.colorScheme.surfaceVariant else bg
+                                                containerColor = if (isDragging) MaterialTheme.colorScheme.surfaceVariant else bg,
+                                                contentColor = contentColor
                                             ),
                                             shape = RoundedCornerShape(2.dp)
                                         ) {
@@ -1929,7 +1960,6 @@ fun DBTaskScreen(
                                                     text = child.name,
                                                     style = MaterialTheme.typography.bodyLarge,
                                                     modifier = Modifier.weight(1f),
-                                                    color = textColor,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
@@ -1952,6 +1982,7 @@ fun DBTaskScreen(
                                                         TaskPlaybackButton(
                                                             taskName = child.name,
                                                             isRunning = runningTaskRowId == child.id,
+                                                            isSelected = isSelected,
                                                             onClick = { toggleTaskPlayback(child.id) }
                                                         )
                                                     }
@@ -1963,85 +1994,101 @@ fun DBTaskScreen(
                                                             )
                                                         }
                                                     }
-                                                    IconButton(onClick = {
-                                                        menuForChildTaskId = child.id
-                                                        renameTaskCurrentName = child.name
-                                                        renameTaskText = child.name
-                                                        lastInteractionTime =
-                                                            System.currentTimeMillis()
-                                                    }) {
-                                                        Icon(
-                                                            Icons.Filled.Menu,
-                                                            contentDescription = stringResource(
-                                                                R.string.task_menu
-                                                            )
+                                                    if (taskMenuSettings.showButtons) {
+                                                        val menuEnabled = taskMenuSettings.hasAny(
+                                                            TaskMenuAction.EditSubtasks,
+                                                            TaskMenuAction.AddChild,
+                                                            TaskMenuAction.Rename,
+                                                            TaskMenuAction.Delete
                                                         )
-                                                    }
-                                                    DropdownMenu(
-                                                        expanded = menuForChildTaskId == child.id,
-                                                        onDismissRequest = {
-                                                            menuForChildTaskId = null
+                                                        IconButton(enabled = menuEnabled, onClick = {
+                                                            menuForChildTaskId = child.id
+                                                            renameTaskCurrentName = child.name
+                                                            renameTaskText = child.name
                                                             lastInteractionTime =
                                                                 System.currentTimeMillis()
+                                                        }) {
+                                                            Icon(
+                                                                Icons.Filled.Menu,
+                                                                contentDescription = stringResource(
+                                                                    R.string.task_menu
+                                                                )
+                                                            )
                                                         }
-                                                    ) {
-                                                        DropdownMenuItem(
-                                                            text = {
-                                                                Text(
-                                                                    stringResource(
-                                                                        R.string.task_edit_subtasks
-                                                                    )
-                                                                )
-                                                            },
-                                                            onClick = {
+                                                        DropdownMenu(
+                                                            expanded = menuEnabled && menuForChildTaskId == child.id,
+                                                            onDismissRequest = {
                                                                 menuForChildTaskId = null
-                                                                ui =
-                                                                    TaskCenterUiState.SubtaskSelect(
-                                                                        parentTitle = child.name,
-                                                                        parentId = child.id,
-                                                                        color = parentColor
-                                                                    )
                                                                 lastInteractionTime =
                                                                     System.currentTimeMillis()
                                                             }
-                                                        )
+                                                        ) {
+                                                            if (TaskMenuAction.EditSubtasks in taskMenuSettings.actions) {
+                                                                DropdownMenuItem(
+                                                                    text = {
+                                                                        Text(
+                                                                            stringResource(
+                                                                                R.string.task_edit_subtasks
+                                                                            )
+                                                                        )
+                                                                    },
+                                                                    onClick = {
+                                                                        menuForChildTaskId = null
+                                                                        ui =
+                                                                            TaskCenterUiState.SubtaskSelect(
+                                                                                parentTitle = child.name,
+                                                                                parentId = child.id,
+                                                                                color = parentColor
+                                                                            )
+                                                                        lastInteractionTime =
+                                                                            System.currentTimeMillis()
+                                                                    }
+                                                                )
+                                                            }
 
-                                                        // サブタスク追加
-                                                        DropdownMenuItem(
-                                                            text = {
-                                                                Text(
-                                                                    stringResource(
-                                                                        R.string.task_add_subtask
-                                                                    )
+                                                            // サブタスク追加
+                                                            if (TaskMenuAction.AddChild in taskMenuSettings.actions) {
+                                                                DropdownMenuItem(
+                                                                    text = {
+                                                                        Text(
+                                                                            stringResource(
+                                                                                R.string.task_add_subtask
+                                                                            )
+                                                                        )
+                                                                    },
+                                                                    onClick = {
+                                                                        requestAddChild(child.id)
+                                                                    }
                                                                 )
-                                                            },
-                                                            onClick = {
-                                                                requestAddChild(child.id)
                                                             }
-                                                        )
-                                                        DropdownMenuItem(
-                                                            text = {
-                                                                Text(stringResource(R.string.task_rename))
-                                                            },
-                                                            onClick = {
-                                                                requestRename(child.id, child.name)
-                                                            }
-                                                        )
-                                                        DropdownMenuItem(
-                                                            text = {
-                                                                Text(stringResource(R.string.task_delete))
-                                                            },
-                                                            onClick = {
-                                                                menuForChildTaskId = null
-                                                                requestTaskDeletion(
-                                                                    child.id,
-                                                                    child.name,
-                                                                    isRoot = false
+                                                            if (TaskMenuAction.Rename in taskMenuSettings.actions) {
+                                                                DropdownMenuItem(
+                                                                    text = {
+                                                                        Text(stringResource(R.string.task_rename))
+                                                                    },
+                                                                    onClick = {
+                                                                        requestRename(child.id, child.name)
+                                                                    }
                                                                 )
-                                                                lastInteractionTime =
-                                                                    System.currentTimeMillis()
                                                             }
-                                                        )
+                                                            if (TaskMenuAction.Delete in taskMenuSettings.actions) {
+                                                                DropdownMenuItem(
+                                                                    text = {
+                                                                        Text(stringResource(R.string.task_delete))
+                                                                    },
+                                                                    onClick = {
+                                                                        menuForChildTaskId = null
+                                                                        requestTaskDeletion(
+                                                                            child.id,
+                                                                            child.name,
+                                                                            isRoot = false
+                                                                        )
+                                                                        lastInteractionTime =
+                                                                            System.currentTimeMillis()
+                                                                    }
+                                                                )
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -2086,6 +2133,7 @@ fun DBTaskScreen(
                         onRenameRequest = ::requestRename,
                         showTaskAddButtons = showTaskAddButtons,
                         showTaskPlaybackButtons = showTaskPlaybackButtons,
+                        taskMenuSettings = taskMenuSettings,
                         onPlaybackRequest = ::toggleTaskPlayback,
                         onAddRequest = { requestAddChild(s.parentId) },
                         onDeleteRequest = { taskId, name ->
@@ -2467,7 +2515,12 @@ fun DBTaskScreen(
 }
 
 @Composable
-private fun TaskPlaybackButton(taskName: String, isRunning: Boolean, onClick: () -> Unit) {
+private fun TaskPlaybackButton(
+    taskName: String,
+    isRunning: Boolean,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
     IconButton(onClick = onClick) {
         Icon(
             imageVector = if (isRunning) Icons.Filled.Stop else Icons.Filled.PlayArrow,
@@ -2475,7 +2528,11 @@ private fun TaskPlaybackButton(taskName: String, isRunning: Boolean, onClick: ()
                 if (isRunning) R.string.task_stop_named else R.string.task_start_named,
                 taskName
             ),
-            tint = if (isRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+            tint = when {
+                isSelected -> MaterialTheme.colorScheme.onErrorContainer
+                isRunning -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.primary
+            }
         )
     }
 }
@@ -2498,6 +2555,7 @@ private fun SubtaskPicker(
     nameSort: NameSort,
     showTaskAddButtons: Boolean,
     showTaskPlaybackButtons: Boolean,
+    taskMenuSettings: TaskMenuSettings,
     onPlaybackRequest: (Long) -> Unit,
     onAddRequest: () -> Unit
 ) {
@@ -2554,9 +2612,9 @@ private fun SubtaskPicker(
             items(subtasksForView.size) { i ->
                 val t = subtasksForView[i]
                 val isSelected = selectedSubId == t.id
-                val bg = if (isSelected) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surface
-                val border = if (isSelected) Color.Red else MaterialTheme.colorScheme.outline
-                val textColor = if (isSelected) Color.Red else MaterialTheme.colorScheme.onSurface
+                val bg = if (isSelected) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surface
+                val border = if (isSelected) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
+                val contentColor = if (isSelected) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurface
 
                 Card(
                     modifier = Modifier
@@ -2568,7 +2626,10 @@ private fun SubtaskPicker(
                             onLongClick = { onRenameRequest(t.id, t.name) },
                             onClick = { selectedSubId = t.id; onPick(t.id) }
                         ),
-                    colors = CardDefaults.cardColors(containerColor = bg),
+                    colors = CardDefaults.cardColors(
+                        containerColor = bg,
+                        contentColor = contentColor
+                    ),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Row(
@@ -2581,7 +2642,6 @@ private fun SubtaskPicker(
                             text = t.name,
                             style = MaterialTheme.typography.bodyLarge,
                             modifier = Modifier.weight(1f),
-                            color = textColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -2598,6 +2658,7 @@ private fun SubtaskPicker(
                             TaskPlaybackButton(
                                 taskName = t.name,
                                 isRunning = activeUi?.taskId == t.id,
+                                isSelected = isSelected,
                                 onClick = { onPlaybackRequest(t.id) }
                             )
                         }
@@ -2609,30 +2670,40 @@ private fun SubtaskPicker(
                                 )
                             }
                         }
-                        IconButton(onClick = { menuExpanded = true }) {
-                            Icon(
-                                Icons.Filled.Menu,
-                                contentDescription = stringResource(R.string.task_subtask_menu)
+                        if (taskMenuSettings.showButtons) {
+                            val menuEnabled = taskMenuSettings.hasAny(
+                                TaskMenuAction.Rename,
+                                TaskMenuAction.Delete
                             )
-                        }
-                        DropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.task_rename)) },
-                                onClick = {
-                                    menuExpanded = false
-                                    onRenameRequest(t.id, t.name)
+                            IconButton(enabled = menuEnabled, onClick = { menuExpanded = true }) {
+                                Icon(
+                                    Icons.Filled.Menu,
+                                    contentDescription = stringResource(R.string.task_subtask_menu)
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = menuEnabled && menuExpanded,
+                                onDismissRequest = { menuExpanded = false }
+                            ) {
+                                if (TaskMenuAction.Rename in taskMenuSettings.actions) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.task_rename)) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onRenameRequest(t.id, t.name)
+                                        }
+                                    )
                                 }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.action_delete)) },
-                                onClick = {
-                                    menuExpanded = false
-                                    onDeleteRequest(t.id, t.name)
+                                if (TaskMenuAction.Delete in taskMenuSettings.actions) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.action_delete)) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onDeleteRequest(t.id, t.name)
+                                        }
+                                    )
                                 }
-                            )
+                            }
                         }
                     }
                 }

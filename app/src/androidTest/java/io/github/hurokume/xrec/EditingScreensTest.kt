@@ -1,12 +1,14 @@
 package io.github.hurokume.xrec
 
 import android.app.Application
+import android.content.Context
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithText
@@ -104,6 +106,129 @@ class EditingScreensTest {
         androidx.test.espresso.Espresso.pressBack()
         compose.onNodeWithText(text(R.string.action_back)).performScrollTo().performClick()
         compose.onNodeWithText(text(R.string.daily_plan_title)).assertIsDisplayed()
+    }
+
+    @Test
+    fun taskMenuCustomizationRequiresVisibleButtonsAndKeepsSavedChoices() {
+        val settings = mutableStateOf(TaskMenuSettings())
+        compose.setContent {
+            MaterialTheme {
+                SettingsScreen(
+                    true, {}, DailyPlans(), emptyList(), {}, {},
+                    taskMenuSettings = settings.value,
+                    onTaskMenuSettingsChange = { settings.value = it }
+                )
+            }
+        }
+        compose.onNodeWithText(text(R.string.settings_display_title)).performClick()
+        compose.onNodeWithText(text(R.string.settings_show_task_menu_buttons))
+            .performScrollTo().assertIsOn()
+        compose.onNodeWithText(text(R.string.settings_task_menu_customize))
+            .performScrollTo().assertIsEnabled().performClick()
+        compose.onNodeWithText(text(R.string.task_rename)).performScrollTo().performClick()
+        compose.onNodeWithText(text(R.string.action_cancel)).performClick()
+        Assert.assertTrue(TaskMenuAction.Rename in settings.value.actions)
+
+        compose.onNodeWithText(text(R.string.settings_task_menu_customize)).performClick()
+        TaskMenuAction.entries.filter { it != TaskMenuAction.Rename }.forEach {
+            compose.onNodeWithText(text(it.label)).performScrollTo().assertIsOn().performClick()
+        }
+        compose.onNodeWithText(text(R.string.action_save)).performClick()
+        Assert.assertEquals(setOf(TaskMenuAction.Rename), settings.value.actions)
+
+        compose.onNodeWithText(text(R.string.settings_show_task_menu_buttons))
+            .performScrollTo().performClick().assertIsOff()
+        compose.onNodeWithText(text(R.string.settings_task_menu_customize))
+            .performScrollTo().assertIsNotEnabled()
+        Assert.assertEquals(setOf(TaskMenuAction.Rename), settings.value.actions)
+        compose.onNodeWithText(text(R.string.settings_show_task_menu_buttons))
+            .performScrollTo().performClick()
+        compose.onNodeWithText(text(R.string.settings_task_menu_customize))
+            .performScrollTo().assertIsEnabled().performClick()
+        compose.onNodeWithText(text(R.string.task_rename)).performScrollTo().assertIsOn()
+        compose.onNodeWithText(text(R.string.action_delete)).performScrollTo().assertIsOff()
+    }
+
+    @Test
+    fun taskMenuChoicesApplyToAllLevelsAndDisableMenusWithoutApplicableItems() = runBlocking {
+        val project = db.taskDao().insertTask(TaskEntity(name = "Menu project"))
+        val task = db.taskDao().insertTask(TaskEntity(name = "Menu task", parentId = project))
+        db.taskDao().insertTask(TaskEntity(name = "Menu subtask", parentId = task))
+        val settings = mutableStateOf(TaskMenuSettings(actions = setOf(TaskMenuAction.Rename)))
+        compose.setContent {
+            MaterialTheme {
+                DBTaskScreen(
+                    vm, sortMode = false, nameSort = NameSort.None,
+                    showTaskAddButtons = false,
+                    showTaskPlaybackButtons = false,
+                    taskMenuSettings = settings.value
+                )
+            }
+        }
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("Menu task").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithContentDescription(text(R.string.task_parent_menu)).performClick()
+        compose.onNodeWithText(text(R.string.task_rename)).assertIsDisplayed()
+        for (label in listOf(R.string.task_add, R.string.task_delete_parent, R.string.task_change_color)) {
+            compose.onNodeWithText(text(label)).assertDoesNotExist()
+        }
+        androidx.test.espresso.Espresso.pressBack()
+        compose.onNodeWithContentDescription(text(R.string.task_menu)).performClick()
+        compose.onNodeWithText(text(R.string.task_rename)).assertIsDisplayed()
+        for (label in listOf(R.string.task_edit_subtasks, R.string.task_add_subtask, R.string.task_delete)) {
+            compose.onNodeWithText(text(label)).assertDoesNotExist()
+        }
+        androidx.test.espresso.Espresso.pressBack()
+
+        compose.runOnIdle { settings.value = settings.value.copy(showButtons = false) }
+        compose.onNodeWithContentDescription(text(R.string.task_parent_menu)).assertDoesNotExist()
+        compose.onNodeWithContentDescription(text(R.string.task_menu)).assertDoesNotExist()
+        compose.onNodeWithText("Menu task").performClick()
+        compose.onNodeWithText("Menu subtask").assertIsDisplayed()
+        compose.onNodeWithContentDescription(text(R.string.task_subtask_menu)).assertDoesNotExist()
+        compose.runOnIdle { settings.value = settings.value.copy(showButtons = true) }
+        compose.onNodeWithContentDescription(text(R.string.task_subtask_menu)).performClick()
+        compose.onNodeWithText(text(R.string.action_delete)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.task_rename)).performClick()
+        compose.onNodeWithText(app.getString(R.string.task_current_name, "Menu subtask"))
+            .assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.action_cancel)).performClick()
+
+        compose.runOnIdle { settings.value = settings.value.copy(actions = emptySet()) }
+        compose.onNodeWithContentDescription(text(R.string.task_subtask_menu)).assertIsNotEnabled()
+        compose.onNodeWithText(text(R.string.action_back_with_marker)).performClick()
+        compose.onNodeWithContentDescription(text(R.string.task_parent_menu)).assertIsNotEnabled()
+        compose.onNodeWithContentDescription(text(R.string.task_menu)).assertIsNotEnabled()
+        compose.runOnIdle {
+            settings.value = settings.value.copy(actions = setOf(TaskMenuAction.ChangeColor))
+        }
+        compose.onNodeWithContentDescription(text(R.string.task_menu)).assertIsNotEnabled()
+        compose.onNodeWithContentDescription(text(R.string.task_parent_menu))
+            .assertIsEnabled().performClick()
+        compose.onNodeWithText(text(R.string.task_change_color)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.task_rename)).assertDoesNotExist()
+        Assert.assertNull(db.taskDao().getActiveOrNull())
+    }
+
+    @Test
+    fun taskMenuPreferencesPreserveHiddenAndEmptySelections() {
+        val prefs = app.getSharedPreferences("task-menu-settings-test", Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        try {
+            Assert.assertEquals(TaskMenuSettings(), TaskMenuPreferences.read(prefs))
+            val customized = TaskMenuSettings(actions = setOf(TaskMenuAction.Rename))
+            TaskMenuPreferences.write(prefs, customized.copy(showButtons = false))
+            Assert.assertEquals(
+                customized.copy(showButtons = false), TaskMenuPreferences.read(prefs)
+            )
+            TaskMenuPreferences.write(prefs, TaskMenuPreferences.read(prefs).copy(showButtons = true))
+            Assert.assertEquals(customized, TaskMenuPreferences.read(prefs))
+            TaskMenuPreferences.write(prefs, customized.copy(actions = emptySet()))
+            Assert.assertEquals(emptySet<TaskMenuAction>(), TaskMenuPreferences.read(prefs).actions)
+        } finally {
+            prefs.edit().clear().commit()
+        }
     }
 
     @Test
