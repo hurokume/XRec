@@ -11,6 +11,7 @@ import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -106,6 +107,113 @@ class EditingScreensTest {
         androidx.test.espresso.Espresso.pressBack()
         compose.onNodeWithText(text(R.string.action_back)).performScrollTo().performClick()
         compose.onNodeWithText(text(R.string.daily_plan_title)).assertIsDisplayed()
+    }
+
+    @Test
+    fun taskButtonSettingsFollowIconOrderAndToggleDeleteVisibility() {
+        val showDelete = mutableStateOf(true)
+        compose.setContent {
+            MaterialTheme {
+                SettingsScreen(
+                    true, {}, DailyPlans(), emptyList(), {}, {},
+                    showTaskDeleteButtons = showDelete.value,
+                    onShowTaskDeleteButtonsChange = { showDelete.value = it }
+                )
+            }
+        }
+        compose.onNodeWithText(text(R.string.settings_display_title)).performClick()
+        compose.onNodeWithText(text(R.string.settings_show_task_menu_buttons)).performScrollTo()
+        val settingPositions = listOf(
+            R.string.settings_show_task_playback_buttons,
+            R.string.settings_show_task_add_buttons,
+            R.string.settings_show_task_delete_buttons,
+            R.string.settings_show_task_menu_buttons
+        ).map { compose.onNodeWithText(text(it)).fetchSemanticsNode().boundsInRoot.top }
+        Assert.assertTrue(settingPositions.zipWithNext().all { (above, below) -> above < below })
+        compose.onNodeWithText(text(R.string.settings_show_task_delete_buttons))
+            .performScrollTo().assertIsOn().performClick().assertIsOff()
+        Assert.assertFalse(showDelete.value)
+        compose.onNodeWithText(text(R.string.settings_show_task_delete_buttons))
+            .performClick().assertIsOn()
+        Assert.assertTrue(showDelete.value)
+    }
+
+    @Test
+    fun deleteButtonsFollowRowOrderCanBeHiddenAndConfirmDeletionAtEveryLevel() = runBlocking {
+        val project = db.taskDao().insertTask(TaskEntity(name = "Trash project"))
+        val task = db.taskDao().insertTask(TaskEntity(name = "Trash task", parentId = project))
+        val subtask = db.taskDao().insertTask(TaskEntity(name = "Trash subtask", parentId = task))
+        val showDelete = mutableStateOf(true)
+        compose.setContent {
+            MaterialTheme {
+                DBTaskScreen(
+                    vm, sortMode = false, nameSort = NameSort.None,
+                    showTaskDeleteButtons = showDelete.value
+                )
+            }
+        }
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("Trash task").fetchSemanticsNodes().isNotEmpty()
+        }
+        fun deleteLabel(name: String) = app.getString(R.string.task_delete_named, name)
+        fun checkButtonOrder(name: String, addLabel: Int, menuLabel: Int) {
+            val delete = compose.onNodeWithContentDescription(deleteLabel(name))
+                .fetchSemanticsNode().boundsInRoot
+            val add = compose.onAllNodesWithContentDescription(text(addLabel))
+                .fetchSemanticsNodes().single { it.boundsInRoot.center.y == delete.center.y }
+                .boundsInRoot
+            val menu = compose.onNodeWithContentDescription(text(menuLabel))
+                .fetchSemanticsNode().boundsInRoot
+            Assert.assertTrue(add.center.x < delete.center.x && delete.center.x < menu.center.x)
+        }
+        fun openAndCancel(name: String, isRoot: Boolean) {
+            compose.onNodeWithContentDescription(deleteLabel(name)).performClick()
+            compose.onNodeWithText(app.getString(R.string.delete_task_message, name))
+                .assertIsDisplayed()
+            if (isRoot) {
+                compose.onNodeWithText(text(R.string.delete_task_promote_title)).assertDoesNotExist()
+            } else {
+                compose.onNodeWithText(text(R.string.delete_task_promote_title)).assertIsDisplayed()
+            }
+            compose.onNodeWithText(text(R.string.action_cancel)).performClick()
+        }
+
+        checkButtonOrder("Trash project", R.string.task_add, R.string.task_parent_menu)
+        checkButtonOrder("Trash task", R.string.task_add_subtask, R.string.task_menu)
+        openAndCancel("Trash project", isRoot = true)
+        openAndCancel("Trash task", isRoot = false)
+        Assert.assertFalse(db.taskDao().getTaskById(project)!!.isArchived)
+        Assert.assertNotNull(db.taskDao().getTaskById(task))
+
+        compose.runOnIdle { showDelete.value = false }
+        compose.onNodeWithContentDescription(deleteLabel("Trash project")).assertDoesNotExist()
+        compose.onNodeWithContentDescription(deleteLabel("Trash task")).assertDoesNotExist()
+        compose.onNodeWithContentDescription(text(R.string.task_menu)).assertIsDisplayed()
+        compose.runOnIdle { showDelete.value = true }
+        compose.onNodeWithText("Trash task", useUnmergedTree = true).performClick()
+        compose.onNodeWithText("Trash subtask").assertIsDisplayed()
+        compose.runOnIdle { showDelete.value = false }
+        compose.onNodeWithContentDescription(deleteLabel("Trash subtask")).assertDoesNotExist()
+        compose.runOnIdle { showDelete.value = true }
+        checkButtonOrder("Trash subtask", R.string.task_add_subtask, R.string.task_subtask_menu)
+        openAndCancel("Trash subtask", isRoot = false)
+        Assert.assertNotNull(db.taskDao().getTaskById(subtask))
+
+        compose.onNodeWithContentDescription(deleteLabel("Trash subtask")).performClick()
+        compose.onNodeWithText(text(R.string.action_delete)).performClick()
+        compose.waitUntil(10_000) { runBlocking { db.taskDao().getTaskById(subtask) == null } }
+        Assert.assertNotNull(db.taskDao().getTaskById(task))
+        compose.onNodeWithText(text(R.string.action_back_with_marker)).performClick()
+        compose.onNodeWithContentDescription(deleteLabel("Trash task")).performClick()
+        compose.onNodeWithText(text(R.string.action_delete)).performClick()
+        compose.waitUntil(10_000) { runBlocking { db.taskDao().getTaskById(task) == null } }
+        Assert.assertFalse(db.taskDao().getTaskById(project)!!.isArchived)
+        compose.onNodeWithContentDescription(deleteLabel("Trash project")).performClick()
+        compose.onNodeWithText(text(R.string.action_delete)).performClick()
+        compose.waitUntil(10_000) {
+            runBlocking { db.taskDao().getTaskById(project)?.isArchived == true }
+        }
+        Assert.assertNull(db.taskDao().getActiveOrNull())
     }
 
     @Test
@@ -363,7 +471,8 @@ class EditingScreensTest {
         compose.runOnIdle { showPlayback.value = false }
         compose.onNodeWithContentDescription(playbackLabel(false, "Playback task"))
             .assertDoesNotExist()
-        compose.onNodeWithText("Playback task").performClick()
+        // Tap the actual label: the merged row's center can overlap an action button.
+        compose.onNodeWithText("Playback task", useUnmergedTree = true).performClick()
         compose.onNodeWithText("Playback subtask").assertIsDisplayed()
         compose.onNodeWithContentDescription(playbackLabel(false, "Playback subtask"))
             .assertDoesNotExist()
@@ -376,10 +485,10 @@ class EditingScreensTest {
         compose.waitUntil(10_000) { vm.activeUi.value == null }
         Assert.assertNull(db.taskDao().getActiveOrNull())
 
-        compose.onNodeWithText("Playback task").performClick()
+        compose.onNodeWithText("Playback task", useUnmergedTree = true).performClick()
         compose.onNodeWithContentDescription(playbackLabel(false, "Playback subtask")).performClick()
         compose.waitUntil(10_000) { vm.activeUi.value?.taskId == subtask }
-        compose.onNodeWithText("Playback task").performClick()
+        compose.onNodeWithText("Playback task", useUnmergedTree = true).performClick()
         compose.onNodeWithContentDescription(playbackLabel(true, "Playback subtask")).performClick()
         compose.waitUntil(10_000) { vm.activeUi.value == null }
         Assert.assertNull(db.taskDao().getActiveOrNull())
@@ -405,7 +514,7 @@ class EditingScreensTest {
         compose.waitUntil(10_000) {
             compose.onAllNodesWithText("UI Task").fetchSemanticsNodes().isNotEmpty()
         }
-        compose.onNodeWithText("UI Task").performClick()
+        compose.onNodeWithText("UI Task", useUnmergedTree = true).performClick()
         compose.onNodeWithText(text(R.string.subtask_none)).assertIsDisplayed().performClick()
         compose.waitUntil(10_000) { vm.activeUi.value?.taskId == task }
         Assert.assertEquals(task, db.taskDao().getActiveOrNull()!!.taskId)

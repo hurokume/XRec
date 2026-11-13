@@ -200,6 +200,7 @@ private const val SETTINGS_PREFS_NAME = "app_settings"
 private const val KEY_SHOW_STOP_BUTTON = "show_stop_button"
 private const val KEY_SHOW_TASK_ADD_BUTTONS = "show_task_add_buttons"
 private const val KEY_SHOW_TASK_PLAYBACK_BUTTONS = "show_task_playback_buttons"
+private const val KEY_SHOW_TASK_DELETE_BUTTONS = "show_task_delete_buttons"
 private const val KEY_DAILY_PLANS = "daily_plans"
 
 /**
@@ -329,6 +330,9 @@ fun AppRoot(
     var showTaskPlaybackButtons by rememberSaveable {
         mutableStateOf(settingsPreferences.getBoolean(KEY_SHOW_TASK_PLAYBACK_BUTTONS, true))
     }
+    var showTaskDeleteButtons by rememberSaveable {
+        mutableStateOf(settingsPreferences.getBoolean(KEY_SHOW_TASK_DELETE_BUTTONS, true))
+    }
     var taskMenuSettings by remember(settingsPreferences) {
         mutableStateOf(TaskMenuPreferences.read(settingsPreferences))
     }
@@ -385,6 +389,13 @@ fun AppRoot(
     fun updateTaskMenuSettings(updated: TaskMenuSettings) {
         taskMenuSettings = updated
         TaskMenuPreferences.write(settingsPreferences, updated)
+    }
+
+    fun updateShowTaskDeleteButtons(show: Boolean) {
+        showTaskDeleteButtons = show
+        settingsPreferences.edit()
+            .putBoolean(KEY_SHOW_TASK_DELETE_BUTTONS, show)
+            .apply()
     }
 
     // 通知許可のランチャ
@@ -1012,6 +1023,7 @@ fun AppRoot(
                                     sortMode = sortMode,
                                     showTaskAddButtons = showTaskAddButtons,
                                     showTaskPlaybackButtons = showTaskPlaybackButtons,
+                                    showTaskDeleteButtons = showTaskDeleteButtons,
                                     taskMenuSettings = taskMenuSettings,
                                     onNavigateAddTask = onNavigateAddTask,
                                     selectedTimelineTaskId = selectedTimelineTaskId,
@@ -1079,6 +1091,8 @@ fun AppRoot(
                             onShowTaskAddButtonsChange = ::updateShowTaskAddButtons,
                             showTaskPlaybackButtons = showTaskPlaybackButtons,
                             onShowTaskPlaybackButtonsChange = ::updateShowTaskPlaybackButtons,
+                            showTaskDeleteButtons = showTaskDeleteButtons,
+                            onShowTaskDeleteButtonsChange = ::updateShowTaskDeleteButtons,
                             taskMenuSettings = taskMenuSettings,
                             onTaskMenuSettingsChange = ::updateTaskMenuSettings,
                             showNotification = notificationSettings.showNotification,
@@ -1398,6 +1412,7 @@ fun MainPager(
     aggMode: StatsAggMode,
     showTaskAddButtons: Boolean = true,
     showTaskPlaybackButtons: Boolean = true,
+    showTaskDeleteButtons: Boolean = true,
     taskMenuSettings: TaskMenuSettings = TaskMenuSettings()
 ) {
     HorizontalPager(state = pagerState, modifier = modifier.fillMaxSize()) { page ->
@@ -1419,6 +1434,7 @@ fun MainPager(
                 nameSort = nameSort,
                 showTaskAddButtons = showTaskAddButtons,
                 showTaskPlaybackButtons = showTaskPlaybackButtons,
+                showTaskDeleteButtons = showTaskDeleteButtons,
                 taskMenuSettings = taskMenuSettings
             )
             2 -> StatsScreen(
@@ -1456,6 +1472,7 @@ fun DBTaskScreen(
     nameSort: NameSort,
     showTaskAddButtons: Boolean = true,
     showTaskPlaybackButtons: Boolean = true,
+    showTaskDeleteButtons: Boolean = true,
     taskMenuSettings: TaskMenuSettings = TaskMenuSettings()
 ) {
     val parents by taskVm.parents.collectAsStateWithLifecycle()
@@ -1743,6 +1760,12 @@ fun DBTaskScreen(
                                                 )
                                             }
                                         }
+                                        if (showTaskDeleteButtons && !sortMode) {
+                                            TaskDeleteButton(taskName = p.parent.name) {
+                                                requestTaskDeletion(p.parent.id, p.parent.name, isRoot = true)
+                                                lastInteractionTime = System.currentTimeMillis()
+                                            }
+                                        }
                                         if (taskMenuSettings.showButtons) {
                                             val menuEnabled = taskMenuSettings.hasAny(
                                                 TaskMenuAction.AddChild,
@@ -1994,6 +2017,12 @@ fun DBTaskScreen(
                                                             )
                                                         }
                                                     }
+                                                    if (showTaskDeleteButtons) {
+                                                        TaskDeleteButton(taskName = child.name) {
+                                                            requestTaskDeletion(child.id, child.name, isRoot = false)
+                                                            lastInteractionTime = System.currentTimeMillis()
+                                                        }
+                                                    }
                                                     if (taskMenuSettings.showButtons) {
                                                         val menuEnabled = taskMenuSettings.hasAny(
                                                             TaskMenuAction.EditSubtasks,
@@ -2133,6 +2162,7 @@ fun DBTaskScreen(
                         onRenameRequest = ::requestRename,
                         showTaskAddButtons = showTaskAddButtons,
                         showTaskPlaybackButtons = showTaskPlaybackButtons,
+                        showTaskDeleteButtons = showTaskDeleteButtons,
                         taskMenuSettings = taskMenuSettings,
                         onPlaybackRequest = ::toggleTaskPlayback,
                         onAddRequest = { requestAddChild(s.parentId) },
@@ -2515,6 +2545,16 @@ fun DBTaskScreen(
 }
 
 @Composable
+private fun TaskDeleteButton(taskName: String, onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(
+            imageVector = Icons.Filled.Delete,
+            contentDescription = stringResource(R.string.task_delete_named, taskName)
+        )
+    }
+}
+
+@Composable
 private fun TaskPlaybackButton(
     taskName: String,
     isRunning: Boolean,
@@ -2555,6 +2595,7 @@ private fun SubtaskPicker(
     nameSort: NameSort,
     showTaskAddButtons: Boolean,
     showTaskPlaybackButtons: Boolean,
+    showTaskDeleteButtons: Boolean,
     taskMenuSettings: TaskMenuSettings,
     onPlaybackRequest: (Long) -> Unit,
     onAddRequest: () -> Unit
@@ -2669,6 +2710,9 @@ private fun SubtaskPicker(
                                     contentDescription = stringResource(R.string.task_add_subtask)
                                 )
                             }
+                        }
+                        if (showTaskDeleteButtons) {
+                            TaskDeleteButton(taskName = t.name) { onDeleteRequest(t.id, t.name) }
                         }
                         if (taskMenuSettings.showButtons) {
                             val menuEnabled = taskMenuSettings.hasAny(

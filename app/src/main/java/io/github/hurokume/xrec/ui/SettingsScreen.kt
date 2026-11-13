@@ -99,6 +99,8 @@ fun SettingsScreen(
     onShowTaskAddButtonsChange: (Boolean) -> Unit = {},
     showTaskPlaybackButtons: Boolean = true,
     onShowTaskPlaybackButtonsChange: (Boolean) -> Unit = {},
+    showTaskDeleteButtons: Boolean = true,
+    onShowTaskDeleteButtonsChange: (Boolean) -> Unit = {},
     taskMenuSettings: TaskMenuSettings = TaskMenuSettings(),
     onTaskMenuSettingsChange: (TaskMenuSettings) -> Unit = {}
 ) {
@@ -198,14 +200,19 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.titleMedium
             )
             SettingsSwitchRow(
+                stringResource(R.string.settings_show_task_playback_buttons),
+                showTaskPlaybackButtons,
+                onShowTaskPlaybackButtonsChange
+            )
+            SettingsSwitchRow(
                 stringResource(R.string.settings_show_task_add_buttons),
                 showTaskAddButtons,
                 onShowTaskAddButtonsChange
             )
             SettingsSwitchRow(
-                stringResource(R.string.settings_show_task_playback_buttons),
-                showTaskPlaybackButtons,
-                onShowTaskPlaybackButtonsChange
+                stringResource(R.string.settings_show_task_delete_buttons),
+                showTaskDeleteButtons,
+                onShowTaskDeleteButtonsChange
             )
 
             TaskMenuSettingsEditor(taskMenuSettings, onTaskMenuSettingsChange)
