@@ -44,6 +44,7 @@ import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -61,6 +62,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,11 +71,13 @@ import androidx.core.content.edit
 import androidx.core.net.toUri
 import io.github.hurokume.xrec.R
 import io.github.hurokume.xrec.TaskMenuSettings
+import io.github.hurokume.xrec.TaskIconSpacing
 import io.github.hurokume.xrec.TemporaryTaskWidgetProvider
 import io.github.hurokume.xrec.data.DailyPlanEntry
 import io.github.hurokume.xrec.data.DailyPlanType
 import io.github.hurokume.xrec.data.DailyPlans
 import java.util.Locale
+import kotlin.math.roundToInt
 
 data class DailyPlanTaskOption(
     val id: Long,
@@ -102,7 +107,11 @@ fun SettingsScreen(
     showTaskDeleteButtons: Boolean = true,
     onShowTaskDeleteButtonsChange: (Boolean) -> Unit = {},
     taskMenuSettings: TaskMenuSettings = TaskMenuSettings(),
-    onTaskMenuSettingsChange: (TaskMenuSettings) -> Unit = {}
+    onTaskMenuSettingsChange: (TaskMenuSettings) -> Unit = {},
+    showTaskExpandButtons: Boolean = true,
+    onShowTaskExpandButtonsChange: (Boolean) -> Unit = {},
+    taskIconWidthDp: Int = TaskIconSpacing.Default,
+    onTaskIconWidthChange: (Int) -> Unit = {}
 ) {
     var section by rememberSaveable { mutableStateOf<String?>(null) }
     val ctx = LocalContext.current
@@ -216,6 +225,30 @@ fun SettingsScreen(
             )
 
             TaskMenuSettingsEditor(taskMenuSettings, onTaskMenuSettingsChange)
+
+            SettingsSwitchRow(
+                stringResource(R.string.settings_show_task_expand_buttons),
+                showTaskExpandButtons,
+                onShowTaskExpandButtonsChange
+            )
+
+            val iconSpacingLabel = stringResource(R.string.settings_task_icon_spacing)
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(iconSpacingLabel, style = MaterialTheme.typography.titleSmall)
+                    Slider(
+                        value = taskIconWidthDp.toFloat(),
+                        onValueChange = { onTaskIconWidthChange(it.roundToInt()) },
+                        valueRange = TaskIconSpacing.Min.toFloat()..TaskIconSpacing.Max.toFloat(),
+                        steps = 7,
+                        modifier = Modifier.semantics { contentDescription = iconSpacingLabel }
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(stringResource(R.string.settings_task_icon_spacing_narrow))
+                        Text(stringResource(R.string.settings_task_icon_spacing_wide))
+                    }
+                }
+            }
 
             ExposedDropdownMenuBox(
                 expanded = periodMenuExpanded,

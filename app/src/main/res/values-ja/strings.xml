@@ -193,6 +193,15 @@
     <string name="settings_show_task_playback_buttons">タスク行に再生・停止ボタンを表示</string>
     <string name="settings_show_task_delete_buttons">タスク行に削除ボタンを表示</string>
     <string name="settings_show_task_menu_buttons">プロジェクト・タスク・サブタスクの設定ボタンを表示</string>
+    <string name="settings_show_task_expand_buttons">設定ボタンの右に子タスクの展開ボタンを表示</string>
+    <string name="settings_task_icon_spacing">タスク行のアイコン間隔</string>
+    <string name="settings_task_icon_spacing_narrow">狭い</string>
+    <string name="settings_task_icon_spacing_wide">広い</string>
+    <string name="task_expand_named">%1$sの子タスクを展開</string>
+    <string name="task_collapse_named">%1$sの子タスクを折り畳む</string>
+    <string name="main_task_edit_title">タスクの編集</string>
+    <string name="main_exit_task_edit_mode">タスク編集モードを終了</string>
+    <string name="bottom_edit_tasks">タスクを編集</string>
     <string name="settings_task_menu_customize">カスタム設定</string>
     <string name="settings_task_menu_description">設定メニューに表示する項目を選択してください。各メニューで使える項目だけが表示されます。該当する項目がない場合、その設定ボタンは無効になります。</string>
     <string name="settings_task_menu_add">タスク・サブタスクを追加</string>

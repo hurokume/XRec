@@ -12,7 +12,7 @@ enum class TaskMenuAction(val preferenceKey: String, @StringRes val label: Int) 
 }
 
 data class TaskMenuSettings(
-    val showButtons: Boolean = true,
+    val showButtons: Boolean = false,
     val actions: Set<TaskMenuAction> = TaskMenuAction.entries.toSet()
 ) {
     fun hasAny(vararg availableActions: TaskMenuAction): Boolean =
@@ -26,7 +26,7 @@ internal object TaskMenuPreferences {
     fun read(prefs: SharedPreferences): TaskMenuSettings {
         val savedActions = prefs.getStringSet(ACTIONS, null)
         return TaskMenuSettings(
-            showButtons = prefs.getBoolean(SHOW_BUTTONS, true),
+            showButtons = prefs.getBoolean(SHOW_BUTTONS, false),
             actions = TaskMenuAction.entries.filter {
                 savedActions == null || it.preferenceKey in savedActions
             }.toSet()

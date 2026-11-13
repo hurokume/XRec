@@ -195,6 +195,15 @@
     <string name="settings_show_task_playback_buttons">Show play/stop buttons on task rows</string>
     <string name="settings_show_task_delete_buttons">Show delete buttons on task rows</string>
     <string name="settings_show_task_menu_buttons">Show project, task, and subtask settings buttons</string>
+    <string name="settings_show_task_expand_buttons">Show child task expand buttons after settings buttons</string>
+    <string name="settings_task_icon_spacing">Task row icon spacing</string>
+    <string name="settings_task_icon_spacing_narrow">Narrow</string>
+    <string name="settings_task_icon_spacing_wide">Wide</string>
+    <string name="task_expand_named">Expand children of %1$s</string>
+    <string name="task_collapse_named">Collapse children of %1$s</string>
+    <string name="main_task_edit_title">Edit tasks</string>
+    <string name="main_exit_task_edit_mode">Exit task edit mode</string>
+    <string name="bottom_edit_tasks">Edit tasks</string>
     <string name="settings_task_menu_customize">Customize settings</string>
     <string name="settings_task_menu_description">Choose the items to show in settings menus. Each menu shows only the items it supports. A settings button is disabled when no items apply.</string>
     <string name="settings_task_menu_add">Add tasks and subtasks</string>

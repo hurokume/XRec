@@ -112,16 +112,22 @@ class EditingScreensTest {
     @Test
     fun taskButtonSettingsFollowIconOrderAndToggleDeleteVisibility() {
         val showDelete = mutableStateOf(true)
+        val showExpand = mutableStateOf(true)
         compose.setContent {
             MaterialTheme {
                 SettingsScreen(
                     true, {}, DailyPlans(), emptyList(), {}, {},
                     showTaskDeleteButtons = showDelete.value,
-                    onShowTaskDeleteButtonsChange = { showDelete.value = it }
+                    onShowTaskDeleteButtonsChange = { showDelete.value = it },
+                    showTaskExpandButtons = showExpand.value,
+                    onShowTaskExpandButtonsChange = { showExpand.value = it }
                 )
             }
         }
         compose.onNodeWithText(text(R.string.settings_display_title)).performClick()
+        compose.onNodeWithText(text(R.string.settings_show_task_playback_buttons)).performScrollTo().assertIsOn()
+        compose.onNodeWithText(text(R.string.settings_show_task_add_buttons)).performScrollTo().assertIsOn()
+        compose.onNodeWithText(text(R.string.settings_show_task_menu_buttons)).performScrollTo().assertIsOff()
         compose.onNodeWithText(text(R.string.settings_show_task_menu_buttons)).performScrollTo()
         val settingPositions = listOf(
             R.string.settings_show_task_playback_buttons,
@@ -136,6 +142,12 @@ class EditingScreensTest {
         compose.onNodeWithText(text(R.string.settings_show_task_delete_buttons))
             .performClick().assertIsOn()
         Assert.assertTrue(showDelete.value)
+        compose.onNodeWithText(text(R.string.settings_show_task_expand_buttons))
+            .performScrollTo().assertIsOn().performClick().assertIsOff()
+        Assert.assertFalse(showExpand.value)
+        compose.onNodeWithText(text(R.string.settings_show_task_expand_buttons))
+            .performClick().assertIsOn()
+        Assert.assertTrue(showExpand.value)
     }
 
     @Test
@@ -148,7 +160,8 @@ class EditingScreensTest {
             MaterialTheme {
                 DBTaskScreen(
                     vm, sortMode = false, nameSort = NameSort.None,
-                    showTaskDeleteButtons = showDelete.value
+                    showTaskDeleteButtons = showDelete.value,
+                    taskMenuSettings = TaskMenuSettings(showButtons = true)
                 )
             }
         }
@@ -218,7 +231,7 @@ class EditingScreensTest {
 
     @Test
     fun taskMenuCustomizationRequiresVisibleButtonsAndKeepsSavedChoices() {
-        val settings = mutableStateOf(TaskMenuSettings())
+        val settings = mutableStateOf(TaskMenuSettings(showButtons = true))
         compose.setContent {
             MaterialTheme {
                 SettingsScreen(
@@ -262,7 +275,7 @@ class EditingScreensTest {
         val project = db.taskDao().insertTask(TaskEntity(name = "Menu project"))
         val task = db.taskDao().insertTask(TaskEntity(name = "Menu task", parentId = project))
         db.taskDao().insertTask(TaskEntity(name = "Menu subtask", parentId = task))
-        val settings = mutableStateOf(TaskMenuSettings(actions = setOf(TaskMenuAction.Rename)))
+        val settings = mutableStateOf(TaskMenuSettings(showButtons = true, actions = setOf(TaskMenuAction.Rename)))
         compose.setContent {
             MaterialTheme {
                 DBTaskScreen(
@@ -325,7 +338,8 @@ class EditingScreensTest {
         prefs.edit().clear().commit()
         try {
             Assert.assertEquals(TaskMenuSettings(), TaskMenuPreferences.read(prefs))
-            val customized = TaskMenuSettings(actions = setOf(TaskMenuAction.Rename))
+            Assert.assertFalse(TaskMenuPreferences.read(prefs).showButtons)
+            val customized = TaskMenuSettings(showButtons = true, actions = setOf(TaskMenuAction.Rename))
             TaskMenuPreferences.write(prefs, customized.copy(showButtons = false))
             Assert.assertEquals(
                 customized.copy(showButtons = false), TaskMenuPreferences.read(prefs)
