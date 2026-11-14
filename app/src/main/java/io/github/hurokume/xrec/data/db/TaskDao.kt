@@ -53,6 +53,10 @@ interface TaskDao {
     @Query("DELETE FROM tasks WHERE id = :id")
     suspend fun deleteTaskById(id: Long): Int
 
+    // Events and sessions are deleted by their ON DELETE CASCADE foreign keys.
+    @Query("DELETE FROM tasks")
+    suspend fun deleteAllTasks(): Int
+
     @Query("UPDATE tasks SET colorInt = :colorInt WHERE id = :id")
     suspend fun updateTaskColor(id: Long, colorInt: Int): Int
 

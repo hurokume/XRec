@@ -1,8 +1,6 @@
 package io.github.hurokume.xrec.ui
 
-import android.content.ActivityNotFoundException
 import android.content.Context
-import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
@@ -24,7 +22,6 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
@@ -44,6 +41,7 @@ import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -61,17 +59,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
-import androidx.core.net.toUri
 import io.github.hurokume.xrec.R
+import io.github.hurokume.xrec.TaskMenuSettings
+import io.github.hurokume.xrec.TaskIconSpacing
 import io.github.hurokume.xrec.TemporaryTaskWidgetProvider
 import io.github.hurokume.xrec.data.DailyPlanEntry
 import io.github.hurokume.xrec.data.DailyPlanType
 import io.github.hurokume.xrec.data.DailyPlans
 import java.util.Locale
+import kotlin.math.roundToInt
 
 data class DailyPlanTaskOption(
     val id: Long,
@@ -93,7 +95,19 @@ fun SettingsScreen(
     showNotification: Boolean = true,
     onShowNotificationChange: (Boolean) -> Unit = {},
     showTemporaryOnLockScreen: Boolean = true,
-    onShowTemporaryOnLockScreenChange: (Boolean) -> Unit = {}
+    onShowTemporaryOnLockScreenChange: (Boolean) -> Unit = {},
+    showTaskAddButtons: Boolean = true,
+    onShowTaskAddButtonsChange: (Boolean) -> Unit = {},
+    showTaskPlaybackButtons: Boolean = true,
+    onShowTaskPlaybackButtonsChange: (Boolean) -> Unit = {},
+    showTaskDeleteButtons: Boolean = true,
+    onShowTaskDeleteButtonsChange: (Boolean) -> Unit = {},
+    taskMenuSettings: TaskMenuSettings = TaskMenuSettings(),
+    onTaskMenuSettingsChange: (TaskMenuSettings) -> Unit = {},
+    showTaskExpandButtons: Boolean = true,
+    onShowTaskExpandButtonsChange: (Boolean) -> Unit = {},
+    taskIconWidthDp: Int = TaskIconSpacing.Default,
+    onTaskIconWidthChange: (Int) -> Unit = {}
 ) {
     var section by rememberSaveable { mutableStateOf<String?>(null) }
     val ctx = LocalContext.current
@@ -123,8 +137,7 @@ fun SettingsScreen(
                 "plans" to R.string.daily_plan_title,
                 "widgets" to R.string.settings_widgets_title,
                 "data" to R.string.manage_data_title,
-                "work_history" to R.string.work_history_title,
-                "privacy_policy" to R.string.settings_privacy_policy_title
+                "work_history" to R.string.work_history_title
             ).forEach { (key, label) ->
                 Card(
                     modifier = Modifier
@@ -133,7 +146,6 @@ fun SettingsScreen(
                             when (key) {
                                 "data" -> onManageDataClick()
                                 "work_history" -> onWorkHistoryClick()
-                                "privacy_policy" -> openPrivacyPolicy(ctx)
                                 else -> section = key
                             }
                         }
@@ -149,11 +161,7 @@ fun SettingsScreen(
                             modifier = Modifier.weight(1f)
                         )
                         Icon(
-                            imageVector = if (key == "privacy_policy") {
-                                Icons.AutoMirrored.Filled.OpenInNew
-                            } else {
-                                Icons.Filled.ChevronRight
-                            },
+                            imageVector = Icons.Filled.ChevronRight,
                             contentDescription = null
                         )
                     }
@@ -185,6 +193,52 @@ fun SettingsScreen(
                 showTemporaryOnLockScreen, onShowTemporaryOnLockScreenChange,
                 enabled = showNotification
             )
+
+            Text(
+                stringResource(R.string.settings_task_title),
+                style = MaterialTheme.typography.titleMedium
+            )
+            SettingsSwitchRow(
+                stringResource(R.string.settings_show_task_playback_buttons),
+                showTaskPlaybackButtons,
+                onShowTaskPlaybackButtonsChange
+            )
+            SettingsSwitchRow(
+                stringResource(R.string.settings_show_task_add_buttons),
+                showTaskAddButtons,
+                onShowTaskAddButtonsChange
+            )
+            SettingsSwitchRow(
+                stringResource(R.string.settings_show_task_delete_buttons),
+                showTaskDeleteButtons,
+                onShowTaskDeleteButtonsChange
+            )
+
+            TaskMenuSettingsEditor(taskMenuSettings, onTaskMenuSettingsChange)
+
+            SettingsSwitchRow(
+                stringResource(R.string.settings_show_task_expand_buttons),
+                showTaskExpandButtons,
+                onShowTaskExpandButtonsChange
+            )
+
+            val iconSpacingLabel = stringResource(R.string.settings_task_icon_spacing)
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(iconSpacingLabel, style = MaterialTheme.typography.titleSmall)
+                    Slider(
+                        value = taskIconWidthDp.toFloat(),
+                        onValueChange = { onTaskIconWidthChange(it.roundToInt()) },
+                        valueRange = TaskIconSpacing.Min.toFloat()..TaskIconSpacing.Max.toFloat(),
+                        steps = 7,
+                        modifier = Modifier.semantics { contentDescription = iconSpacingLabel }
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(stringResource(R.string.settings_task_icon_spacing_narrow))
+                        Text(stringResource(R.string.settings_task_icon_spacing_wide))
+                    }
+                }
+            }
 
             ExposedDropdownMenuBox(
                 expanded = periodMenuExpanded,
@@ -649,23 +703,4 @@ private fun formatPlanTime(minutes: Int): String = if (minutes == 24 * 60) {
     "24:00"
 } else {
     String.format(Locale.getDefault(), "%02d:%02d", minutes / 60, minutes % 60)
-}
-
-private fun openPrivacyPolicy(context: Context) {
-    val intent = Intent(
-        Intent.ACTION_VIEW,
-        context.getString(R.string.privacy_policy_url).toUri()
-    ).apply {
-        addCategory(Intent.CATEGORY_BROWSABLE)
-    }
-
-    try {
-        context.startActivity(intent)
-    } catch (_: ActivityNotFoundException) {
-        Toast.makeText(
-            context,
-            R.string.settings_privacy_policy_open_failed,
-            Toast.LENGTH_LONG
-        ).show()
-    }
 }
