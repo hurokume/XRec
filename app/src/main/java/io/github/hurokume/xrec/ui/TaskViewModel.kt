@@ -20,6 +20,8 @@ import io.github.hurokume.xrec.data.TaskDeletionMode
 import io.github.hurokume.xrec.data.TaskNameConflict
 import io.github.hurokume.xrec.data.TaskNameDecision
 import io.github.hurokume.xrec.data.TaskRepository
+import io.github.hurokume.xrec.data.TemplateApplyMode
+import io.github.hurokume.xrec.data.TaskTemplateType
 import io.github.hurokume.xrec.data.WeeklyReportData
 import io.github.hurokume.xrec.data.WeeklyReportEngine
 import io.github.hurokume.xrec.data.WorkHistoryAction
@@ -67,6 +69,7 @@ sealed interface UiEvent {
     data class ShowMessage(val message: String) : UiEvent
     data object TasksMerged : UiEvent
     data object DataRestored : UiEvent
+    data object TemplateApplied : UiEvent
 }
 
 data class AdvancedAnalysisUiState(
@@ -138,6 +141,35 @@ class TaskViewModel @JvmOverloads constructor(app: Application, database: AppDat
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _workHistoryRestoring = MutableStateFlow(false)
     val workHistoryRestoring: StateFlow<Boolean> = _workHistoryRestoring
+    private val _templateApplying = MutableStateFlow(false)
+    val templateApplying: StateFlow<Boolean> = _templateApplying
+
+    fun applyTaskTemplate(template: TaskTemplateType, mode: TemplateApplyMode) = viewModelScope.launch {
+        if (_templateApplying.value) return@launch
+        _templateApplying.value = true
+        try {
+            repo.applyTaskTemplate(template.projects { text(it) }, mode)
+            refreshAfterDataChange()
+            _events.emit(UiEvent.TemplateApplied)
+            _events.emit(UiEvent.ShowMessage(text(R.string.help_template_applied, text(template.titleRes))))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            _events.emit(UiEvent.ShowMessage(text(R.string.help_template_apply_failed)))
+        } finally {
+            _templateApplying.value = false
+        }
+    }
+
+    private suspend fun refreshAfterDataChange() {
+        reloadHistory().join()
+        advancedAnalysisJob?.cancel()
+        taskAnalysisJob?.cancel()
+        _advancedAnalysis.value = AdvancedAnalysisUiState()
+        _taskAnalysis.value = TaskAnalysisUiState()
+        _timelineItems.value = emptyList()
+        _statsItems.value = emptyList()
+    }
 
     fun restoreWorkHistory(id: Long, expectedLatestId: Long) = viewModelScope.launch {
         if (_workHistoryRestoring.value) return@launch
@@ -145,13 +177,7 @@ class TaskViewModel @JvmOverloads constructor(app: Application, database: AppDat
         try {
             when (repo.restoreWorkHistory(id, expectedLatestId)) {
                 RestoreWorkResult.Restored -> {
-                    reloadHistory().join()
-                    advancedAnalysisJob?.cancel()
-                    taskAnalysisJob?.cancel()
-                    _advancedAnalysis.value = AdvancedAnalysisUiState()
-                    _taskAnalysis.value = TaskAnalysisUiState()
-                    _timelineItems.value = emptyList()
-                    _statsItems.value = emptyList()
+                    refreshAfterDataChange()
                     _events.emit(UiEvent.DataRestored)
                     _events.emit(UiEvent.ShowMessage(text(R.string.work_history_restored)))
                 }

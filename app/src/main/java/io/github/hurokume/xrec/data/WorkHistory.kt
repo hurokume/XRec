@@ -30,6 +30,7 @@ enum class WorkHistoryAction(@StringRes val label: Int) {
     DeleteRecord(R.string.work_history_delete_record),
     ReassignRecords(R.string.work_history_reassign_records),
     ImportTasks(R.string.work_history_import_tasks),
+    ApplyTemplate(R.string.work_history_apply_template),
     ImportRecords(R.string.work_history_import_records),
     Restore(R.string.work_history_restore);
 

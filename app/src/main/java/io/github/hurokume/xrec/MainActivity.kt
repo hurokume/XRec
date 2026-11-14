@@ -146,11 +146,14 @@ import io.github.hurokume.xrec.data.StatsAggregator
 import io.github.hurokume.xrec.data.StatsRecord
 import io.github.hurokume.xrec.data.StatsTarget
 import io.github.hurokume.xrec.data.TaskDeletionMode
+import io.github.hurokume.xrec.data.TaskTemplateType
 import io.github.hurokume.xrec.data.db.TaskEntity
 import io.github.hurokume.xrec.ui.AddTaskScreen
 import io.github.hurokume.xrec.ui.AdvancedAnalysisScreen
 import io.github.hurokume.xrec.ui.CalendarDateRangeDialog
 import io.github.hurokume.xrec.ui.DailyPlanTaskOption
+import io.github.hurokume.xrec.ui.FirstLaunchTutorialHost
+import io.github.hurokume.xrec.ui.HelpScreen
 import io.github.hurokume.xrec.ui.HistoryItemUi
 import io.github.hurokume.xrec.ui.ManageDataScreen
 import io.github.hurokume.xrec.ui.ReplacementTaskSelectionScreen
@@ -161,6 +164,7 @@ import io.github.hurokume.xrec.ui.TaskAnalysisScreen
 import io.github.hurokume.xrec.ui.TaskDeletionDialog
 import io.github.hurokume.xrec.ui.TaskDeletionUiState
 import io.github.hurokume.xrec.ui.TaskViewModel
+import io.github.hurokume.xrec.ui.TemplateScreen
 import io.github.hurokume.xrec.ui.TimelineRangeControls
 import io.github.hurokume.xrec.ui.UiEvent
 import io.github.hurokume.xrec.ui.WeeklyReportScreen
@@ -186,7 +190,7 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /** 画面モード（メイン/履歴） */
-private enum class AppScreen { Main, History, Analysis, WeeklyReport, Settings, ManageData, WorkHistory }
+private enum class AppScreen { Main, History, Analysis, WeeklyReport, Settings, ManageData, WorkHistory, Help, Template }
 
 /** 名前ソートモード */
 enum class NameSort { None, Asc, Desc }
@@ -222,6 +226,7 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalFoundationApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val tutorialPreferences = getSharedPreferences("onboarding", Context.MODE_PRIVATE)
         setContent {
             XRecTheme {
                 io.github.hurokume.xrec.ui.TaskEditDialogs(taskViewModel)
@@ -233,18 +238,21 @@ class MainActivity : ComponentActivity() {
                         startDestination = Routes.Root
                     ) {
                         composable(Routes.Root) {
-                            AppRoot(
-                                taskVm = taskViewModel,
-                                onNavigateAddTask = { navController.navigate(Routes.AddTask) },
-                                onNavigateEditTask = { eventId, taskId, startMs, endMs ->
-                                    navController.navigate(
-                                        "${Routes.AddTask}?initialEventId=$eventId" +
-                                                "&initialTaskId=$taskId" +
-                                                "&initialStartMs=$startMs" +
-                                                "&initialEndMs=$endMs"
-                                    )
-                                }
-                            )
+                            FirstLaunchTutorialHost(tutorialPreferences) { initialTemplate ->
+                                AppRoot(
+                                    taskVm = taskViewModel,
+                                    onNavigateAddTask = { navController.navigate(Routes.AddTask) },
+                                    onNavigateEditTask = { eventId, taskId, startMs, endMs ->
+                                        navController.navigate(
+                                            "${Routes.AddTask}?initialEventId=$eventId" +
+                                                    "&initialTaskId=$taskId" +
+                                                    "&initialStartMs=$startMs" +
+                                                    "&initialEndMs=$endMs"
+                                        )
+                                    },
+                                    initialTemplate = initialTemplate
+                                )
+                            }
                         }
 
                         composable(
@@ -304,7 +312,8 @@ class MainActivity : ComponentActivity() {
 fun AppRoot(
     taskVm: TaskViewModel,
     onNavigateAddTask: () -> Unit,
-    onNavigateEditTask: (Long, Long, Long, Long) -> Unit
+    onNavigateEditTask: (Long, Long, Long, Long) -> Unit,
+    initialTemplate: TaskTemplateType? = null
 ) {
 
     val snackbar = remember { SnackbarHostState() }
@@ -616,7 +625,7 @@ fun AppRoot(
     LaunchedEffect(Unit) {
         taskVm.events.collectLatest { ev ->
             when (ev) {
-                UiEvent.DataRestored -> {
+                UiEvent.DataRestored, UiEvent.TemplateApplied -> {
                     timelineRefreshTick++
                     selectedTimelineTaskId = null
                     selectedTimelineStartMs = -1L
@@ -720,15 +729,19 @@ fun AppRoot(
     }
 
     // 画面モード（メイン / 履歴）
-    var screen by remember { mutableStateOf(AppScreen.Main) }
-
-    // Manage Data は Settings の子画面として一段ずつ戻る。
-    BackHandler(enabled = screen == AppScreen.ManageData || screen == AppScreen.WorkHistory) {
-        screen = AppScreen.Settings
+    var screen by rememberSaveable {
+        mutableStateOf(if (initialTemplate != null) AppScreen.Template else AppScreen.Main)
     }
-    // その他の Home 以外の画面では、Activity を終了せず Home に戻す。
-    BackHandler(enabled = screen != AppScreen.Main && screen != AppScreen.ManageData && screen != AppScreen.WorkHistory) {
-        screen = AppScreen.Main
+    var pendingTemplatePreview by rememberSaveable { mutableStateOf(initialTemplate) }
+
+    // 子画面は親画面へ、それ以外は Activity を終了せず Home へ戻る。
+    val parentScreen = when (screen) {
+        AppScreen.ManageData, AppScreen.WorkHistory -> AppScreen.Settings
+        AppScreen.Template -> AppScreen.Help
+        else -> AppScreen.Main
+    }
+    BackHandler(enabled = screen != AppScreen.Main) {
+        screen = parentScreen
     }
     BackHandler(enabled = screen == AppScreen.Main && showStatsFilterScreen) {
         showStatsFilterScreen = false
@@ -768,8 +781,7 @@ fun AppRoot(
 
                                 "settings" -> screen = AppScreen.Settings
 
-                                "help" -> { /* ヘルプ（今後実装） */
-                                }
+                                "help" -> screen = AppScreen.Help
                             }
                         }
                     )
@@ -786,8 +798,8 @@ fun AppRoot(
                     topBar = {
                         TopAppBar(
                             navigationIcon = {
-                                if (screen == AppScreen.ManageData || screen == AppScreen.WorkHistory) {
-                                    IconButton(onClick = { screen = AppScreen.Settings }) {
+                                if (screen == AppScreen.ManageData || screen == AppScreen.WorkHistory || screen == AppScreen.Template) {
+                                    IconButton(onClick = { screen = parentScreen }) {
                                         Icon(
                                             Icons.AutoMirrored.Filled.ArrowBack,
                                             contentDescription = stringResource(
@@ -806,7 +818,11 @@ fun AppRoot(
                                             selectedTimelineEndMs > selectedTimelineStartMs
 
                                 val titleText =
-                                    if (screen == AppScreen.WorkHistory) {
+                                    if (screen == AppScreen.Help) {
+                                        stringResource(R.string.drawer_help)
+                                    } else if (screen == AppScreen.Template) {
+                                        stringResource(R.string.help_template_title)
+                                    } else if (screen == AppScreen.WorkHistory) {
                                         stringResource(R.string.work_history_title)
                                     } else if (showStatsFilterScreen) {
                                         stringResource(R.string.stats_filter_title)
@@ -841,6 +857,8 @@ fun AppRoot(
                                             )
 
                                             AppScreen.Settings -> stringResource(R.string.drawer_settings)
+                                            AppScreen.Help -> stringResource(R.string.drawer_help)
+                                            AppScreen.Template -> stringResource(R.string.help_template_title)
                                             AppScreen.WorkHistory -> stringResource(R.string.work_history_title)
                                             AppScreen.ManageData -> stringResource(
                                                 R.string.manage_data_title
@@ -1156,6 +1174,26 @@ fun AppRoot(
                             onManageDataClick = { screen = AppScreen.ManageData },
                             onWorkHistoryClick = { screen = AppScreen.WorkHistory }
                         )
+
+                        AppScreen.Help -> HelpScreen(
+                            onTemplateClick = { screen = AppScreen.Template },
+                            modifier = Modifier
+                                .padding(innerPadding)
+                                .fillMaxSize()
+                        )
+
+                        AppScreen.Template -> {
+                            val applying by taskVm.templateApplying.collectAsStateWithLifecycle()
+                            TemplateScreen(
+                                applying = applying,
+                                onApply = { template, mode -> taskVm.applyTaskTemplate(template, mode) },
+                                initialTemplate = pendingTemplatePreview,
+                                onInitialTemplateConsumed = { pendingTemplatePreview = null },
+                                modifier = Modifier
+                                    .padding(innerPadding)
+                                    .fillMaxSize()
+                            )
+                        }
 
                         AppScreen.WorkHistory -> {
                             val entries by taskVm.workHistory.collectAsStateWithLifecycle()

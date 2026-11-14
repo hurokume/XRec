@@ -1,8 +1,6 @@
 package io.github.hurokume.xrec.ui
 
-import android.content.ActivityNotFoundException
 import android.content.Context
-import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
@@ -24,7 +22,6 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
@@ -68,7 +65,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
-import androidx.core.net.toUri
 import io.github.hurokume.xrec.R
 import io.github.hurokume.xrec.TaskMenuSettings
 import io.github.hurokume.xrec.TaskIconSpacing
@@ -141,8 +137,7 @@ fun SettingsScreen(
                 "plans" to R.string.daily_plan_title,
                 "widgets" to R.string.settings_widgets_title,
                 "data" to R.string.manage_data_title,
-                "work_history" to R.string.work_history_title,
-                "privacy_policy" to R.string.settings_privacy_policy_title
+                "work_history" to R.string.work_history_title
             ).forEach { (key, label) ->
                 Card(
                     modifier = Modifier
@@ -151,7 +146,6 @@ fun SettingsScreen(
                             when (key) {
                                 "data" -> onManageDataClick()
                                 "work_history" -> onWorkHistoryClick()
-                                "privacy_policy" -> openPrivacyPolicy(ctx)
                                 else -> section = key
                             }
                         }
@@ -167,11 +161,7 @@ fun SettingsScreen(
                             modifier = Modifier.weight(1f)
                         )
                         Icon(
-                            imageVector = if (key == "privacy_policy") {
-                                Icons.AutoMirrored.Filled.OpenInNew
-                            } else {
-                                Icons.Filled.ChevronRight
-                            },
+                            imageVector = Icons.Filled.ChevronRight,
                             contentDescription = null
                         )
                     }
@@ -713,23 +703,4 @@ private fun formatPlanTime(minutes: Int): String = if (minutes == 24 * 60) {
     "24:00"
 } else {
     String.format(Locale.getDefault(), "%02d:%02d", minutes / 60, minutes % 60)
-}
-
-private fun openPrivacyPolicy(context: Context) {
-    val intent = Intent(
-        Intent.ACTION_VIEW,
-        context.getString(R.string.privacy_policy_url).toUri()
-    ).apply {
-        addCategory(Intent.CATEGORY_BROWSABLE)
-    }
-
-    try {
-        context.startActivity(intent)
-    } catch (_: ActivityNotFoundException) {
-        Toast.makeText(
-            context,
-            R.string.settings_privacy_policy_open_failed,
-            Toast.LENGTH_LONG
-        ).show()
-    }
 }
