@@ -474,6 +474,37 @@ class TaskRepository(
         deleteTaskTreeInCurrentTransaction(rootId)
     }
 
+    suspend fun applyTaskTemplate(projects: List<TaskTemplateProject>, mode: TemplateApplyMode) =
+        workHistory.record(WorkHistoryAction.ApplyTemplate) {
+            require(projects.isNotEmpty())
+            projects.forEach { project ->
+                require(project.name.isNotBlank() && project.name.length <= 128)
+                require(project.tasks.isNotEmpty())
+                require(project.tasks.all { it.isNotBlank() && it.length <= 128 })
+            }
+
+            if (mode == TemplateApplyMode.ReplaceAll) {
+                taskDao.clearActive()
+                // Include archived projects/tasks, not just the visible tree.
+                taskDao.deleteAllTasks()
+            }
+
+            val names = taskDao.getAllTasksOnce()
+                .filter { it.parentId == null }
+                .map { it.name }
+                .toMutableList()
+            projects.forEach { project ->
+                val name = if (names.any { sameTaskName(it, project.name) }) {
+                    uniqueTaskName(project.name, names)
+                } else {
+                    project.name
+                }
+                val projectId = addTask(name, null)
+                names.add(name)
+                project.tasks.forEach { addTask(it, projectId) }
+            }
+        }
+
     suspend fun exportTasksJson(): String = db.withTransaction {
         val groups = observeTree().first()
 
